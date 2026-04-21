@@ -7,6 +7,7 @@ The agent receives the TEST_SCENARIO prompt and autonomously decides which
 tools to call and in what order. No pipeline is hardcoded here.
 """
 
+import datetime
 import json
 import os
 
@@ -27,25 +28,25 @@ from hathor.tools import HATHOR_TOOLS
 MODEL = os.environ.get("HATHOR_MODEL", "claude-sonnet-4-6")
 MCP_SERVER_NAME = "hathor"
 
-# DOB 2024-06-15; today 2025-04-21 → child is ~10 months old
-# Hexyon ×3 (Egyptian hexavalent = DTaP+HepB+Hib+IPV) + MMR ×1
-TEST_SCENARIO = """\
-A family is relocating from Egypt to Germany. Their child has the following entries \
-on an Egyptian vaccination card:
+def _build_test_scenario() -> str:
+    today = datetime.date.today().isoformat()
+    return (
+        "A family is relocating from Egypt to Germany. Their child has the following entries "
+        "on an Egyptian vaccination card:\n\n"
+        "  - Hexyon dose 1 — date given: 2024-08-15  (child age ~2 months)\n"
+        "  - Hexyon dose 2 — date given: 2024-10-15  (child age ~4 months)\n"
+        "  - Hexyon dose 3 — date given: 2024-12-15  (child age ~6 months)\n"
+        "  - MMR dose 1    — date given: 2025-06-15  (child age ~12 months)\n\n"
+        "Child date of birth : 2024-06-15\n"
+        "Card image path     : /cards/test_egypt_child.jpg\n"
+        "Target country      : Germany\n"
+        f"Today's date        : {today}\n\n"
+        "Please reconcile this child's vaccination history against the German STIKO schedule "
+        "and provide a complete catch-up plan."
+    )
 
-  - Hexyon dose 1 — date given: 2024-08-15  (child age ~2 months)
-  - Hexyon dose 2 — date given: 2024-10-15  (child age ~4 months)
-  - Hexyon dose 3 — date given: 2024-12-15  (child age ~6 months)
-  - MMR dose 1    — date given: 2025-06-15  (child age ~12 months)
 
-Child date of birth : 2024-06-15
-Card image path     : /cards/test_egypt_child.jpg
-Target country      : Germany
-Today's date        : 2025-04-21
-
-Please reconcile this child's vaccination history against the German STIKO schedule \
-and provide a complete catch-up plan.\
-"""
+TEST_SCENARIO = _build_test_scenario()
 
 
 async def main() -> None:
@@ -77,6 +78,9 @@ async def main() -> None:
 
         async for message in client.receive_messages():
             if isinstance(message, AssistantMessage):
+                # Only collect text from the final message (no tool calls in it)
+                has_tool_use = any(isinstance(b, ToolUseBlock) for b in message.content)
+
                 for block in message.content:
                     if isinstance(block, ThinkingBlock):
                         print("\n┌─ THINKING ─────────────────────────────────────────────────┐")
@@ -95,7 +99,8 @@ async def main() -> None:
 
                     elif isinstance(block, TextBlock):
                         print(block.text)
-                        final_text_blocks.append(block.text)
+                        if not has_tool_use:
+                            final_text_blocks.append(block.text)
 
             elif isinstance(message, ResultMessage):
                 result_message = message

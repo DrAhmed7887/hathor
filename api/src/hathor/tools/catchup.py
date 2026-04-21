@@ -58,61 +58,83 @@ async def build_catchup_schedule(args: dict) -> dict:
             ]
         }
 
-    # Group doses into visit buckets — naive approach for Day 2:
-    # Visit 1: all overdue compulsory doses that can be given together
-    # Visit 2 (4 weeks later): next round
-    # Flag live vaccines that need 4-week separation
     LIVE_VACCINES = {"MMR", "Varicella", "Rotavirus", "OPV", "BCG"}
 
-    # Separate live from non-live for scheduling
-    live_needed = [d for d in all_needed if d["antigen"] in LIVE_VACCINES]
-    non_live_needed = [d for d in all_needed if d["antigen"] not in LIVE_VACCINES]
+    # Assign each dose to a visit day (offset from today in days), enforcing
+    # minimum inter-dose intervals. Same-antigen doses can never share a visit.
+    antigen_last_day: dict[str, int] = {}
+    # day_offset → list of doses scheduled that day
+    day_to_doses: dict[int, list] = {}
 
+    # Sort: overdue first (already in overdue+due_now order from all_needed),
+    # then within same priority group, non-live before live to anchor early visits.
+    sorted_needed = sorted(
+        all_needed,
+        key=lambda d: (0 if d["antigen"] not in LIVE_VACCINES else 1),
+    )
+
+    for dose in sorted_needed:
+        antigen = dose["antigen"]
+        min_interval = CATCHUP_MIN_INTERVALS.get(antigen, 28)
+
+        if antigen not in antigen_last_day:
+            earliest_day = 0  # first dose of this antigen: today
+        else:
+            earliest_day = antigen_last_day[antigen] + min_interval
+
+        # Snap to an existing visit on or after earliest_day, or open a new one
+        chosen_day: int | None = None
+        for vday in sorted(day_to_doses.keys()):
+            if vday >= earliest_day:
+                # Don't place two doses of the same antigen in the same visit
+                if not any(d["antigen"] == antigen for d in day_to_doses[vday]):
+                    chosen_day = vday
+                    break
+
+        if chosen_day is None:
+            chosen_day = earliest_day
+
+        day_to_doses.setdefault(chosen_day, []).append(dose)
+        antigen_last_day[antigen] = chosen_day
+
+    # Convert day-keyed buckets to visit list
     visits = []
+    for visit_num, day_offset in enumerate(sorted(day_to_doses.keys()), start=1):
+        doses_this_visit = day_to_doses[day_offset]
+        age_at_visit_months = round((current_age_days + day_offset) / 30.44, 1)
 
-    # Visit 1: non-live vaccines (can all be given same day)
-    if non_live_needed:
+        if day_offset == 0:
+            timing = "As soon as possible (today)"
+        else:
+            timing = f"≥ {day_offset} days from today"
+
+        live_in_visit = [d for d in doses_this_visit if d["antigen"] in LIVE_VACCINES]
+        notes_parts = []
+        if live_in_visit and len(live_in_visit) < len(doses_this_visit):
+            notes_parts.append(
+                "Visit contains both live and non-live vaccines — this co-administration is permitted."
+            )
+        if len(live_in_visit) > 1:
+            notes_parts.append(
+                "Multiple live vaccines in same visit — confirm all can be co-administered per current guidance."
+            )
+        for d in doses_this_visit:
+            iv = CATCHUP_MIN_INTERVALS.get(d["antigen"], 28)
+            if antigen_last_day.get(d["antigen"], 0) > day_offset:
+                notes_parts.append(
+                    f"{d['antigen']}: next dose must be ≥ {iv} days after this visit."
+                )
+
         visits.append(
             {
-                "visit_number": 1,
-                "timing": "As soon as possible (today)",
-                "estimated_age_months": round(current_age_months, 1),
-                "doses": non_live_needed,
-                "notes": "All non-live vaccines can be co-administered. No interval constraints between them.",
+                "visit_number": visit_num,
+                "day_offset_from_today": day_offset,
+                "timing": timing,
+                "estimated_age_months": age_at_visit_months,
+                "doses": doses_this_visit,
+                "notes": " ".join(notes_parts) if notes_parts else "Standard co-administration rules apply.",
             }
         )
-
-    # Visit 2: live vaccines (can give MMR + Varicella together on same day)
-    if live_needed:
-        mmr = [d for d in live_needed if d["antigen"] == "MMR"]
-        varicella = [d for d in live_needed if d["antigen"] == "Varicella"]
-        other_live = [d for d in live_needed if d["antigen"] not in ("MMR", "Varicella")]
-
-        if mmr or varicella:
-            visit_timing_days = 0 if not non_live_needed else 0  # can be same day as non-live
-            visits.append(
-                {
-                    "visit_number": len(visits) + 1,
-                    "timing": "Same visit as non-live vaccines, OR any time",
-                    "estimated_age_months": round(current_age_months, 1),
-                    "doses": mmr + varicella,
-                    "notes": (
-                        "MMR and Varicella can be given on the same day as each other and on the same day as non-live vaccines. "
-                        "If NOT given on the same day as other live vaccines, a minimum 28-day gap is required between different live vaccines."
-                    ),
-                }
-            )
-
-        if other_live:
-            visits.append(
-                {
-                    "visit_number": len(visits) + 1,
-                    "timing": "Same day as MMR/Varicella, or minimum 28 days later if not co-administered",
-                    "estimated_age_months": round(current_age_months + 1, 1),
-                    "doses": other_live,
-                    "notes": "Other live vaccines not listed above. Check specific co-administration rules.",
-                }
-            )
 
     paediatrician_flags = []
 

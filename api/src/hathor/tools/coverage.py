@@ -1,12 +1,40 @@
-"""Tool: compute_missing_doses — diff validated history against target schedule."""
+"""Tool: compute_missing_doses — diff validated history against target schedule.
+
+Antigen normalisation: if the agent validates individual component antigens
+(e.g. "Measles", "Mumps", "Rubella" separately), they are rolled up to their
+canonical combined-vaccine key (e.g. "MMR") before the schedule diff runs.
+This prevents silent gaps when a validated combined dose is reported as components.
+"""
 
 import json
 from claude_agent_sdk import tool
 
+# Map sets of individual component antigens → canonical schedule key.
+# Keys are frozensets so order doesn't matter.
+_ROLLUP_TABLE: dict[frozenset, str] = {
+    frozenset({"Measles", "Mumps", "Rubella"}): "MMR",
+    frozenset({"Measles", "Rubella"}): "MR",
+    frozenset({"Measles", "Mumps", "Rubella", "Varicella"}): "MMRV",
+    frozenset({"Diphtheria", "Tetanus", "Pertussis"}): "DTaP",
+    frozenset({"Diphtheria", "Tetanus", "Pertussis", "Polio"}): "DTaP-IPV",
+}
+
+# Reverse map: individual component → its parent combined-vaccine key (for single-entry normalisation)
+_COMPONENT_TO_COMBINED: dict[str, str] = {
+    "Measles": "MMR",
+    "Mumps": "MMR",
+    "Rubella": "MMR",
+}
+
+
+def _normalise_antigen(antigen: str) -> str:
+    """Map individual component antigens to their canonical combined-vaccine key."""
+    return _COMPONENT_TO_COMBINED.get(antigen, antigen)
+
 
 @tool(
     "compute_missing_doses",
-    "Compare a child's validated vaccination history against the target country's schedule to identify gaps. Input: validated_history (list of dicts with antigen, dose_number, age_days, valid) and target_schedule (list of dose dicts from get_schedule). Returns doses completed, missing, overdue, due_now, and upcoming.",
+    "Compare a child's validated vaccination history against the target country's schedule to identify gaps. Input: validated_history (list of dicts with antigen, dose_number, age_days, valid) and target_schedule (list of dose dicts from get_schedule). Returns doses completed, missing, overdue, due_now, and upcoming. NOTE: individual component antigens (Measles/Mumps/Rubella) are automatically rolled up to their combined key (MMR) before the diff.",
     {
         "validated_history": list,
         "target_schedule": list,
@@ -21,10 +49,18 @@ async def compute_missing_doses(args: dict) -> dict:
     target_country: str = args.get("target_country", "Germany")
     current_age_months = current_age_days / 30.44
 
+    # Normalise component antigens in history to canonical combined-vaccine keys
+    normalised_history = [
+        {**entry, "antigen": _normalise_antigen(entry["antigen"])}
+        if "antigen" in entry
+        else entry
+        for entry in history
+    ]
+
     # Build a set of (antigen, dose_number) that the child has received and are valid
     valid_doses: set[tuple[str, int]] = set()
     invalid_doses: list[dict] = []
-    for entry in history:
+    for entry in normalised_history:
         if entry.get("valid", False):
             valid_doses.add((entry["antigen"], entry["dose_number"]))
         else:
