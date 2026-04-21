@@ -89,23 +89,9 @@ Ahmed will approve or redirect.
 ```
 hathor/
 ├── api/          Python backend (FastAPI + Claude Agent SDK)
-├── web/          Next.js frontend (Day 3+)
-├── data/         Vaccination schedule JSON files (Day 2+)
-├── cards/        Synthetic test card images (Day 2+)
+├── web/          Next.js frontend
+├── data/         Vaccination schedule JSON files
+├── cards/        Synthetic test card images
 ├── docs/         REFERENCES.md and methods documents
-├── evaluation/   Evaluation harness (Day 4+)
+├── evaluation/   Evaluation logs and harness
 ```
-
----
-
-## Day-by-Day Scope
-
-Build one day at a time. Do not work ahead.
-
-| Day | Scope |
-|-----|-------|
-| 1 | Foundation: monorepo, SDK wired ✓ |
-| 2 | Custom tools, schedule data, end-to-end agent run |
-| 3 | Next.js frontend, SSE streaming |
-| 4 | Polish, flagship demo case, methods writeup |
-| 5 | Demo video + submit |

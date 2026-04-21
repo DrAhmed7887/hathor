@@ -44,3 +44,6 @@ logs/
 # Scratch / local experiments
 /scratch/
 
+# Internal build tracking (never commit)
+/internal/
+
