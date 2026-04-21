@@ -1,0 +1,18 @@
+[project]
+name = "hathor"
+version = "0.1.0"
+description = "Autonomous clinical reasoning agent for cross-border vaccination schedule reconciliation"
+authors = [{ name = "Ahmed Zayed" }]
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "claude-agent-sdk>=0.1.63",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-dotenv",
+    "anyio",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
