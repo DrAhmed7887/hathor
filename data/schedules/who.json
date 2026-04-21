@@ -1,0 +1,364 @@
+{
+  "country": "WHO",
+  "country_code": "WHO",
+  "source": "WHO Table 2: Summary of WHO Position Papers — Recommended Routine Immunizations for Children",
+  "source_url": "https://cdn.who.int/media/docs/default-source/immunization/immunization_schedules/immunization-summary-table-2.pdf?sfvrsn=c10d5c2_12&download=true",
+  "last_updated": "2025-12",
+  "version": "1.0",
+  "scope": "Routine childhood immunisation, birth to 72 months (6 years). Universal antigens only; regional and risk-group antigens noted separately. WHO ages are for country schedule development, not direct clinical prescription.",
+  "disclaimer": "WHO recommended ages are for policy development purposes. National schedules should reflect local epidemiology, programme capacity, and resource considerations. This file covers only universal-recommendation antigens relevant to birth-to-6 scope.",
+  "doses": [
+    {
+      "antigen": "BCG",
+      "dose_number": 1,
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "As soon as possible after birth. Universal in high TB/leprosy-burden countries; selective use in low-burden countries.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "HepB",
+      "dose_number": 1,
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "Birth dose: as soon as possible after birth, ideally within 24 hours. For LBW (<2000g) and premature infants, this birth dose does NOT count in the 3-dose primary series.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "HepB",
+      "dose_number": 2,
+      "recommended_age_months": 2,
+      "minimum_age_months": 1,
+      "notes": "Co-administered with DTP dose 1 (Option A: 3-dose schedule birth+DTPcv1+DTPcv3; Option B: 4-dose schedule birth+3 infant doses). Minimum 4 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "HepB",
+      "dose_number": 3,
+      "recommended_age_months": 6,
+      "minimum_age_months": 4,
+      "notes": "Co-administered with DTP dose 3. Minimum 4 weeks from dose 2.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 1,
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "bOPV birth dose recommended in high-risk (high-incidence, high-cross-border movement) countries. Not all countries use birth dose.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 2,
+      "recommended_age_months": 2,
+      "minimum_age_months": 1,
+      "notes": "bOPV dose 1 of primary series (6 weeks), given with DTP dose 1. Minimum 4 weeks between bOPV doses.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 3,
+      "recommended_age_months": 3,
+      "minimum_age_months": 2,
+      "notes": "bOPV dose 2 of primary series, given with DTP dose 2.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 4,
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "notes": "bOPV dose 3 of primary series, given with DTP dose 3.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "IPV",
+      "dose_number": 1,
+      "recommended_age_months": 2,
+      "minimum_age_months": 1,
+      "notes": "IPV dose 1 of 2 in the WHO preferred bOPV+IPV schedule. Given at 6 weeks with DTP1 and bOPV. Countries using IPV-only (polio-free/post-OPV-cessation): 3 doses from 6-8 weeks; minimum 4-8 weeks between doses.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "IPV",
+      "dose_number": 2,
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "notes": "IPV dose 2 of 2 in the WHO preferred schedule. Given at 14 weeks (minimum 4 months after dose 1 in preferred schedule).",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "DTaP",
+      "dose_number": 1,
+      "recommended_age_months": 2,
+      "minimum_age_months": 1,
+      "notes": "Minimum age 6 weeks. WHO uses DTwP or DTaP; either accepted. Primary series dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "DTaP",
+      "dose_number": 2,
+      "recommended_age_months": 3,
+      "minimum_age_months": 2,
+      "notes": "Primary series dose 2. Minimum 4–8 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "DTaP",
+      "dose_number": 3,
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "notes": "Primary series dose 3. Minimum 4–8 weeks from dose 2.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "DTaP",
+      "dose_number": 4,
+      "recommended_age_months": 15,
+      "minimum_age_months": 12,
+      "notes": "Booster 1 at 12–23 months. DTP-containing vaccine.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "DTaP",
+      "dose_number": 5,
+      "recommended_age_months": 48,
+      "minimum_age_months": 48,
+      "notes": "Booster 2 at 4–7 years. Td/DT-containing. Minimum 4 years from booster 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Hib",
+      "dose_number": 1,
+      "recommended_age_months": 2,
+      "minimum_age_months": 1,
+      "notes": "Minimum age 6 weeks. Primary series dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Hib",
+      "dose_number": 2,
+      "recommended_age_months": 3,
+      "minimum_age_months": 2,
+      "notes": "Primary series dose 2. 3p schedule: minimum 4 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Hib",
+      "dose_number": 3,
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "notes": "Primary series dose 3. In 3p schedule, minimum 4 weeks from dose 2. Single dose acceptable if first dose given >12 months.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 1,
+      "recommended_age_months": 2,
+      "minimum_age_months": 1,
+      "notes": "Minimum age 6 weeks. 2p+1 schedule: 2 primary doses (min 8 weeks apart) + booster at 9–18 months. 3p+0 schedule: 3 doses (min 4 weeks apart).",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 2,
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "notes": "2p+1: minimum 8 weeks from dose 1. 3p+0: minimum 4 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 3,
+      "recommended_age_months": 11,
+      "minimum_age_months": 9,
+      "notes": "2p+1 schedule: booster at 9–18 months; minimum 6 months from dose 2. 3p+0 schedule: dose 3 (minimum 4 weeks from dose 2).",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 1,
+      "recommended_age_months": 2,
+      "minimum_age_months": 1,
+      "notes": "Minimum age 6 weeks; given with DTP1. 2-dose series (e.g., Rotarix) or 3-dose series (e.g., RotaTeq). Series not recommended after 24 months.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 2,
+      "recommended_age_months": 3,
+      "minimum_age_months": 2,
+      "notes": "Given with DTP2. Minimum 4 weeks from dose 1. Final dose if 2-dose product.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 3,
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "notes": "Given with DTP3. Only for 3-dose product. Minimum 4 weeks from dose 2.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "MCV",
+      "dose_number": 1,
+      "recommended_age_months": 9,
+      "minimum_age_months": 6,
+      "notes": "MCV1 at 9 months in high-transmission settings; at 12 months in low-transmission/near-elimination settings. Emergency/supplementary dose from 6 months (MCV0) — children who receive MCV0 still require MCV1 and MCV2.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "MCV",
+      "dose_number": 2,
+      "recommended_age_months": 15,
+      "minimum_age_months": 10,
+      "notes": "MCV2 at 15–18 months in high-transmission settings. Minimum 4 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "RCV",
+      "dose_number": 1,
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Rubella-containing vaccine. Given at 9 or 12 months with MCV in combined MR or MMR formulation.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Varicella",
+      "dose_number": 1,
+      "recommended_age_months": 12,
+      "minimum_age_months": 9,
+      "notes": "Recommended for programmes with sufficient resources and existing high measles/MCV coverage. Minimum age 9 months.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Varicella",
+      "dose_number": 2,
+      "recommended_age_months": 15,
+      "minimum_age_months": 10,
+      "notes": "Minimum 4 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "WHO Table 2, December 2025"
+    }
+  ],
+  "interval_rules": [
+    {
+      "antigen": "DTaP",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "notes": "4–8 week interval recommended.",
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "DTaP",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "notes": "4–8 week interval recommended.",
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "HepB",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "HepB",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Hib",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Hib",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "PCV",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 56,
+      "notes": "2p+1 schedule: minimum 8 weeks. 3p+0 schedule: minimum 4 weeks.",
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "PCV",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 180,
+      "notes": "2p+1 booster: minimum 6 months from last primary dose. 3p+0: minimum 4 weeks.",
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "MCV",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Rotavirus",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Rotavirus",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "notes": "3-dose products only.",
+      "source": "WHO Table 2, December 2025"
+    },
+    {
+      "antigen": "Varicella",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "WHO Table 2, December 2025"
+    }
+  ]
+}

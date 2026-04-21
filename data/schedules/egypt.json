@@ -1,0 +1,291 @@
+{
+  "country": "Egypt",
+  "country_code": "EGY",
+  "source": "Vacsera — Egypt National Childhood Immunization Schedule",
+  "source_url": "https://www.vacsera.com",
+  "source_notes": "Schedule data sourced from Vacsera (Egypt's national vaccine manufacturer and distributor), confirmed in Nomou clinical application data (egypt-v1.0-mar-2026), clinically reviewed by Ahmed Zayed MD on 2026-03-15. Compulsory antigens are confirmed. Recommended antigens are confirmed as existing in the Egypt programme but with variable uptake.",
+  "last_updated": "2026-03-15",
+  "version": "1.0",
+  "scope": "Routine childhood immunisation, birth to 72 months (6 years). Compulsory (EPI) and recommended antigens included with category distinction.",
+  "context_note": "Source-country context file. In cross-border reconciliation, doses are validated against the TARGET country schedule (Germany/STIKO), not this source schedule. This file provides context for interpreting what a dose entry on an Egyptian card likely represents.",
+  "key_differences_vs_germany": [
+    "Egypt uses OPV (oral); Germany uses IPV only (no OPV)",
+    "Egypt hexavalent uses DTPw (whole-cell pertussis); Germany uses DTaP (acellular pertussis) — both satisfy DTP antigen requirement",
+    "BCG at 1 month in Egypt; not in German schedule",
+    "Egypt MMR at 12m + 18m; Germany MMR at 11m + 15m",
+    "Varicella not compulsory in Egypt (recommended only); compulsory in Germany at 11m + 15m"
+  ],
+  "doses": [
+    {
+      "antigen": "HepB",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "Zero dose at birth (day 1 of life). Standalone HepB birth dose.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "BCG",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 1,
+      "minimum_age_months": 0,
+      "notes": "Egyptian schedule lists BCG at 1 month (30 days). WHO generally recommends at birth; the local Vacsera schedule uses 1 month.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 1,
+      "minimum_age_months": 1,
+      "notes": "OPV zero dose at 1 month. Egypt uses bivalent OPV (bOPV) throughout its routine schedule.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "Hexavalent",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 2,
+      "minimum_age_months": 2,
+      "components": ["DPT", "Hib", "HepB", "IPV"],
+      "notes": "Egypt's 6-in-1 vaccine covering DPT (whole-cell pertussis), Hib, Hepatitis B, and IPV. Given at 2 months. Note: Egypt uses DTPw (whole-cell), unlike Germany's DTaP (acellular). Both satisfy the DTP antigen requirement for cross-border reconciliation.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 2,
+      "minimum_age_months": 2,
+      "notes": "OPV dose 1 of primary series, co-administered with Hexavalent at 2 months.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "Hexavalent",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "components": ["DPT", "Hib", "HepB", "IPV"],
+      "notes": "Second hexavalent dose at 4 months.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "notes": "OPV dose 2 of primary series, co-administered with Hexavalent at 4 months.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "Hexavalent",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_months": 6,
+      "minimum_age_months": 5,
+      "components": ["DPT", "Hib", "HepB", "IPV"],
+      "notes": "Third hexavalent dose at 6 months. Completes primary series.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 4,
+      "category": "compulsory",
+      "recommended_age_months": 6,
+      "minimum_age_months": 5,
+      "notes": "OPV dose 3 of primary series, co-administered with Hexavalent at 6 months.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 5,
+      "category": "compulsory",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "OPV 4th dose at 9 months.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "MMR",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 12,
+      "minimum_age_months": 12,
+      "notes": "MMR dose 1 at 12 months. Egypt transitioned from measles-monovalent to MMR; cards from children born before ~2020 may show measles-only at 9 months — that is a legacy record (see legacy_patterns).",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 6,
+      "category": "compulsory",
+      "recommended_age_months": 12,
+      "minimum_age_months": 12,
+      "notes": "OPV booster 1 at 12 months, co-administered with MMR dose 1.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "DTaP",
+      "dose_number": 4,
+      "category": "compulsory",
+      "recommended_age_months": 18,
+      "minimum_age_months": 15,
+      "notes": "DPT booster (Diphtheria, Pertussis, Tetanus) at 18 months. Standalone DPT booster — does not include Hib or HepB. May appear as 'Tresivac' or 'DPT' on Egyptian cards.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "MMR",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 18,
+      "minimum_age_months": 15,
+      "notes": "MMR dose 2 at 18 months. Minimum 4 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 7,
+      "category": "compulsory",
+      "recommended_age_months": 18,
+      "minimum_age_months": 15,
+      "notes": "OPV booster 2 at 18 months.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "DT",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 54,
+      "minimum_age_months": 48,
+      "notes": "Diphtheria-Tetanus (DT) booster at school age (4–6 years). Does not include pertussis component.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 1,
+      "category": "recommended",
+      "recommended_age_months": 2,
+      "minimum_age_months": 2,
+      "notes": "Recommended (not compulsory EPI). WHO-essential. PCV10 or PCV13. Variable uptake in public facilities; common in private practice.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 2,
+      "category": "recommended",
+      "recommended_age_months": 4,
+      "minimum_age_months": 3,
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 3,
+      "category": "recommended",
+      "recommended_age_months": 6,
+      "minimum_age_months": 5,
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "Varicella",
+      "dose_number": 1,
+      "category": "recommended",
+      "recommended_age_months": 12,
+      "minimum_age_months": 12,
+      "notes": "Recommended only — NOT compulsory EPI in Egypt. Available privately. This is a key reconciliation gap: children from Egypt moving to Germany will typically be missing Varicella because it is not in Egypt's public EPI programme.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    },
+    {
+      "antigen": "Varicella",
+      "dose_number": 2,
+      "category": "recommended",
+      "recommended_age_months": 24,
+      "minimum_age_months": 13,
+      "notes": "Recommended second dose at 24 months. Minimum 4 weeks from dose 1.",
+      "verification": "confirmed",
+      "verification_source": "Vacsera schedule, Nomou egypt-v1.0-mar-2026"
+    }
+  ],
+  "legacy_patterns": {
+    "description": "Cards from children vaccinated before Egypt's MMR transition (~2020) may show different patterns. The agent should recognise these as valid historical records.",
+    "patterns": [
+      {
+        "old_entry": "Measles monovalent at 9 months",
+        "maps_to": "Partial MMR coverage — Measles component only. Mumps and Rubella not covered.",
+        "action": "Count as Measles dose 1; flag Mumps and Rubella as unverified."
+      },
+      {
+        "old_entry": "Pentavalent (DPT+Hib+HepB) — 5-in-1 without IPV",
+        "maps_to": "DTaP + Hib + HepB without IPV component",
+        "action": "Count DTaP/Hib/HepB as given; flag IPV as not covered by that product."
+      }
+    ]
+  },
+  "interval_rules": [
+    {
+      "antigen": "Hexavalent",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 56,
+      "notes": "Egypt 2-4-6 schedule; standard 8-week interval. ACIP minimum 28 days.",
+      "source": "Vacsera 2-4-6 schedule"
+    },
+    {
+      "antigen": "Hexavalent",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 56,
+      "source": "Vacsera 2-4-6 schedule"
+    },
+    {
+      "antigen": "MMR",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "Vacsera / ACIP"
+    },
+    {
+      "antigen": "Varicella",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "Vacsera / ACIP"
+    },
+    {
+      "antigen": "PCV",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "ACIP minimum"
+    },
+    {
+      "antigen": "PCV",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "source": "ACIP minimum"
+    }
+  ]
+}
