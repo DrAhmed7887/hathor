@@ -26,11 +26,24 @@ Prior art, clinical guidelines, and data sources relevant to Hathor.
 
 ## Vaccination Schedule Sources
 
-- **STIKO (RKI) — German vaccination schedule** — Primary target schedule for the hackathon demo.
-  https://www.rki.de/EN/Topics/Infectious-diseases/Immunisation/Recommendations/recommendations_node.html
+Phase 1 (hackathon) reconciles within Africa — Nigerian NPI (source) into Egyptian
+MoHP EPI (target). Both schedules are composed from official public sources, cross-
+referenced against WHO country profiles, and clinically reviewed.
 
-- **Egypt EPI Schedule** — Source schedule for the demo case (Egyptian child, German target).
-  https://www.emro.who.int/egy/programmes/epi.html
+- **Egypt MoHP EPI — Expanded Programme on Immunization** — Phase 1 target schedule.
+  Composed from WHO EMRO Egypt programme description, UNICEF Egypt, and the WHO
+  Immunization Data portal (EGY). Routine coverage exceeds 95%; WHO certified Egypt
+  measles-elimination in 2023.
+  - https://www.emro.who.int/egy/programmes/expanded-programme-on-immunization.html
+  - https://www.unicef.org/egypt/vaccines
+  - https://immunizationdata.who.int/dashboard/regions/eastern-mediterranean-region/EGY
+
+- **Nigeria NPI — National Programme on Immunization** — Phase 1 validated source
+  schedule. Composed from UNICEF Nigeria immunization schedule, WHO 2024 Nigeria
+  country profile, and the Paediatric Association of Nigeria (PAN, 2020).
+  - https://www.unicef.org/nigeria/immunization
+  - https://immunizationdata.who.int/dashboard/countries/NGA
+  - https://pan-ng.org/
 
 ---
 

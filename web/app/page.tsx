@@ -730,7 +730,7 @@ export default function HathorPage() {
     const payload = {
       child_dob:      dob,
       target_country: country,
-      model:          "claude-sonnet-4-6",
+      model:          "claude-opus-4-7",
       given_doses: doses
         .filter((d) => d.vaccine_trade_name && d.date_given)
         .map((d) => ({
@@ -913,7 +913,7 @@ export default function HathorPage() {
             }}
           >
             <MetaSpan>Vaccination reconciliation for migrant families</MetaSpan>
-            <MetaSpan color={H.faint}>Built with the Claude Agent SDK</MetaSpan>
+            <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
           </div>
         </div>
       </header>
@@ -1135,7 +1135,7 @@ export default function HathorPage() {
                     fontStyle: "italic", color: H.meta,
                   }}
                 >
-                  8 tools · Claude Sonnet 4.6
+                  8 tools · Claude Opus 4.7
                 </span>
               )}
               {started && running && (
@@ -1405,7 +1405,7 @@ export default function HathorPage() {
               {stats.input_tokens?.toLocaleString()} input ·{" "}
               {stats.output_tokens?.toLocaleString()} output tokens
               {stats.cost_usd != null ? ` · $${stats.cost_usd.toFixed(4)}` : ""}
-              {stats.model ? ` · ${stats.model}` : " · claude-sonnet-4-6"}
+              {stats.model ? ` · ${stats.model}` : " · claude-opus-4-7"}
             </p>
           )}
 

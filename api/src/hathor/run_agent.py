@@ -29,7 +29,7 @@ from claude_agent_sdk.types import (
 from hathor.agent_prompt import SYSTEM_PROMPT
 from hathor.tools import HATHOR_TOOLS
 
-DEFAULT_MODEL = os.environ.get("HATHOR_MODEL", "claude-sonnet-4-6")
+DEFAULT_MODEL = os.environ.get("HATHOR_MODEL", "claude-opus-4-7")
 OPUS_MODEL = "claude-opus-4-7"
 MCP_SERVER_NAME = "hathor"
 

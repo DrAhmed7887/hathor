@@ -35,7 +35,7 @@ async def main() -> None:
         sys.exit(1)
     print(f"API key loaded: {api_key[:8]}...")
 
-    model = os.environ.get("HATHOR_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("HATHOR_MODEL", "claude-opus-4-7")
     print(f"Model: {model}")
     print("-" * 60)
 

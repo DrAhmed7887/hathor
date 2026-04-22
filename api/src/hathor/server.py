@@ -38,7 +38,7 @@ from claude_agent_sdk.types import (
 from hathor.agent_prompt import SYSTEM_PROMPT
 from hathor.tools import HATHOR_TOOLS
 
-MODEL = os.environ.get("HATHOR_MODEL", "claude-sonnet-4-6")
+MODEL = os.environ.get("HATHOR_MODEL", "claude-opus-4-7")
 MCP_SERVER_NAME = "hathor"
 
 app = FastAPI(title="Hathor API", version="0.1.0")

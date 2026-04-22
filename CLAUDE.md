@@ -27,9 +27,10 @@ about Phase 2 work, flag the scope before proceeding.
 
 ## Model Defaults
 
-- **Default model: `claude-sonnet-4-6`** — use this for all development and testing.
-- **Opus 4.7 (`claude-opus-4-7`) is opt-in only.** Switch to it only when Ahmed explicitly
-  requests it (e.g., "run the validation on Opus"). Never default to Opus.
+- **Default model: `claude-opus-4-7`** — Hathor is an Opus 4.7 project. Use this for
+  all development, testing, demos, and evaluation runs.
+- Sonnet 4.6 (`claude-sonnet-4-6`) may be used for side-by-side comparisons when
+  Ahmed explicitly requests them, but never as the default.
 - The `HATHOR_MODEL` environment variable overrides the default in all scripts.
 
 ---
