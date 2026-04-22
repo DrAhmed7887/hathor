@@ -443,7 +443,6 @@ export default function HathorPage() {
   const [doses, setDoses] = useState<DoseRow[]>(() =>
     DEFAULT_DOSES.map(makeRow)
   );
-  const [selectedModel, setSelectedModel] = useState("claude-sonnet-4-6");
   const [useFlagship, setUseFlagship] = useState(false);
 
   const [running, setRunning] = useState(false);
@@ -503,7 +502,7 @@ export default function HathorPage() {
     const payload = {
       child_dob: dob,
       target_country: country,
-      model: selectedModel,
+      model: "claude-opus-4-7",
       given_doses: doses
         .filter((d) => d.vaccine_trade_name && d.date_given)
         .map((d) => ({
@@ -658,7 +657,7 @@ export default function HathorPage() {
             Hathor
           </h1>
           <p className="text-neutral-500 mt-1 text-sm">
-            Cross-border vaccination reconciliation · Powered by {selectedModel === "claude-opus-4-7" ? "Claude Opus 4.7" : "Claude Sonnet 4.6"}
+            Cross-border vaccination reconciliation · Powered by Claude Opus 4.7
           </p>
         </div>
       </header>
@@ -729,24 +728,6 @@ export default function HathorPage() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-
-              {/* ── Model selector ── */}
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-sm text-neutral-600">Model</Label>
-                <Select
-                  value={selectedModel}
-                  onValueChange={(v) => v && setSelectedModel(v)}
-                  disabled={running}
-                >
-                  <SelectTrigger className="text-sm w-64">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="claude-sonnet-4-6">Claude Sonnet 4.6</SelectItem>
-                    <SelectItem value="claude-opus-4-7">Claude Opus 4.7</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               <Separator />
@@ -893,7 +874,7 @@ export default function HathorPage() {
               {stats.cost_usd != null
                 ? ` · $${stats.cost_usd.toFixed(4)}`
                 : ""}{" "}
-              on {selectedModel}
+              on claude-opus-4-7
             </p>
           )}
           <div className="border-l-4 border-hathor-400 bg-hathor-50 px-4 py-3 rounded-r">
@@ -903,7 +884,7 @@ export default function HathorPage() {
             </p>
           </div>
           <p className="text-neutral-400 text-xs">
-            Built with {selectedModel} · Anthropic Claude Agent SDK
+            Built with Claude Opus 4.7 · Anthropic Claude Agent SDK
           </p>
         </div>
       </footer>
