@@ -8,7 +8,7 @@ Event types emitted:
   agent_start   — once at start: model name, tool count
   thinking      — each thinking block
   tool_use      — each tool call (index, name, input)
-  tool_result   — each tool result (index, content summary)
+  tool_result   — each tool result (index, is_error, result JSON)
   assistant_text — intermediate text blocks (with tool calls)
   final_plan    — the terminal report (no tool calls in that message)
   run_complete  — run stats
@@ -30,7 +30,9 @@ from claude_agent_sdk.types import (
     ResultMessage,
     TextBlock,
     ThinkingBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from hathor.agent_prompt import SYSTEM_PROMPT
@@ -59,11 +61,12 @@ class ReconcileRequest(BaseModel):
     child_dob: str
     target_country: str = "Germany"
     given_doses: list[DoseRecord]
+    model: str | None = None
 
 
-def _sse(event_type: str, data: dict) -> str:
-    """Format a single SSE event string."""
-    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+def _sse(event_type: str, data: dict) -> bytes:
+    """Format a single SSE event as UTF-8 bytes."""
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n".encode()
 
 
 def _build_prompt(req: ReconcileRequest) -> str:
@@ -85,23 +88,49 @@ def _build_prompt(req: ReconcileRequest) -> str:
     )
 
 
-async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[str, None]:
-    """Run the agent and yield SSE-formatted event strings."""
+def _parse_tool_result_content(content: str | list | None) -> dict:
+    """Extract a JSON-parseable dict from tool result content."""
+    if content is None:
+        return {}
+    if isinstance(content, str):
+        try:
+            return json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            return {"text": content}
+    if isinstance(content, list):
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+        combined = "\n".join(texts)
+        try:
+            return json.loads(combined)
+        except (json.JSONDecodeError, ValueError):
+            return {"text": combined}
+    return {}
+
+
+async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
+    """Run the agent and yield SSE-formatted event bytes."""
+    active_model = req.model or MODEL
+    # Emit agent_start immediately — before any setup — so the browser gets
+    # a response within milliseconds of the request arriving.
+    yield _sse("agent_start", {"model": active_model, "tools": len(HATHOR_TOOLS)})
+
     mcp_server = create_sdk_mcp_server(MCP_SERVER_NAME, tools=HATHOR_TOOLS)
     allowed_tools = [f"mcp__{MCP_SERVER_NAME}__{t.name}" for t in HATHOR_TOOLS]
 
     options = ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
-        model=MODEL,
+        model=active_model,
         mcp_servers={MCP_SERVER_NAME: mcp_server},
         allowed_tools=allowed_tools,
         thinking={"type": "enabled", "budget_tokens": 8000},
         permission_mode="bypassPermissions",
     )
 
-    yield _sse("agent_start", {"model": MODEL, "tools": len(HATHOR_TOOLS)})
-
     tool_index = 0
+    tool_id_to_index: dict[str, int] = {}
     final_plan_text: list[str] = []
     result_message: ResultMessage | None = None
 
@@ -119,6 +148,7 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[str, None]:
 
                         elif isinstance(block, ToolUseBlock):
                             tool_index += 1
+                            tool_id_to_index[block.id] = tool_index
                             yield _sse(
                                 "tool_use",
                                 {
@@ -135,8 +165,25 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[str, None]:
                                 final_plan_text.append(block.text)
                                 yield _sse("assistant_text", {"text": block.text})
 
+                elif isinstance(message, UserMessage):
+                    # Tool results are returned as UserMessage with ToolResultBlock content
+                    content = message.content
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, ToolResultBlock):
+                                idx = tool_id_to_index.get(block.tool_use_id, 0)
+                                result_data = _parse_tool_result_content(block.content)
+                                yield _sse(
+                                    "tool_result",
+                                    {
+                                        "index": idx,
+                                        "tool_use_id": block.tool_use_id,
+                                        "result": result_data,
+                                        "is_error": bool(block.is_error),
+                                    },
+                                )
+
                 elif isinstance(message, ResultMessage):
-                    # Emit tool results from the result message if available
                     result_message = message
                     break
 
@@ -162,7 +209,7 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[str, None]:
 
 @app.post("/reconcile-stream")
 async def reconcile_stream(req: ReconcileRequest) -> StreamingResponse:
-    async def event_generator() -> AsyncGenerator[str, None]:
+    async def event_generator() -> AsyncGenerator[bytes, None]:
         async for chunk in _stream_agent(req):
             yield chunk
 
@@ -170,8 +217,9 @@ async def reconcile_stream(req: ReconcileRequest) -> StreamingResponse:
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )
 

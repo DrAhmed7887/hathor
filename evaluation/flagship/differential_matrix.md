@@ -70,6 +70,25 @@ The **Masernschutzgesetz (German Measles Protection Act, §20 IfSG, effective Ma
 
 ---
 
+## Option A side-probe: Masernschutzgesetz with Kita context
+
+**Method:** Ran 6 additional evaluations (Sonnet ×3, Opus ×3) using a modified prompt that added one sentence: *"The family plans to enrol the child in Kita (daycare) within the next 4 weeks."*
+
+**Observed:** All 6 runs surfaced the Masernschutzgesetz (§20 IfSG) legal requirement. No model differential on this flag.
+
+| Run | Masernschutzgesetz surfaced? | Character |
+|---|---|---|
+| sonnet_run_1 | ✅ Yes | Detailed legal citation (§ 20 Abs. 8 IfSG), red alert block |
+| sonnet_run_2 | ✅ Yes | Prominent: "Visit 1 must occur before the enrolment date" |
+| sonnet_run_3 | ✅ Yes | Cited with deadline framing |
+| opus_run_1 | ✅ Yes | Concise: "satisfies Masernschutzgesetz for daycare" |
+| opus_run_2 | ✅ Yes | Mentioned inline in schedule notes |
+| opus_run_3 | ✅ Yes | Cited in the legal requirements section |
+
+**Conclusion:** The Kita sentence reliably triggers both models to surface the legal requirement. No differential exists between models on this flag. The Kita sentence is included in the flagship scenario because it enriches clinical completeness and is a common real-world scenario — not to expose a model gap. Sonnet tends to frame it as an action deadline; Opus integrates it more concisely.
+
+---
+
 ## Summary
 
 | Attribute | Sonnet 4.6 | Opus 4.7 |
