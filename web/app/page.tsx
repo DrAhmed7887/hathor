@@ -167,7 +167,7 @@ function summarizeToolInput(
     case "mcp__hathor__compute_age_at_dose":
       return `DOB ${input.date_of_birth} → dose ${input.date_given}`;
     case "mcp__hathor__lookup_vaccine_equivalence":
-      return `${input.source_vaccine} → ${input.target_country ?? input.country}`;
+      return `${input.vaccine_name ?? input.source_vaccine} → ${input.target_country ?? input.country}`;
     case "mcp__hathor__validate_dose":
       return `${input.antigen ?? input.vaccine_name} dose ${input.dose_number}`;
     case "mcp__hathor__check_interval_rule":
@@ -176,7 +176,7 @@ function summarizeToolInput(
         Number(input.prev_dose_age_days ?? 0)
       }d interval`;
     case "mcp__hathor__get_schedule":
-      return `${input.country}, age ${input.child_age_months ?? input.age_months} m`;
+      return `${input.country_code ?? input.country}, age ${input.child_age_months ?? input.age_months} m`;
     case "mcp__hathor__extract_vaccinations_from_card":
       return `Reading ${input.filename ?? "card"}`;
     case "mcp__hathor__compute_missing_doses":
@@ -269,6 +269,7 @@ interface RunStats {
   cost_usd?: number;
   input_tokens?: number;
   output_tokens?: number;
+  model?: string;
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -276,20 +277,28 @@ interface RunStats {
 const API_BASE = "http://localhost:8000";
 
 const DEFAULT_DOSES: Omit<DoseRow, "id">[] = [
-  { vaccine_trade_name: "Hexyon", date_given: "2024-08-15" },
-  { vaccine_trade_name: "Hexyon", date_given: "2024-10-15" },
-  { vaccine_trade_name: "Hexyon", date_given: "2024-12-15" },
-  { vaccine_trade_name: "MMR",    date_given: "2025-06-15" },
+  { vaccine_trade_name: "BCG",                       date_given: "2024-06-16" },
+  { vaccine_trade_name: "HepB birth dose",           date_given: "2024-06-16" },
+  { vaccine_trade_name: "OPV0",                      date_given: "2024-06-16" },
+  { vaccine_trade_name: "Pentavalent (DPT-HepB-Hib)", date_given: "2024-07-27" },
+  { vaccine_trade_name: "OPV1",                      date_given: "2024-07-27" },
+  { vaccine_trade_name: "PCV13",                     date_given: "2024-07-27" },
+  { vaccine_trade_name: "Rotavirus",                 date_given: "2024-07-27" },
+  { vaccine_trade_name: "Pentavalent (DPT-HepB-Hib)", date_given: "2024-08-24" },
+  { vaccine_trade_name: "OPV2",                      date_given: "2024-08-24" },
+  { vaccine_trade_name: "PCV13",                     date_given: "2024-08-24" },
+  { vaccine_trade_name: "Rotavirus",                 date_given: "2024-08-24" },
+  { vaccine_trade_name: "Pentavalent (DPT-HepB-Hib)", date_given: "2024-09-21" },
+  { vaccine_trade_name: "OPV3",                      date_given: "2024-09-21" },
+  { vaccine_trade_name: "PCV13",                     date_given: "2024-09-21" },
+  { vaccine_trade_name: "IPV",                       date_given: "2024-09-21" },
+  { vaccine_trade_name: "Measles",                   date_given: "2025-03-15" },
+  { vaccine_trade_name: "Yellow Fever",              date_given: "2025-03-15" },
 ];
 
 const FLAGSHIP_DOB     = "2024-06-15";
-const FLAGSHIP_DOSES: Omit<DoseRow, "id">[] = [
-  { vaccine_trade_name: "Hexyon", date_given: "2024-08-15" },
-  { vaccine_trade_name: "Hexyon", date_given: "2024-10-15" },
-  { vaccine_trade_name: "Hexyon", date_given: "2024-12-15" },
-  { vaccine_trade_name: "MMR",    date_given: "2025-06-15" },
-];
-const FLAGSHIP_COUNTRY = "Nigeria";
+const FLAGSHIP_DOSES: Omit<DoseRow, "id">[] = DEFAULT_DOSES;
+const FLAGSHIP_COUNTRY = "Egypt";
 
 let _idCtr = 0;
 const uid = () => String(++_idCtr);
@@ -662,7 +671,7 @@ function AnimatedDots({ active }: { active: boolean }) {
 
 export default function HathorPage() {
   const [dob,         setDob]         = useState("2024-06-15");
-  const [country,     setCountry]     = useState("Nigeria");
+  const [country,     setCountry]     = useState("Egypt");
   const [doses,       setDoses]       = useState<DoseRow[]>(() => DEFAULT_DOSES.map(makeRow));
   const [useFlagship, setUseFlagship] = useState(false);
 
@@ -721,7 +730,7 @@ export default function HathorPage() {
     const payload = {
       child_dob:      dob,
       target_country: country,
-      model:          "claude-opus-4-7",
+      model:          "claude-sonnet-4-6",
       given_doses: doses
         .filter((d) => d.vaccine_trade_name && d.date_given)
         .map((d) => ({
@@ -741,6 +750,8 @@ export default function HathorPage() {
         if (sse.type === "agent_start") {
           startTimeRef.current = Date.now();
           setStatus("Starting up");
+          const m = d.model as string | undefined;
+          if (m) setStats((prev) => ({ ...(prev ?? {}), model: m }));
         } else if (sse.type === "thinking") {
           setStatus("Thinking");
           lastItemTypeRef.current   = "other";
@@ -822,12 +833,13 @@ export default function HathorPage() {
               ? ` · $${Number(d.cost_usd).toFixed(4)}`
               : "";
           setStatus(`Done in ${elapsed}s · ${count ?? 0} calls${cost}`);
-          setStats({
+          setStats((prev) => ({
+            ...(prev ?? {}),
             tool_call_count: count,
             cost_usd:     d.cost_usd     as number | undefined,
             input_tokens: d.input_tokens as number | undefined,
             output_tokens:d.output_tokens as number | undefined,
-          });
+          }));
         } else if (sse.type === "error") {
           lastItemTypeRef.current   = "other";
           currentGroupIdRef.current = null;
@@ -901,7 +913,7 @@ export default function HathorPage() {
             }}
           >
             <MetaSpan>Vaccination reconciliation for migrant families</MetaSpan>
-            <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
+            <MetaSpan color={H.faint}>Built with the Claude Agent SDK</MetaSpan>
           </div>
         </div>
       </header>
@@ -949,10 +961,10 @@ export default function HathorPage() {
                     color: H.ink, marginBottom: 3,
                   }}
                 >
-                  Cairo → Lagos demo
+                  Lagos → Cairo demo
                 </div>
                 <MetaSpan color={H.meta}>
-                  Egyptian infant · Hexyon ×3 · MMR ×1 · reconcile against Nigeria AEPI
+                  Nigerian infant · NPI primary series + Measles + YF · reconcile against Egyptian EPI
                 </MetaSpan>
               </div>
               <label
@@ -1017,11 +1029,8 @@ export default function HathorPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Nigeria" style={{ fontFamily: F.mono }}>
-                      Nigeria · AEPI 2024
-                    </SelectItem>
-                    <SelectItem value="WHO" style={{ fontFamily: F.mono }}>
-                      WHO · EPI Baseline
+                    <SelectItem value="Egypt" style={{ fontFamily: F.mono }}>
+                      Egypt · MoHP EPI
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -1057,7 +1066,7 @@ export default function HathorPage() {
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <Input
-                      placeholder="Trade name (e.g. Hexyon)"
+                      placeholder="Trade name (e.g. Pentavalent)"
                       value={dose.vaccine_trade_name}
                       onChange={(e) =>
                         updateDose(dose.id, "vaccine_trade_name", e.target.value)
@@ -1126,7 +1135,7 @@ export default function HathorPage() {
                     fontStyle: "italic", color: H.meta,
                   }}
                 >
-                  Est. 25 seconds · 8 tools · Opus 4.7
+                  8 tools · Claude Sonnet 4.6
                 </span>
               )}
               {started && running && (
@@ -1175,8 +1184,8 @@ export default function HathorPage() {
                 color: H.meta, marginTop: 12, paddingLeft: 2,
               }}
             >
-              Demo: reconciles an Egyptian infant&apos;s vaccination card against
-              Nigeria&apos;s AEPI 2024 schedule.
+              Demo: reconciles a Nigerian infant&apos;s NPI vaccination card against
+              Egypt&apos;s MoHP EPI schedule.
             </p>
           )}
         </section>
@@ -1396,7 +1405,7 @@ export default function HathorPage() {
               {stats.input_tokens?.toLocaleString()} input ·{" "}
               {stats.output_tokens?.toLocaleString()} output tokens
               {stats.cost_usd != null ? ` · $${stats.cost_usd.toFixed(4)}` : ""}
-              {" "}· claude-opus-4-7
+              {stats.model ? ` · ${stats.model}` : " · claude-sonnet-4-6"}
             </p>
           )}
 
