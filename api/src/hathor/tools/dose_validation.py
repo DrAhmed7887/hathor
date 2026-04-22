@@ -47,7 +47,7 @@ async def validate_dose(args: dict) -> dict:
     antigen = args["antigen"]
     dose_number = args["dose_number"]
     age_days = args["age_at_dose_days"]
-    target_country = args.get("target_country", "Germany")
+    target_country = args.get("target_country", "Egypt")
     prior_age = args.get("prior_dose_age_days")
 
     reasons: list[str] = []

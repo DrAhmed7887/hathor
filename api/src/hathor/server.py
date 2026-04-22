@@ -59,7 +59,7 @@ class DoseRecord(BaseModel):
 
 class ReconcileRequest(BaseModel):
     child_dob: str
-    target_country: str = "Germany"
+    target_country: str = "Egypt"
     given_doses: list[DoseRecord]
     model: str | None = None
 

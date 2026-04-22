@@ -10,8 +10,18 @@ flag the conflict before proceeding.
 
 Hathor is an autonomous clinical reasoning agent for cross-border vaccination schedule
 reconciliation. See README.md for the full context. The project was built by Ahmed Zayed,
-an Egyptian physician, as a hackathon submission and as the foundation for a research thesis
-at RWTH Aachen's Applied Health Informatics & Digital Medicine program.
+an Egyptian physician, as a hackathon submission and as the foundation for ongoing research.
+
+**Current scope — Phase 1 (hackathon):** intra-Africa reconciliation. The validated source
+country is Nigeria; the validated destination country is Egypt. Other African country pairs
+are future work within Phase 1.
+
+**Phase 2 (post-hackathon, may not be reached in hackathon):** Africa → Europe
+reconciliation, starting with Germany/STIKO. The Phase 2 schedule (`germany.json`) and
+tool rules are present in the code for continuity, but they are NOT part of the Phase 1
+public-facing surface. Do not mention Germany, STIKO, Aachen, RWTH, Masernschutzgesetz,
+or Kita in demos, README copy, UI, or new evaluation material. If a user prompt asks
+about Phase 2 work, flag the scope before proceeding.
 
 ---
 

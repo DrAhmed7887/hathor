@@ -34,7 +34,7 @@ async def build_catchup_schedule(args: dict) -> dict:
     overdue: list[dict] = args.get("overdue_doses", [])
     due_now: list[dict] = args.get("due_now_doses", [])
     current_age_days: int = args["current_age_days"]
-    target_country: str = args.get("target_country", "Germany")
+    target_country: str = args.get("target_country", "Egypt")
     current_age_months = current_age_days / 30.44
 
     # Combine overdue + due_now; prioritise overdue first

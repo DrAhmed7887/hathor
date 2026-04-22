@@ -7,16 +7,20 @@ from claude_agent_sdk import tool
 SCHEDULES_DIR = Path(__file__).parent.parent.parent.parent.parent / "data" / "schedules"
 
 COUNTRY_MAP = {
-    "germany": "germany.json",
-    "deutschland": "germany.json",
-    "deu": "germany.json",
-    "de": "germany.json",
     "egypt": "egypt.json",
     "ägypten": "egypt.json",
     "egy": "egypt.json",
     "eg": "egypt.json",
+    "nigeria": "nigeria.json",
+    "nga": "nigeria.json",
+    "ng": "nigeria.json",
     "who": "who.json",
     "world health organization": "who.json",
+    # Other schedules are available but not part of the primary scope.
+    "germany": "germany.json",
+    "deutschland": "germany.json",
+    "deu": "germany.json",
+    "de": "germany.json",
 }
 
 
@@ -33,7 +37,7 @@ def _load_schedule(country_key: str) -> dict | None:
 
 @tool(
     "get_schedule",
-    "Load the vaccination schedule for a country and filter it to doses relevant for a child of the specified age. Valid countries: Germany, Egypt, WHO. Returns the list of doses and interval rules relevant to the child's current age, plus schedule metadata.",
+    "Load the vaccination schedule for a country and filter it to doses relevant for a child of the specified age. Valid countries: Egypt, Nigeria, WHO. Returns the list of doses and interval rules relevant to the child's current age, plus schedule metadata.",
     {"country_code": str, "child_age_months": int},
 )
 async def get_schedule(args: dict) -> dict:
@@ -43,7 +47,7 @@ async def get_schedule(args: dict) -> dict:
     schedule = _load_schedule(country)
     if schedule is None:
         result = {
-            "error": f"Schedule not found for country '{country}'. Supported: Germany, Egypt, WHO.",
+            "error": f"Schedule not found for country '{country}'. Supported: Egypt, Nigeria, WHO.",
             "supported_countries": list({v.replace(".json", "") for v in COUNTRY_MAP.values()}),
         }
         return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
@@ -68,7 +72,9 @@ async def get_schedule(args: dict) -> dict:
         "doses_returned": len(relevant_doses),
         "doses": relevant_doses,
         "interval_rules": schedule.get("interval_rules", []),
-        "key_differences_vs_germany": schedule.get("key_differences_vs_germany"),
+        "key_differences_vs_egypt": schedule.get("key_differences_vs_egypt"),
+        "key_features": schedule.get("key_features"),
+        "not_in_schedule": schedule.get("not_in_schedule"),
         "context_note": schedule.get("context_note"),
     }
 

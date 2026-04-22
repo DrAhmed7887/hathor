@@ -214,12 +214,12 @@ def _normalise(name: str) -> str:
 
 @tool(
     "lookup_vaccine_equivalence",
-    "Look up a vaccine trade name and return its antigen components and STIKO equivalence. Use this to determine what antigens a named vaccine on an Egyptian card actually covers, before checking whether those antigens satisfy the German schedule. Returns components list, combination type, and STIKO mapping.",
+    "Look up a vaccine trade name and return its antigen components. Use this to determine what antigens a named vaccine on a vaccination card actually covers, before checking whether those antigens satisfy the target-country schedule. Returns components list, combination type, and a cross-reference mapping.",
     {"vaccine_name": str, "target_country": str},
 )
 async def lookup_vaccine_equivalence(args: dict) -> dict:
     name = args.get("vaccine_name", "")
-    target_country = args.get("target_country", "Germany")
+    target_country = args.get("target_country", "Egypt")
     key = _normalise(name)
 
     entry = VACCINE_DB.get(key)

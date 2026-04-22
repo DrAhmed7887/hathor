@@ -47,3 +47,10 @@ logs/
 # Internal build tracking (never commit)
 /internal/
 
+# Vaccination card images — dev-only test fixtures. Many are under
+# copyright (WHO reports, published papers, MoH materials) and should not
+# be redistributed through the repo. Keep locally for card_extraction testing.
+/cards/*
+!/cards/.gitkeep
+!/cards/README.md
+

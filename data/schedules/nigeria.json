@@ -1,0 +1,334 @@
+{
+  "country": "Nigeria",
+  "country_code": "NGA",
+  "source": "Nigeria National Programme on Immunisation (NPI) — Federal Ministry of Health; WHO/UNICEF 2024 country profile; Paediatric Association of Nigeria (PAN) Recommended Schedule 2020 (reviewed periodically)",
+  "source_urls": [
+    "https://www.unicef.org/nigeria/media/9911/file/Nigeria%20Immunization%20Schedule.pdf.pdf",
+    "https://pan-ng.org/immunisation/",
+    "https://www.who.int/publications/m/item/immunization-2024-nigeria-country-profile",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC4139536/"
+  ],
+  "source_notes": "Public NPI schedule (free at government facilities) composed from UNICEF Nigeria + WHO 2024 country profile + PMC4139536 (Current Trends of Immunization in Nigeria). PAN recommended additions (private uptake) marked with category='recommended'. IPV: Nigeria introduced IPV1 at 14 weeks into routine schedule; IPV2 not yet introduced as of 2024 per WHO country profile.",
+  "last_updated": "2026-04-22",
+  "version": "1.0",
+  "scope": "Routine childhood immunisation, birth to 72 months (6 years). Compulsory (NPI) and PAN-recommended antigens with category distinction.",
+  "context_note": "In cross-border reconciliation into Egypt, NPI-compulsory doses are the reliable signal on a Nigerian card. Yellow Fever and Meningococcal A doses are NPI-routine in Nigeria but are not on the Egyptian schedule — these remain as Nigerian-only antigens and should be preserved on the record but not counted as 'missing' for Egypt.",
+  "key_differences_vs_egypt": [
+    "Nigeria uses 6/10/14-week WHO-aligned primary series; Egypt uses 2/4/6-month series",
+    "Nigeria uses Pentavalent (DTPw-Hib-HepB, 5-in-1, no IPV); Egypt uses Hexavalent (6-in-1, includes IPV)",
+    "Nigeria gives separate IPV at 14 weeks; Egypt's IPV is bundled in Hexavalent",
+    "Nigeria gives Measles monovalent at 9 months; Egypt gives MMR at 12 months",
+    "Nigeria has routine Rotavirus (Rota1 6w, Rota2 10w) in NPI; Egypt does not",
+    "Nigeria has routine PCV13 (6/10/14w) in NPI; Egypt PCV is recommended/private only",
+    "Nigeria has routine Yellow Fever at 9 months; Egypt does not (YF not endemic)",
+    "Nigeria has Meningococcal A (MenAfriVac) at 9 months in meningitis-belt states; Egypt does not"
+  ],
+  "doses": [
+    {
+      "antigen": "BCG",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "At birth or as soon as possible. PAN guidance: skip birth dose if presenting after 2 weeks without documentation is typically still given in Nigeria; verify by local practice.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "HepB",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "Birth dose (HBV0). Standalone monovalent HepB at birth.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "OPV0 at birth. Nigeria uses bivalent OPV (bOPV) in routine schedule.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "OPV1 at 6 weeks. Co-administered with Pentavalent, PCV, Rotavirus.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta1 at 6 weeks. 5-in-1 covering DTPw (whole-cell pertussis), Hib, HepB. Does NOT include IPV — IPV is given separately at 14 weeks in Nigeria.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "PCV13-1 at 6 weeks. Nigeria uses PCV13 in NPI since introduction.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020; PMC4139536"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "Rota1 at 6 weeks. Do not initiate after 15 weeks of age (PAN/WHO window). Nigeria introduced rotavirus into routine NPI nationally.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "OPV2 at 10 weeks.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "Rota2 at 10 weeks. Do not administer after 32 weeks of age.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 4,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "OPV3 at 14 weeks.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta2 at 10 weeks.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta3 at 14 weeks. Completes primary DTP/Hib/HepB series.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "PCV13-2 at 10 weeks.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "PCV13-3 at 14 weeks. Completes primary PCV series.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "IPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "IPV1 at 14 weeks. Introduced into NPI alongside OPV as part of global polio endgame. IPV2 not yet introduced into Nigerian NPI as of 2024 (per WHO country profile).",
+      "verification": "confirmed",
+      "verification_source": "WHO Nigeria 2024 country profile"
+    },
+    {
+      "antigen": "Measles",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Measles monovalent at 9 months. Nigeria NPI gives Measles (not MMR) in routine programme.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "YellowFever",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Yellow Fever at 9 months. Single lifetime dose per current WHO guidance. Nigeria is yellow-fever-endemic; this is routine NPI.",
+      "verification": "confirmed",
+      "verification_source": "UNICEF Nigeria Immunization Schedule; PAN 2020"
+    },
+    {
+      "antigen": "MenA",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Meningococcal A conjugate (MenAfriVac) at 9 months in meningitis-belt states (northern Nigeria). Not routine in all states; verify against child's state of residence.",
+      "verification": "confirmed",
+      "verification_source": "PAN 2020 — special-group note"
+    },
+    {
+      "antigen": "Measles",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 15,
+      "minimum_age_months": 15,
+      "notes": "Second measles dose at 15 months (MCV2) — phased into Nigerian NPI following WHO recommendation for 2-dose measles strategy.",
+      "verification": "confirmed",
+      "verification_source": "WHO Nigeria 2024 country profile; PAN 2020"
+    },
+    {
+      "antigen": "DTaP",
+      "dose_number": 4,
+      "category": "recommended",
+      "recommended_age_months": 15,
+      "minimum_age_months": 12,
+      "notes": "DTaP booster at 12-15 months. PAN-recommended; availability varies — NPI booster uptake lower than primary series.",
+      "verification": "confirmed",
+      "verification_source": "PAN 2020"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 5,
+      "category": "recommended",
+      "recommended_age_months": 15,
+      "minimum_age_months": 12,
+      "notes": "OPV booster at 12-15 months (PAN-recommended).",
+      "verification": "confirmed",
+      "verification_source": "PAN 2020"
+    },
+    {
+      "antigen": "HPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 108,
+      "minimum_age_months": 108,
+      "notes": "HPV introduced into Nigerian NPI for girls aged 9-14 in 2023. Single-dose schedule per WHO SAGE 2022 recommendation.",
+      "verification": "confirmed",
+      "verification_source": "WHO Nigeria 2024 country profile"
+    }
+  ],
+  "not_in_schedule": {
+    "description": "Antigens NOT in Nigeria's NPI that may be expected on schedules from other countries",
+    "antigens": [
+      {"antigen": "MMR", "notes": "Nigeria uses Measles monovalent, not MMR. Mumps and Rubella components are not in public NPI."},
+      {"antigen": "Varicella", "notes": "Not in NPI. Private only."},
+      {"antigen": "HepA", "notes": "Not in NPI. Private only (PAN recommends at 18 months)."},
+      {"antigen": "IPV2", "notes": "Second IPV dose not yet introduced into Nigerian NPI (as of 2024)."}
+    ]
+  },
+  "interval_rules": [
+    {
+      "antigen": "Pentavalent",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "notes": "Nigeria 6/10/14-week schedule — standard 4-week interval.",
+      "source": "WHO / NPI"
+    },
+    {
+      "antigen": "Pentavalent",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "source": "WHO / NPI"
+    },
+    {
+      "antigen": "PCV",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "WHO / ACIP minimum"
+    },
+    {
+      "antigen": "PCV",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "source": "WHO / ACIP minimum"
+    },
+    {
+      "antigen": "OPV",
+      "from_dose": 2,
+      "to_dose": 3,
+      "minimum_interval_days": 28,
+      "source": "WHO / NPI"
+    },
+    {
+      "antigen": "OPV",
+      "from_dose": 3,
+      "to_dose": 4,
+      "minimum_interval_days": 28,
+      "source": "WHO / NPI"
+    },
+    {
+      "antigen": "Rotavirus",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "notes": "Dose 2 must be given before 32 weeks of age regardless of interval.",
+      "source": "WHO / NPI"
+    },
+    {
+      "antigen": "Measles",
+      "from_dose": 1,
+      "to_dose": 2,
+      "minimum_interval_days": 28,
+      "source": "WHO / PAN"
+    }
+  ],
+  "age_limits": [
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 1,
+      "maximum_age_weeks": 15,
+      "notes": "Per WHO: do not initiate rotavirus vaccination at or after 15 weeks of age due to intussusception risk."
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 2,
+      "maximum_age_weeks": 32,
+      "notes": "Per WHO: do not administer any rotavirus dose at or after 32 weeks of age."
+    }
+  ]
+}

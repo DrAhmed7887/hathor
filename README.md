@@ -6,15 +6,15 @@ An autonomous clinical reasoning agent that reconciles a child's vaccination his
 
 ## Why
 
-I am an Egyptian physician preparing to move my family from Cairo to Germany. My daughter's Egyptian vaccination card is perfectly valid and correctly administered — but it doesn't translate cleanly to the German STIKO schedule. No one can tell me which doses will count, which are missing, and what she needs next before Kita enrolment. I built Hathor to solve this for my own family.
+Millions of African families move between countries every year — within the continent, for work, study, or safety. A child vaccinated correctly under one national schedule often arrives in a new country where no one can quickly tell the family which doses count, which are missing, and what is needed before the child can enrol in school or nursery. The schedules look similar on paper but diverge in important ways: the antigens covered by combined products, the ages of administration, the vaccines that are routine in one country and not another, and the strict age windows on products like rotavirus.
 
-This is not a niche problem. Migrant families face it globally — at the intersection of Egyptian EPI, Turkish schedules, Indian immunisation programs, and dozens of host-country requirements. No open-source tool exists for autonomous cross-schedule reconciliation; the closest prior work (AI-VaxGuide, arXiv 2507.03493) does clinician Q&A over a single country's guidelines, not reconciliation across schedules.
+I am an Egyptian physician. I built Hathor because I kept running into this problem myself and in my clinical work — and because no open-source tool exists for autonomous cross-schedule reconciliation. The closest prior work (AI-VaxGuide, arXiv 2507.03493) does clinician Q&A over a single country's guidelines, not reconciliation across schedules.
 
 ---
 
 ## How it works
 
-Hathor is built on the Claude Agent SDK with Claude Opus 4.7 and extended thinking enabled. Eight custom clinical tools are exposed via an in-process MCP server: card extraction, age computation, vaccine equivalence lookup, interval validation, per-dose validation, schedule retrieval, gap analysis, and catch-up scheduling. The agent decides which tools to call, in what order, based on what it discovers — there is no hardcoded pipeline. The reasoning is dynamic: the agent reads a card, resolves trade names to canonical antigens, checks every dose against the destination country's rules, and synthesises a visit-by-visit catch-up plan entirely on its own.
+Hathor is built on the Claude Agent SDK with extended thinking enabled. Eight custom clinical tools are exposed via an in-process MCP server: card extraction, age computation, vaccine equivalence lookup, interval validation, per-dose validation, schedule retrieval, gap analysis, and catch-up scheduling. The agent decides which tools to call, in what order, based on what it discovers — there is no hardcoded pipeline. The reasoning is dynamic: the agent reads a card, resolves trade names to canonical antigens, checks every dose against the destination country's rules, and synthesises a visit-by-visit catch-up plan entirely on its own.
 
 The frontend is Next.js with SSE streaming, so the agent's reasoning is visible live — tool calls, thinking blocks, and the final report all appear in real time as the agent works.
 
@@ -22,9 +22,9 @@ The frontend is Next.js with SSE streaming, so the agent's reasoning is visible 
 
 ## Demo
 
-The flagship case: a 22-month-old child born in Cairo, relocating to Aachen. Her Egyptian card shows three doses of Hexyon (the hexavalent 2-4-6 month series) and one MMR dose. Target schedule: Germany's STIKO Impfkalender 2026.
+The flagship case: a 22-month-old child born in Lagos, relocating to Cairo. Her Nigerian NPI card shows the full 6/10/14-week primary series (Pentavalent, OPV, PCV13, Rotavirus, IPV at 14 weeks), plus Measles monovalent and Yellow Fever at 9 months. Target schedule: Egypt's EPI.
 
-In roughly 25 seconds, the agent identifies that Hexyon dose 3 doesn't count under STIKO — the Egyptian 2-4-6 schedule produces a 61-day gap between doses 2 and 3, well under STIKO's required 180-day G2→G3 interval. It excludes Rotavirus as a closed age window (not a deficiency — the family needn't worry about it). And it surfaces the Masernschutzgesetz requirement: German law mandates two-dose MMR documentation before Kita (daycare) enrolment, so that dose must come first. The output is a 3-visit catch-up plan with correct co-administration rules and a legal deadline flag.
+The agent identifies that the Nigerian Measles-monovalent dose at 9 months does **not** satisfy Egyptian EPI's MMR requirement — Mumps and Rubella are uncovered, and Egyptian EPI calls for two MMR doses (at 12 and 18 months). It preserves the Yellow Fever dose on the record but does not count it as an Egyptian EPI requirement (Egypt is not yellow-fever-endemic). It recognises Nigeria's BCG-at-birth as satisfying Egypt's BCG-at-1-month requirement, and confirms that the Nigerian Pentavalent + separate IPV doses together cover the same antigens as Egypt's Hexavalent. The output is a visit-by-visit catch-up plan focused on the real gaps: MMR ×2, DPT booster, and OPV booster.
 
 ---
 
@@ -49,12 +49,10 @@ Visit `localhost:3000`. Click **Use flagship demo scenario**, then **Reconcile**
 
 ## What this is and isn't
 
-This is a research prototype, not a medical device. All outputs are clinical decision support — they require confirmation by a licensed paediatrician before any action is taken. The Egypt schedule data was compiled from Vacsera product documentation and the Nomou paediatric health app; it has not been validated against official MOHP policy documents. The tool currently supports Egypt → Germany reconciliation; additional country pairs are future work. MIT licensed.
+This is a research prototype, not a medical device. All outputs are clinical decision support — they require confirmation by a licensed paediatrician before any action is taken. The Nigeria schedule is composed from UNICEF Nigeria, the WHO 2024 Nigeria country profile, and the Paediatric Association of Nigeria (2020, reviewed periodically); the Egypt schedule is composed from Egypt MoHP EPI, WHO EMRO, and UNICEF Egypt. The tool currently supports reconciliation into Egypt as the destination country, with Nigeria as the validated source pair; additional African country pairs are future work. MIT licensed.
 
 ---
 
 ## Built with
 
-Claude Opus 4.7 · Claude Agent SDK · FastAPI · Next.js · Tailwind CSS
-
-*Built for the "Built with Opus 4.7" Hackathon — Anthropic × Cerebral Valley, April 2026.*
+Claude Agent SDK · FastAPI · Next.js · Tailwind CSS

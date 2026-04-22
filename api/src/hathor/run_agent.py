@@ -33,25 +33,12 @@ DEFAULT_MODEL = os.environ.get("HATHOR_MODEL", "claude-sonnet-4-6")
 OPUS_MODEL = "claude-opus-4-7"
 MCP_SERVER_NAME = "hathor"
 
-EVAL_DIR = pathlib.Path(__file__).parents[4] / "evaluation" / "flagship"
+EVAL_DIR = pathlib.Path(__file__).parents[4] / "evaluation" / "flagship_africa"
 
 
 def _build_default_prompt() -> str:
-    today = datetime.date.today().isoformat()
-    return (
-        "A family is relocating from Egypt to Germany. Their child has the following entries "
-        "on an Egyptian vaccination card:\n\n"
-        "  - Hexyon dose 1 — date given: 2024-08-15  (child age ~2 months)\n"
-        "  - Hexyon dose 2 — date given: 2024-10-15  (child age ~4 months)\n"
-        "  - Hexyon dose 3 — date given: 2024-12-15  (child age ~6 months)\n"
-        "  - MMR dose 1    — date given: 2025-06-15  (child age ~12 months)\n\n"
-        "Child date of birth : 2024-06-15\n"
-        "Card image path     : /cards/test_egypt_child.jpg\n"
-        "Target country      : Germany\n"
-        f"Today's date        : {today}\n\n"
-        "Please reconcile this child's vaccination history against the German STIKO schedule "
-        "and provide a complete catch-up plan."
-    )
+    from hathor.flagship_scenario import FLAGSHIP, build_agent_prompt
+    return build_agent_prompt(FLAGSHIP)
 
 
 async def run_once(prompt: str, model: str) -> tuple[list[str], str, ResultMessage | None]:
@@ -198,7 +185,7 @@ async def main() -> None:
     parser.add_argument(
         "--flagship",
         action="store_true",
-        help="Use the flagship Egyptian-infant demo scenario",
+        help="Use the flagship Nigeria→Egypt demo scenario",
     )
     parser.add_argument(
         "--compare",
@@ -243,9 +230,9 @@ async def main() -> None:
         (EVAL_DIR / "latest_comparison.md").write_text(
             _make_comparison_md(sonnet_calls, sonnet_text, sonnet_result, opus_calls, opus_text, opus_result)
         )
-        print(f"\n  Saved: evaluation/flagship/latest_sonnet.md")
-        print(f"  Saved: evaluation/flagship/latest_opus.md")
-        print(f"  Saved: evaluation/flagship/latest_comparison.md")
+        print(f"\n  Saved: evaluation/flagship_africa/latest_sonnet.md")
+        print(f"  Saved: evaluation/flagship_africa/latest_opus.md")
+        print(f"  Saved: evaluation/flagship_africa/latest_comparison.md")
 
     else:
         model = DEFAULT_MODEL

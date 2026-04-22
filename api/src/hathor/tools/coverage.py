@@ -46,7 +46,7 @@ async def compute_missing_doses(args: dict) -> dict:
     history: list[dict] = args["validated_history"]
     schedule: list[dict] = args["target_schedule"]
     current_age_days: int = args["current_age_days"]
-    target_country: str = args.get("target_country", "Germany")
+    target_country: str = args.get("target_country", "Egypt")
     current_age_months = current_age_days / 30.44
 
     # Normalise component antigens in history to canonical combined-vaccine keys
