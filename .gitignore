@@ -37,6 +37,10 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code local settings (per-user)
+.claude/
+**/.claude/
+
 # Logs
 *.log
 logs/
