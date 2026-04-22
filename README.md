@@ -6,9 +6,9 @@ An autonomous clinical reasoning agent that reconciles a child's vaccination his
 
 ## Why
 
-I am an Egyptian physician who moved from Cairo to Germany with my two young children. When we arrived, my daughter's Egyptian vaccination card — perfectly valid, correctly administered — didn't translate cleanly to the German system. No one could tell me which doses counted, which were missing, and what she needed next under STIKO. I built Hathor to solve this for my own family.
+I am an Egyptian physician preparing to move my family from Cairo to Germany. My daughter's Egyptian vaccination card is perfectly valid and correctly administered — but it doesn't translate cleanly to the German STIKO schedule. No one can tell me which doses will count, which are missing, and what she needs next before Kita enrolment. I built Hathor to solve this for my own family.
 
-This is not a niche problem. Migrant families face it globally — at the intersection of Egyptian EPI, Turkish schedules, Indian immunisation programs, and dozens of host-country requirements. No open-source tool exists to bridge these systems automatically.
+This is not a niche problem. Migrant families face it globally — at the intersection of Egyptian EPI, Turkish schedules, Indian immunisation programs, and dozens of host-country requirements. No open-source tool exists for autonomous cross-schedule reconciliation; the closest prior work (AI-VaxGuide, arXiv 2507.03493) does clinician Q&A over a single country's guidelines, not reconciliation across schedules.
 
 ---
 
