@@ -1,22 +1,23 @@
-# SESSION HANDOFF — Post-Commit-6
+# SESSION HANDOFF — Post-Commit-6.1
 
 A fresh Claude Code instance should read this cold before doing anything on
 Hathor. Read CLAUDE.md first, then this document. This captures the verbal
 decisions, pitfalls, and scoped next step from the session ending
-2026-04-23.
+2026-04-23. Last updated after Commit 6.1 landed.
 
 ---
 
 ## 1. Current commit state
 
 ### Build plan position
-Commit 6 is **done**. Commit 7 is next — see §6 below.
+Commit 6.1 is **done**. Commit 7 is next — see §7 below.
 
 ### Commits shipped this session (reverse chronological)
 
 | SHA | Type | Summary |
 | --- | --- | --- |
-| *(pending)* | ui | Commit 6: HITL UI in `web/`. 4 new files + 2 card images + gitignore + deferred doc update. Smoke-tested end-to-end (25 tool calls, $0.91, full HITL round-trip verified). |
+| `51d2a8b` | ui | Commit 6.1 — nav link to card flow. Single file: `web/app/page.tsx`. `CARD FLOW →` link in home header pointing to `/reconcile-card`. |
+| `3092efa` | ui | Commit 6 — HITL UI in `web/`. 4 new files + 2 card images + gitignore + deferred doc update. Smoke-tested end-to-end (25 tool calls, $0.91, full HITL round-trip verified). |
 | `079fcd1` | docs | SESSION_HANDOFF.md (pre-Commit-6 prep) |
 | `43c4f97` | server | `/reconcile/card` SSE endpoint + HITL corrections POST + session store + 27 tests. |
 | `24c3c12` | agent | System prompt catch-up for per-field extraction schema + 9 tests. |
@@ -46,10 +47,10 @@ Commit 6 is **done**. Commit 7 is next — see §6 below.
 
 **`.gitignore` change:** added `!/cards/demo.jpg` and `!/cards/phase_d_demo.jpg` exceptions.
 
-**`docs/DEFERRED_DOC_UPDATES.md`:** added §3 — nav link from home page (`/`) to `/reconcile-card`. Single-file post-Commit-6 change approved by Ahmed.
+**`docs/DEFERRED_DOC_UPDATES.md`:** §3 (nav link deferred item) was added and then removed in the same session — the nav link shipped as Commit 6.1 before the session closed, so §3 never reached origin.
 
 ### Push state
-`origin/main` is at **`079fcd1`** as of session start. Commit 6 is local-only pending Ahmed's push decision.
+`origin/main` is at **`51d2a8b`** (2026-04-23). Commits 6 and 6.1 are both on origin.
 
 ### What's done vs what's left
 
@@ -58,7 +59,7 @@ Commit 6 is **done**. Commit 7 is next — see §6 below.
 - Strategy and positioning docs (`who-dak-alignment.md`, `dak-mapping-plan.md`).
 - DAK decision answers for 7/12 clinical questions.
 
-**Next (Commit 6):** HITL UI in `web/`. See §6.
+**Next (Commit 7):** Phase E rules engine scaffold. See §7.
 
 **Blocked on user:**
 - `CLINICAL_DECISIONS.md` — physician-authored answers to 5 deferred DAK questions. Phase E rules engine scaffolding can proceed; rule bodies cannot.
@@ -432,23 +433,30 @@ These are identical copies. If the card images are regenerated or replaced, upda
 
 ## 7. Commit 7 — next steps
 
-### 7.1 Deferred items (single-file changes, no design needed)
+### 7.1 Shipped deferred items
 
-| Item | File | Notes |
+| Item | SHA | Notes |
 | --- | --- | --- |
-| Nav link from `/` to `/reconcile-card` | `web/app/page.tsx` | Approved as post-Commit-6 single-file change. See `docs/DEFERRED_DOC_UPDATES.md §3`. |
+| Nav link from `/` to `/reconcile-card` | `51d2a8b` | **DONE.** Shipped as Commit 6.1. `DEFERRED_DOC_UPDATES.md §3` closed. |
 
-### 7.2 Blocked work (awaiting Ahmed)
+### 7.2 Phase E scaffold — Commit 7 target
+
+Phase E rules engine **scaffolding** can proceed without `CLINICAL_DECISIONS.md`. The schema is fully approved in `docs/schema-proposal.md`. Scaffolding scope:
+
+- `api/src/hathor/schemas/recommendation.py` — `Recommendation`, `ValidationResult`, `HITLCorrectionRecord` Pydantic models (triggers deferred doc update #1 in `DEFERRED_DOC_UPDATES.md`)
+- `api/src/hathor/safety/phase_e.py` — `validate()` entry point, rule registry, antigen-code plumbing; rule stubs for Q2/Q4/Q5/Q6/Q11 (no bodies yet)
+- `api/src/hathor/tools/emit_recommendations.py` — `@tool` that wraps `phase_e.validate()`, returns `ValidationResult` list
+- Agent system prompt update for Phase E awareness
+- Tests
+
+Rule bodies for Q2/Q4/Q5/Q6/Q11 cannot be implemented until `CLINICAL_DECISIONS.md` lands.
+
+### 7.3 Blocked work (awaiting Ahmed)
 
 | Item | Blocker |
 | --- | --- |
-| Phase E rules engine scaffold (`rules/engine.py`, `phase_e.py`) | `CLINICAL_DECISIONS.md` — 5 physician-authored answers to Q2/Q4/Q5/Q6/Q11. Scaffolding (registry, `validate()` signature) can proceed; rule bodies cannot. |
-| `emit_recommendations` tool + agent prompt update | Phase E schema approved in `docs/schema-proposal.md §4`. Implementation blocked on Phase E gate. |
+| Rule bodies for Q2, Q4, Q5, Q6, Q11 in `phase_e.py` | `CLINICAL_DECISIONS.md` — 5 physician-authored answers. |
 | Phase 2 STIKO minimum rule set | User bringing to strategist. Not a Phase 1 blocker. |
-
-### 7.3 What to propose to Ahmed first
-
-The nav link is a one-liner and demonstrates Commit 6 is reachable from the demo home page. Propose it as a warm-up before tackling Phase E scaffolding.
 
 ---
 
