@@ -1,4 +1,4 @@
-# SESSION HANDOFF — Pre-Commit-6
+# SESSION HANDOFF — Post-Commit-6
 
 A fresh Claude Code instance should read this cold before doing anything on
 Hathor. Read CLAUDE.md first, then this document. This captures the verbal
@@ -10,24 +10,46 @@ decisions, pitfalls, and scoped next step from the session ending
 ## 1. Current commit state
 
 ### Build plan position
-Commit 6 is **next**. It has been designed but not started. See §6 below.
+Commit 6 is **done**. Commit 7 is next — see §6 below.
 
 ### Commits shipped this session (reverse chronological)
 
 | SHA | Type | Summary |
 | --- | --- | --- |
-| `43c4f97` | server | `/reconcile/card` SSE endpoint + `/reconcile/hitl/{id}/corrections` POST + in-memory session store + 27 tests. **LOCAL ONLY — not pushed** as of handoff. |
-| `24c3c12` | agent | System prompt catch-up for per-field extraction schema + 9 tests. Manually smoke-tested end-to-end with both stub variants. |
-| `6f5c5c1` | tools | `card_extraction.py` STUB migrated to per-field schema, two variants (happy + phase_d demo). 9 tests. |
+| *(pending)* | ui | Commit 6: HITL UI in `web/`. 4 new files + 2 card images + gitignore + deferred doc update. Smoke-tested end-to-end (25 tool calls, $0.91, full HITL round-trip verified). |
+| `079fcd1` | docs | SESSION_HANDOFF.md (pre-Commit-6 prep) |
+| `43c4f97` | server | `/reconcile/card` SSE endpoint + HITL corrections POST + session store + 27 tests. |
+| `24c3c12` | agent | System prompt catch-up for per-field extraction schema + 9 tests. |
+| `6f5c5c1` | tools | `card_extraction.py` STUB migrated to per-field schema. |
 | `a9fad87` | safety | Phase D vision gate implementation + schemas/extraction.py + 8 tests. |
-| `9178e51` | docs | Phase D/E safety loops encoded as CLAUDE.md hard rules; SAFETY_LOOPS.md; dak-questions.md; schema-proposal.md. |
-| `0b79f2f` | docs | WHO DAK alignment strategy + mapping plan. |
-| `5a04e28` | docs | OCR sources reference + .claude gitignore. |
+| `9178e51` | docs | Phase D/E safety loops as hard rules; SAFETY_LOOPS.md; dak-questions.md; schema-proposal.md. |
+
+### Commit 6 — what shipped
+
+**4 new files:**
+
+| File | Purpose |
+| --- | --- |
+| `web/app/reconcile-card/page.tsx` | Card-first reconcile page. SSE stream to `/reconcile/card`. Handles all event types including `hitl_required`. Reasoning collapses with "Paused for review — N field(s) need input" + expandable chevron during HITL. Reasoning re-expands automatically after corrections confirmed. |
+| `web/components/HITLPanel.tsx` | Two-pane HITL review. Left: card image via `next/image`. Right: field queue with FieldRow per item. Expiry countdown. "Confirm all" disabled until all fields resolved. POSTs to `resume_endpoint` from payload. |
+| `web/components/FieldRow.tsx` | Per-field row. Red highlight, confidence %, ambiguity reason. Edit/Keep/Skip toggles. Inline input when Edit selected. |
+| `web/lib/api.ts` | `postCorrections()` typed fetch wrapper. Returns `{ok:true}` or `{ok:false, status:400|404|410, detail}`. Also exports shared types: `HITLQueueItem`, `Correction`, `CorrectionAction`, `HITLRequiredPayload`. |
+
+**2 new card images (checked in, not gitignored):**
+
+| File | Purpose |
+| --- | --- |
+| `cards/phase_d_demo.jpg` + `web/public/card-images/phase_d_demo.jpg` | Synthetic NPHCDA-style Nigerian vaccination card. 4 doses: Hexyon ×3 + MMR ×1. Dose 3 date (`2024-12-1?`) visibly smudged — triggers Phase D HITL gate. |
+| `cards/demo.jpg` + `web/public/card-images/demo.jpg` | Same card, dose 3 date clean (`2024-12-15`). Happy-path stub — no HITL triggered. |
+
+**Note:** Card images live in two places. `cards/` is for server-side path validation (`image_path` field). `web/public/card-images/` is for Next.js static serving (left pane of HITLPanel). Both are identical copies.
+
+**`.gitignore` change:** added `!/cards/demo.jpg` and `!/cards/phase_d_demo.jpg` exceptions.
+
+**`docs/DEFERRED_DOC_UPDATES.md`:** added §3 — nav link from home page (`/`) to `/reconcile-card`. Single-file post-Commit-6 change approved by Ahmed.
 
 ### Push state
-`origin/main` is at **`24c3c12`** as of handoff. Commit `43c4f97` is local-only.
-The user will decide whether to push it before clearing the session. If you
-see `43c4f97` on `origin/main`, they pushed it.
+`origin/main` is at **`079fcd1`** as of session start. Commit 6 is local-only pending Ahmed's push decision.
 
 ### What's done vs what's left
 
@@ -358,162 +380,75 @@ hathor/
 
 ---
 
-## 6. Commit 6 — HITL UI in `web/`
+## 6. Commit 6 — HITL UI in `web/` — **DONE**
 
-Approved in principle by the user. Scope below is specific enough to
-start without another design conversation. **Still confirm file list
-before writing >2 files** (rule 2.1).
+Shipped. Files listed in §1. Smoke-tested end-to-end on 2026-04-23.
 
-### 6.1 Design contract (locked)
+### 6.1 Verified smoke test (2026-04-23)
 
-**Layout:** two-pane.
-- Left pane: card image preview. For the demo (no real image upload
-  yet), show a placeholder. When real vision lands, this becomes the
-  actual card.
-- Right pane: extracted-fields table with per-field editability.
+Commands used:
+```bash
+# Terminal 1 — API server
+cd api && uv run uvicorn hathor.server:app --port 8000
 
-**Per-field rendering:**
-- High-confidence fields (`confidence >= 0.85 AND needs_review == false`):
-  rendered normally, read-only.
-- Low-confidence fields (`confidence < 0.85 OR needs_review == true`):
-  highlighted red; `ambiguity_reason` shown inline as a sub-label or
-  tooltip.
-
-**Per-field controls** (only for low-confidence fields):
-- **Edit** — open an inline input; clinician types the corrected value.
-- **Keep** — accept the extracted value as verified (no input).
-- **Skip** — mark illegible; field will be excluded from reconciliation.
-
-Escalate is a post-hackathon backlog item — not in this commit.
-
-**Top-level "Confirm all" button** — enabled only when every field in
-the HITL queue has a selected action. Disabled otherwise. On click,
-POSTs all corrections together.
-
-### 6.2 SSE event consumption
-
-Client opens `EventSource` on `POST /reconcile/card` body
-`{ image_path, child_dob, target_country, model? }`.
-
-Event types to handle:
-
-| Event | Payload | UI action |
-| --- | --- | --- |
-| `agent_start` | `{model, tools}` | Show "reasoning…" indicator |
-| `thinking` | `{text}` | Optional — show thinking block |
-| `tool_use` | `{index, name, input}` | Optional — show tool-call indicator |
-| `tool_result` | `{index, tool_use_id, result, is_error}` | Optional |
-| `assistant_text` | `{text}` | Append to output area |
-| `final_plan` | `{markdown}` | Render markdown as the final report |
-| `run_complete` | `{tool_call_count, input_tokens, output_tokens, cost_usd?}` | Show stats; close stream |
-| `hitl_required` | see below | Open HITL UI; stream STAYS open |
-| `hitl_timeout` | `{session_id}` | Show timeout error; offer restart |
-| `error` | `{message}` | Show error; close stream |
-
-**`hitl_required` payload (self-documenting):**
-```json
-{
-  "session_id": "<uuid>",
-  "hitl_queue": [
-    {
-      "dose_index": 2,
-      "field_path": "extracted_doses[2].date_administered",
-      "reason": "Day digit is smudged; could be 10, 15, or 18",
-      "extracted": {
-        "value": "2024-12-1?",
-        "confidence": 0.62,
-        "needs_review": true,
-        "ambiguity_reason": "Day digit is smudged; could be 10, 15, or 18"
-      }
-    }
-  ],
-  "resume_endpoint": "/reconcile/hitl/<session_id>/corrections",
-  "expires_at": "2026-04-23T14:15:00+00:00"
-}
+# Terminal 2 — Web dev server
+cd web && npm run dev
 ```
 
-The `resume_endpoint` is authoritative — use it from the payload, don't
-reconstruct client-side.
+Steps run and verified:
 
-### 6.3 Correction POST body
+| Step | Result |
+| --- | --- |
+| Open `http://localhost:3000/reconcile-card` | Page loads; form shows `cards/phase_d_demo.jpg` pre-filled |
+| Click "Reconcile →" | SSE stream opens; status shows "Starting up" |
+| `hitl_required` event arrives | Reasoning bar collapses: "PAUSED FOR REVIEW — 1 FIELD NEED INPUT ▼"; HITL panel appears below |
+| Click ▼ chevron on collapsed bar | Reasoning re-expands mid-review (trust lever confirmed) |
+| Left pane of HITL panel | Card image (`phase_d_demo.jpg`) renders; dose 3 date visibly smudged |
+| Right pane — FieldRow | "DOSE 2 · DATE_ADMINISTERED · 62% confidence" in red; ambiguity reason shown; EDIT / KEEP / SKIP buttons present |
+| Click "Edit", type `2024-12-15` | Inline input opens; "CONFIRM ALL →" transitions from stone to copper |
+| Click "CONFIRM ALL →" | POST to `/reconcile/hitl/{id}/corrections` → 200; HITL panel closes; reasoning re-expands; SSE resumes |
+| Agent runs | 25 tool calls; parallel compute_age, validate_dose, build_catchup |
+| `final_plan` event | Reasoning collapses; "RECONCILIATION REPORT · Catch-up plan" renders |
+| Footer stats | `25 tool calls · 22K input · 11,614 output tokens · $0.9151 · claude-opus-4-7` |
 
-Client POSTs to `event.data.resume_endpoint` with:
+**All 7 smoke-test steps from the original design passed.**
 
-```json
-{
-  "corrections": [
-    {
-      "field_path": "extracted_doses[2].date_administered",
-      "action": "edit",
-      "corrected_value": "2024-12-15"
-    }
-  ]
-}
-```
+### 6.2 Known limitation: mobile layout
 
-Rules (enforced server-side, should be prevented client-side too):
-- Every `field_path` in the queue must appear in `corrections` **exactly
-  once**. No missing, no duplicates, no extras.
-- `action=edit` requires non-empty `corrected_value`.
-- `action=keep` and `action=skip` must NOT include `corrected_value`.
+At viewport < ~768px the two-pane HITLPanel grid overflows horizontally.
+Mobile optimization is explicitly out of scope for Commit 6 (see original §6.8).
+Track as a post-hackathon polish item.
 
-### 6.4 Response handling
+### 6.3 Card images — two-copy design
 
-| Status | Meaning | UI action |
+Card images live in two places intentionally:
+
+- `cards/{demo,phase_d_demo}.jpg` — server-side (path-validated by `_validate_image_path`)
+- `web/public/card-images/{demo,phase_d_demo}.jpg` — client-side (Next.js static serving at `/card-images/...`)
+
+These are identical copies. If the card images are regenerated or replaced, update both locations.
+
+---
+
+## 7. Commit 7 — next steps
+
+### 7.1 Deferred items (single-file changes, no design needed)
+
+| Item | File | Notes |
 | --- | --- | --- |
-| 200 | Corrections accepted | Close HITL panel; continue consuming SSE |
-| 400 | Malformed corrections (`detail` body has reason) | Show inline error; let clinician fix and resubmit |
-| 404 | Unknown `session_id` | Show error; offer restart |
-| 410 | Session expired | Show error; offer restart |
+| Nav link from `/` to `/reconcile-card` | `web/app/page.tsx` | Approved as post-Commit-6 single-file change. See `docs/DEFERRED_DOC_UPDATES.md §3`. |
 
-### 6.5 Tech choices
+### 7.2 Blocked work (awaiting Ahmed)
 
-- `web/` is Next.js (existing Day 3/4 work). Read
-  `web/package.json` first to confirm React version, Tailwind, etc.
-- Check for an existing SSE consumer in `web/` for `/reconcile-stream` —
-  if present, reuse the pattern. If not, use browser's native
-  `EventSource` for the SSE stream and `fetch()` for the correction POST.
-- Keep it minimal. This is a hackathon UI, not a design-studio piece.
+| Item | Blocker |
+| --- | --- |
+| Phase E rules engine scaffold (`rules/engine.py`, `phase_e.py`) | `CLINICAL_DECISIONS.md` — 5 physician-authored answers to Q2/Q4/Q5/Q6/Q11. Scaffolding (registry, `validate()` signature) can proceed; rule bodies cannot. |
+| `emit_recommendations` tool + agent prompt update | Phase E schema approved in `docs/schema-proposal.md §4`. Implementation blocked on Phase E gate. |
+| Phase 2 STIKO minimum rule set | User bringing to strategist. Not a Phase 1 blocker. |
 
-### 6.6 Likely files to create/modify
+### 7.3 What to propose to Ahmed first
 
-| File | Type | Purpose |
-| --- | --- | --- |
-| `web/app/reconcile-card/page.tsx` | new | The card-reconcile flow page (route). |
-| `web/components/HITLPanel.tsx` | new | Two-pane component with Edit/Keep/Skip controls. |
-| `web/components/FieldRow.tsx` | new | Per-field rendering with low-confidence styling. |
-| `web/lib/sse.ts` | new or extend | SSE client helper if not already present. |
-| `web/lib/api.ts` | new or extend | Typed wrapper for the correction POST. |
-
-Over-2-files → describe-then-ask per 2.1.
-
-### 6.7 Verification plan
-
-- Type-check: `npm run typecheck` (or the equivalent for this project).
-- Lint: whatever `web/package.json` declares.
-- Unit tests: IF the web project has a test setup (check `package.json`
-  scripts), add minimal tests for the correction-action → POST body
-  mapping. If not, don't add a testing framework for this commit —
-  propose it as a follow-up.
-- Manual smoke test (user's cadence, per 2.7):
-  1. Start API server: `uv run uvicorn hathor.server:app --reload` from `api/`.
-  2. Start web dev server from `web/`.
-  3. Open the new page.
-  4. Trigger with `image_path=cards/phase_d_demo.jpg`.
-  5. Verify: HITL panel opens with one field flagged (dose 3 date).
-  6. Pick Edit; enter `2024-12-15`; click Confirm all.
-  7. Verify: HITL panel closes, SSE stream resumes, final markdown plan
-     renders.
-
-### 6.8 Out of scope for Commit 6
-
-- Real card image upload (multipart). Stays as `image_path: str` until
-  real vision lands.
-- Phase E wiring (blocked on `CLINICAL_DECISIONS.md`).
-- Mobile optimization.
-- Auth.
-- Escalate action (post-hackathon backlog).
-- UI polish beyond clarity.
+The nav link is a one-liner and demonstrates Commit 6 is reachable from the demo home page. Propose it as a warm-up before tackling Phase E scaffolding.
 
 ---
 
