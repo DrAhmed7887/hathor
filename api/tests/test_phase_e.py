@@ -1,15 +1,17 @@
-"""Tests for Phase E rules engine — 4 implemented rules.
+"""Tests for Phase E rules engine — 6 implemented rules.
 
 Covers:
   HATHOR-AGE-001  min_age_valid           (dose_verdict + due/overdue paths)
   HATHOR-DOSE-001 max_dose_count
   HATHOR-DOSE-002 min_interval_met
   HATHOR-AGE-002  antigen_in_scope
+  HATHOR-EPI-001  component_antigen_satisfaction   (Q2 — combination vaccines)
+  HATHOR-DOSE-003 acip_grace_period               (Q4 — ACIP 4-day grace)
   Stub rules      return None (no result)
   validate()      supersession engine
   gate()          has_failures flag
 
-Stub rules (Q2/Q4/Q5/Q6/Q11) are tested only for None return — no bodies yet.
+Stub rules (Q5/Q6/Q11) are tested only for None return — no bodies yet.
 """
 
 import unittest
@@ -18,14 +20,15 @@ from datetime import date
 from hathor.safety.phase_e import (
     COMBINATION_COMPONENTS,
     ClinicalContext,
+    GRACE_PERIOD_DAYS,
     PhaseEOutput,
     PHASE1_ANTIGENS,
+    _rule_acip_grace_period,
     _rule_antigen_in_scope,
     _rule_component_antigen_satisfaction,
     _rule_max_dose_count,
     _rule_min_age_valid,
     _rule_min_interval_met,
-    _stub_acip_grace_period,
     _stub_contraindication_source_conflict,
     _stub_live_vaccine_coadmin,
     _stub_rotavirus_age_cutoff,
@@ -449,6 +452,200 @@ class TestComponentAntigenSatisfaction(unittest.TestCase):
         self.assertNotIn("IPV", COMBINATION_COMPONENTS["Pentavalent"])
 
 
+# ── HATHOR-DOSE-003 — acip_grace_period ──────────────────────────────────────
+
+
+class TestGracePeriod(unittest.TestCase):
+    """ACIP 4-day grace period — Q4 physician decision implemented."""
+
+    # Helpers: MMR dose 2 interval scenarios
+    # MMR standard_min_days = 28 (ACIP default; Egypt schedule has no explicit
+    # MMR-to-MMR interval rule, so ACIP 28-day default applies).
+    _DOB = date(2024, 1, 1)
+    _DOSE1_DATE = "2025-02-01"  # well past MMR dose 1 age minimum (360 days)
+
+    def _mmr_dose2_ctx(self, dose2_date: str) -> ClinicalContext:
+        return _ctx(
+            child_dob=self._DOB,
+            confirmed_doses=[
+                {"antigen": "MMR", "date_administered": self._DOSE1_DATE, "dose_number": 1},
+                {"antigen": "MMR", "date_administered": dose2_date, "dose_number": 2},
+            ],
+        )
+
+    def _mmr_dose2_rec(self) -> Recommendation:
+        return _rec(antigen="MMR", dose_number=2, kind="dose_verdict", source_dose_indices=[0, 1])
+
+    # ── Interval grace ────────────────────────────────────────────────────────
+
+    def test_interval_grace_applies_at_4_days_short(self):
+        # 24-day interval, min 28, shortfall 4 ≤ GRACE_PERIOD_DAYS → pass
+        ctx = self._mmr_dose2_ctx("2025-02-25")  # 24 days after dose 1
+        rec = self._mmr_dose2_rec()
+        result = _rule_acip_grace_period(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertEqual(result.rule_id, "HATHOR-DOSE-003")
+        self.assertEqual(result.rule_slug, "acip_grace_period")
+        self.assertEqual(result.supersedes, "HATHOR-DOSE-002")
+        self.assertIn("grace", result.rule_rationale)
+        self.assertIn("4 day(s)", result.rule_rationale)
+
+    def test_interval_grace_applies_at_1_day_short(self):
+        # 27-day interval, shortfall 1 → also within grace
+        ctx = self._mmr_dose2_ctx("2025-02-28")  # 27 days after dose 1
+        rec = self._mmr_dose2_rec()
+        result = _rule_acip_grace_period(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertEqual(result.supersedes, "HATHOR-DOSE-002")
+        self.assertIn("1 day(s)", result.rule_rationale)
+
+    def test_interval_grace_does_not_apply_at_5_days_short(self):
+        # 23-day interval, shortfall 5 > GRACE_PERIOD_DAYS → None (outside grace)
+        ctx = self._mmr_dose2_ctx("2025-02-24")  # 23 days after dose 1
+        rec = self._mmr_dose2_rec()
+        self.assertIsNone(_rule_acip_grace_period(rec, ctx))
+
+    def test_interval_no_violation_returns_none(self):
+        # 28-day interval, shortfall 0 — no violation; grace does not apply
+        ctx = self._mmr_dose2_ctx("2025-03-01")  # exactly 28 days after dose 1
+        rec = self._mmr_dose2_rec()
+        self.assertIsNone(_rule_acip_grace_period(rec, ctx))
+
+    def test_interval_exceeds_minimum_returns_none(self):
+        # 35-day interval — well within schedule; nothing for grace to do
+        ctx = self._mmr_dose2_ctx("2025-03-08")  # 35 days after dose 1
+        rec = self._mmr_dose2_rec()
+        self.assertIsNone(_rule_acip_grace_period(rec, ctx))
+
+    # ── Age grace ─────────────────────────────────────────────────────────────
+
+    # Egypt min for MMR dose 1 = 12 months × 30 = 360 days.
+    # Child DOB 2024-01-01. 360 days later = 2024-12-26.
+    # Within grace: 356 days (shortfall 4) = 2024-12-22.
+    # Outside grace: 355 days (shortfall 5) = 2024-12-21.
+
+    def test_age_grace_applies_at_4_days_short(self):
+        # 356 days old (min 360, shortfall 4 ≤ GRACE_PERIOD_DAYS) → pass
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[{"antigen": "MMR", "date_administered": "2024-12-22", "dose_number": 1}],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        result = _rule_acip_grace_period(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertEqual(result.rule_id, "HATHOR-DOSE-003")
+        self.assertEqual(result.supersedes, "HATHOR-AGE-001")
+        self.assertIn("grace", result.rule_rationale)
+
+    def test_age_grace_applies_at_1_day_short(self):
+        # 359 days old (shortfall 1) → within grace
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[{"antigen": "MMR", "date_administered": "2024-12-25", "dose_number": 1}],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        result = _rule_acip_grace_period(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertEqual(result.supersedes, "HATHOR-AGE-001")
+
+    def test_age_grace_does_not_apply_at_5_days_short(self):
+        # 355 days old (shortfall 5 > GRACE_PERIOD_DAYS) → None
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[{"antigen": "MMR", "date_administered": "2024-12-21", "dose_number": 1}],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        self.assertIsNone(_rule_acip_grace_period(rec, ctx))
+
+    def test_age_no_violation_returns_none(self):
+        # 360 days old (exactly at minimum, shortfall 0) — no violation
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[{"antigen": "MMR", "date_administered": "2024-12-26", "dose_number": 1}],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        self.assertIsNone(_rule_acip_grace_period(rec, ctx))
+
+    def test_birth_dose_exception_no_age_grace(self):
+        """Grace does not apply when effective_min_age ≤ 28 (birth-dose antigens)."""
+        from hathor.safety import phase_e as pe_mod
+        original = dict(pe_mod._EG_MIN_AGE_DAYS)
+        try:
+            # Inject a birth-dose-like antigen with min_age = 14 days
+            pe_mod._EG_MIN_AGE_DAYS[("BirthTestAntigen", 1)] = 14
+            ctx = _ctx(
+                child_dob=date(2024, 1, 1),
+                confirmed_doses=[
+                    {"antigen": "BirthTestAntigen", "date_administered": "2024-01-12", "dose_number": 1}
+                ],
+            )
+            rec = _rec(
+                antigen="BirthTestAntigen", dose_number=1, kind="dose_verdict",
+                source_dose_indices=[0],
+            )
+            # Age = 11 days, min = 14 days, shortfall = 3 (within grace range)
+            # BUT min_age ≤ 28 → birth-dose exception → must return None
+            result = _rule_acip_grace_period(rec, ctx)
+            self.assertIsNone(result)
+        finally:
+            pe_mod._EG_MIN_AGE_DAYS.clear()
+            pe_mod._EG_MIN_AGE_DAYS.update(original)
+
+    # ── Kind guard ────────────────────────────────────────────────────────────
+
+    def test_not_applicable_for_non_dose_verdict(self):
+        ctx = _ctx()
+        for kind in ("due", "overdue", "catchup_visit", "contra"):
+            with self.subTest(kind=kind):
+                rec = _rec(antigen="MMR", dose_number=1, kind=kind)
+                self.assertIsNone(_rule_acip_grace_period(rec, ctx))
+
+    def test_not_applicable_for_none_dose_number(self):
+        ctx = _ctx()
+        rec = _rec(antigen="MMR", dose_number=None, kind="dose_verdict")
+        self.assertIsNone(_rule_acip_grace_period(rec, ctx))
+
+    # ── Grace period constant ─────────────────────────────────────────────────
+
+    def test_grace_period_days_constant(self):
+        self.assertEqual(GRACE_PERIOD_DAYS, 4)
+
+    # ── End-to-end gate() supersession with real DOSE-003 rule ───────────────
+
+    def test_real_dose003_supersedes_dose002_in_gate(self):
+        """gate() moves HATHOR-DOSE-002 fail to superseded when DOSE-003 grace applies."""
+        from hathor.safety import phase_e as pe_mod
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[
+                {"antigen": "MMR", "date_administered": "2025-02-01", "dose_number": 1},
+                {"antigen": "MMR", "date_administered": "2025-02-25", "dose_number": 2},  # 24 days < 28
+            ],
+        )
+        rec = _rec(
+            antigen="MMR", dose_number=2, kind="dose_verdict",
+            source_dose_indices=[0, 1], rec_id="rec-grace-e2e",
+        )
+        original = pe_mod._RULE_REGISTRY[:]
+        try:
+            # Isolate to just the two rules under test to avoid EPI-001 noise
+            pe_mod._RULE_REGISTRY = [pe_mod._rule_min_interval_met, pe_mod._rule_acip_grace_period]
+            output = gate([rec], ctx)
+        finally:
+            pe_mod._RULE_REGISTRY = original
+
+        superseded_ids = {r.rule_id for r in output.superseded}
+        active_ids = {r.rule_id for r in output.active}
+        self.assertIn("HATHOR-DOSE-002", superseded_ids, "DOSE-002 fail must be superseded")
+        self.assertIn("HATHOR-DOSE-003", active_ids, "DOSE-003 pass must be active")
+        self.assertNotIn("HATHOR-DOSE-002", active_ids)
+        self.assertFalse(output.has_failures)
+
+
 # ── Stub rules return None ────────────────────────────────────────────────────
 
 
@@ -457,9 +654,6 @@ class TestStubRulesReturnNone(unittest.TestCase):
     def setUp(self):
         self.rec = _rec()
         self.ctx = _ctx()
-
-    def test_acip_grace_period_stub(self):
-        self.assertIsNone(_stub_acip_grace_period(self.rec, self.ctx))
 
     def test_live_vaccine_coadmin_stub(self):
         self.assertIsNone(_stub_live_vaccine_coadmin(self.rec, self.ctx))

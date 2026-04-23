@@ -4,14 +4,14 @@ Validates agent-emitted Recommendation objects against deterministic clinical ru
 before they reach the clinician UI or the FHIR bundle. No LLM calls. No hardcoded
 pipeline. This is the output boundary gate.
 
-Rule registry (9 rules — 4 implemented, 5 stubs):
+Rule registry (9 rules — 6 implemented, 3 stubs):
 
   HATHOR-AGE-001    min_age_valid                       IMPLEMENTED
   HATHOR-DOSE-001   max_dose_count                      IMPLEMENTED
   HATHOR-DOSE-002   min_interval_met                    IMPLEMENTED
   HATHOR-AGE-002    antigen_in_scope                    IMPLEMENTED
-  HATHOR-EPI-001    component_antigen_satisfaction      STUB (Q2 — CLINICAL_DECISIONS.md)
-  HATHOR-DOSE-003   acip_grace_period                   STUB (Q4 — CLINICAL_DECISIONS.md)
+  HATHOR-EPI-001    component_antigen_satisfaction      IMPLEMENTED (Q2)
+  HATHOR-DOSE-003   acip_grace_period                   IMPLEMENTED (Q4)
   HATHOR-EPI-002    live_vaccine_coadmin                STUB (Q5 — CLINICAL_DECISIONS.md)
   HATHOR-AGE-003    rotavirus_age_cutoff                STUB (Q6 — CLINICAL_DECISIONS.md)
   HATHOR-CONTRA-001 contraindication_source_conflict    STUB (Q11 — CLINICAL_DECISIONS.md)
@@ -71,6 +71,14 @@ _EG_INTERVALS: dict[tuple[str, int, int], int] = {
     (r["antigen"], r["from_dose"], r["to_dose"]): r["minimum_interval_days"]
     for r in _EGYPT.get("interval_rules", [])
 }
+
+# ── ACIP 4-day grace period constant (Q4 — resolved) ─────────────────────────
+
+#: Doses administered 1–GRACE_PERIOD_DAYS days before the minimum age or minimum
+#: interval are counted as valid. Doses 5+ days early must be repeated.
+#: Exception: birth-dose antigens where effective_min_age ≤ 28 days.
+#: See docs/CLINICAL_DECISIONS.md Q4 for full clinical rationale.
+GRACE_PERIOD_DAYS: int = 4
 
 # ── Phase 1 antigen scope (Q7 — resolved) ─────────────────────────────────────
 
@@ -316,8 +324,7 @@ def _rule_min_interval_met(rec: Recommendation, ctx: ClinicalContext) -> Validat
         rule_rationale=(
             f"Interval of {actual_interval} days is below the {min_interval}-day minimum "
             f"for {rec.antigen} doses {from_dose}→{rec.dose_number} ({source}). "
-            "Dose may need to be repeated. HATHOR-DOSE-003 (ACIP grace period) is "
-            "deferred pending CLINICAL_DECISIONS.md Q4."
+            "Dose may need to be repeated; HATHOR-DOSE-003 will assess ACIP 4-day grace."
         ),
     )
 
@@ -490,22 +497,138 @@ def _rule_component_antigen_satisfaction(rec: Recommendation, ctx: ClinicalConte
     )
 
 
-def _stub_acip_grace_period(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
-    """HATHOR-DOSE-003 — acip_grace_period — STUB.
+def _rule_acip_grace_period(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
+    """HATHOR-DOSE-003 — acip_grace_period.
 
-    Blocked on Q4 (CLINICAL_DECISIONS.md): determines whether a dose administered
-    within 4 days of the minimum age or minimum interval qualifies as valid under
-    ACIP grace semantics.
+    Doses administered 1–4 days before the minimum age or minimum interval are
+    counted as valid under the ACIP 4-day grace period (``GRACE_PERIOD_DAYS``).
+    Doses 5+ days early must be repeated.
 
-    When implemented, this rule supersedes HATHOR-DOSE-002 (min_interval_met) by
-    returning a result with ``supersedes="HATHOR-DOSE-002"`` when grace applies.
-    Example:
-        return ValidationResult(
-            ..., severity="pass", rule_id="HATHOR-DOSE-003",
-            supersedes="HATHOR-DOSE-002",
-        )
+    Supersession semantics:
+    - Interval shortfall 1–4 days: returns pass, supersedes="HATHOR-DOSE-002".
+    - Age shortfall 1–4 days (and effective_min_age > 28): returns pass,
+      supersedes="HATHOR-AGE-001".
+    - Interval supersession takes priority. When both age and interval are
+      simultaneously within the grace window, only interval grace fires — the age
+      fail (HATHOR-AGE-001) remains active. This is a known design limitation;
+      clinician override is the resolution path. See CLINICAL_DECISIONS.md Q4.
+
+    Birth-dose exception: the grace period does NOT apply when the Egypt-schedule
+    effective minimum age for (antigen, dose_number) is ≤ 28 days. This covers
+    birth-dose HepB and BCG. Strict minimums apply for neonatal immunology reasons.
+
+    Chained grace: actual administration dates are used throughout (not notional
+    "earliest valid" dates), so grace does not compound across a series.
+
+    Returns None when:
+    - rec.kind is not "dose_verdict"
+    - No violation exists (actual interval/age meets or exceeds the minimum)
+    - Shortfall exceeds GRACE_PERIOD_DAYS (dose must be repeated; fail stands)
+    - Insufficient data to compute the shortfall (missing dates or indices)
+
+    See docs/CLINICAL_DECISIONS.md Q4 for the full clinical rationale.
     """
-    return None  # Q4 deferred — no-op until CLINICAL_DECISIONS.md lands
+    if rec.kind != "dose_verdict":
+        return None
+    if rec.dose_number is None:
+        return None
+
+    # ── Interval grace (supersedes HATHOR-DOSE-002) ───────────────────────────
+    # Mirrors _rule_min_interval_met: use source_dose_indices[-1] / [-2] for
+    # current and prior doses so both rules evaluate the identical interval.
+    if rec.dose_number >= 2 and len(rec.source_dose_indices) >= 2:
+        current_idx = rec.source_dose_indices[-1]
+        prior_idx = rec.source_dose_indices[-2]
+
+        if current_idx < len(ctx.confirmed_doses) and prior_idx < len(ctx.confirmed_doses):
+            current_date_str = ctx.confirmed_doses[current_idx].get("date_administered")
+            prior_date_str = ctx.confirmed_doses[prior_idx].get("date_administered")
+
+            if current_date_str and prior_date_str:
+                try:
+                    current_date = datetime.fromisoformat(current_date_str).date()
+                    prior_date = datetime.fromisoformat(prior_date_str).date()
+                    actual_interval = (current_date - prior_date).days
+                    from_dose = rec.dose_number - 1
+
+                    # Egypt interval rules (Q3 — preferred); fall back to ACIP default
+                    eg_key = (rec.antigen, from_dose, rec.dose_number)
+                    if eg_key in _EG_INTERVALS:
+                        min_interval = _EG_INTERVALS[eg_key]
+                        source = "Egypt EPI schedule"
+                    else:
+                        rule_entry = INTERVAL_RULES.get(rec.antigen, {})
+                        min_interval = rule_entry.get("standard_min_days", 28)
+                        source = rule_entry.get("source", "ACIP default")
+
+                    interval_shortfall = min_interval - actual_interval
+                    if 0 < interval_shortfall <= GRACE_PERIOD_DAYS:
+                        return ValidationResult(
+                            recommendation_id=rec.recommendation_id,
+                            severity="pass",
+                            rule_id="HATHOR-DOSE-003",
+                            rule_slug="acip_grace_period",
+                            rule_rationale=(
+                                f"Interval of {actual_interval} days is {interval_shortfall} day(s) "
+                                f"short of the {min_interval}-day minimum for {rec.antigen} "
+                                f"doses {from_dose}→{rec.dose_number} ({source}). "
+                                f"Within the ACIP {GRACE_PERIOD_DAYS}-day grace window — "
+                                "dose counts as valid."
+                            ),
+                            supersedes="HATHOR-DOSE-002",
+                        )
+                    # interval_shortfall ≤ 0: no interval violation; fall through to age check.
+                    # interval_shortfall > GRACE_PERIOD_DAYS: outside grace; DOSE-002 fail
+                    # stands. Still fall through — age may independently be within grace.
+                except ValueError:
+                    pass
+
+    # ── Age grace (supersedes HATHOR-AGE-001) ────────────────────────────────
+    # Mirrors _rule_min_age_valid index convention: source_dose_indices[0] for the
+    # dose being evaluated in a dose_verdict context.
+    if rec.source_dose_indices:
+        idx = rec.source_dose_indices[0]
+        if idx < len(ctx.confirmed_doses):
+            date_str = ctx.confirmed_doses[idx].get("date_administered")
+            if date_str:
+                try:
+                    dose_date = datetime.fromisoformat(date_str).date()
+                    age_days = (dose_date - ctx.child_dob).days
+
+                    # Egypt min age (Q3 — preferred); fall back to ACIP/DAK default
+                    eg_key = (rec.antigen, rec.dose_number)
+                    if eg_key in _EG_MIN_AGE_DAYS:
+                        effective_min_age = _EG_MIN_AGE_DAYS[eg_key]
+                        age_source = "Egypt EPI schedule"
+                    else:
+                        effective_min_age = MIN_AGE_DAYS.get(rec.antigen, 42)
+                        age_source = "ACIP/DAK default"
+
+                    # Birth-dose exception: grace does not apply for min age ≤ 28 days.
+                    if effective_min_age <= 28:
+                        return None
+
+                    age_shortfall = effective_min_age - age_days
+                    if 0 < age_shortfall <= GRACE_PERIOD_DAYS:
+                        return ValidationResult(
+                            recommendation_id=rec.recommendation_id,
+                            severity="pass",
+                            rule_id="HATHOR-DOSE-003",
+                            rule_slug="acip_grace_period",
+                            rule_rationale=(
+                                f"Age of {age_days} days is {age_shortfall} day(s) below "
+                                f"the {effective_min_age}-day minimum for {rec.antigen} "
+                                f"dose {rec.dose_number} ({age_source}). "
+                                f"Within the ACIP {GRACE_PERIOD_DAYS}-day grace window — "
+                                "dose counts as valid."
+                            ),
+                            supersedes="HATHOR-AGE-001",
+                        )
+                    # age_shortfall ≤ 0: no age violation; > GRACE_PERIOD_DAYS: outside grace.
+                except ValueError:
+                    pass
+
+    return None
 
 
 def _stub_live_vaccine_coadmin(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
@@ -558,7 +681,7 @@ _RULE_REGISTRY: list[RuleFn] = [
     _rule_min_interval_met,
     _rule_antigen_in_scope,
     _rule_component_antigen_satisfaction,   # Q2 — IMPLEMENTED
-    _stub_acip_grace_period,                # Q4 — STUB
+    _rule_acip_grace_period,               # Q4 — IMPLEMENTED
     _stub_live_vaccine_coadmin,             # Q5 — STUB
     _stub_rotavirus_age_cutoff,             # Q6 — STUB
     _stub_contraindication_source_conflict, # Q11 — STUB

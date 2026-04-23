@@ -1,6 +1,6 @@
 # DAK Clinical Questions — Ahmed's Decisions
 
-Reviewed 2026-04-23. Eight resolved; four deferred to the physician-authored
+Reviewed 2026-04-23. Nine resolved; three deferred to the physician-authored
 `CLINICAL_DECISIONS.md`. **Do not implement rule bodies for deferred topics until
 their entry appears in `CLINICAL_DECISIONS.md`.**
 
@@ -35,11 +35,14 @@ as informational note.
 
 ---
 
-## Q4. ACIP 4-day grace — DEFERRED
-Physician-authored decision. Pending `CLINICAL_DECISIONS.md`.
+## Q4. ACIP 4-day grace — RESOLVED
+**Decision:** see `docs/CLINICAL_DECISIONS.md` Q4. Doses 1–4 days early are valid;
+5+ days early must be repeated. Exception: antigens with minimum age ≤ 28 days
+(birth-dose HepB, BCG). Chained grace uses actual dates.
 
-**Do not implement:** rule logic in `intervals.py` that depends on 4-day grace
-semantics. The current system-prompt behavior stands until the decision is made.
+**Implemented as:** `HATHOR-DOSE-003` (`_rule_acip_grace_period`) in
+`api/src/hathor/safety/phase_e.py`. Supersedes `HATHOR-DOSE-002` for interval
+grace and `HATHOR-AGE-001` for age grace when shortfall is 1–4 days.
 
 ---
 
@@ -119,7 +122,6 @@ as `NotImplementedError` (or absent) until the follow-up conversation.
 ## Deferred summary
 
 Blocked on `CLINICAL_DECISIONS.md`:
-- Q4 ACIP 4-day grace (HATHOR-DOSE-003)
 - Q5 Live vaccine co-administration (HATHOR-EPI-002)
 - Q6 Rotavirus age cutoffs (HATHOR-AGE-003)
 - Q11 Contraindication source-of-truth conflicts (HATHOR-CONTRA-001)

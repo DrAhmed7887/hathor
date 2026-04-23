@@ -14,23 +14,11 @@ from datetime import date
 
 from claude_agent_sdk import tool
 
-from hathor.safety.phase_e import ClinicalContext, gate
+# NOTE: hathor.safety.phase_e is NOT imported at module level.
+# phase_e.py imports from hathor.tools.dose_validation, which triggers
+# hathor/tools/__init__.py, which imports this module → circular import.
+# Deferring the import to inside the function body breaks the cycle.
 from hathor.schemas.recommendation import Recommendation, ValidationResult
-
-
-def _parse_context(ctx_dict: dict) -> ClinicalContext:
-    dob_str = ctx_dict.get("child_dob", "")
-    try:
-        child_dob = date.fromisoformat(dob_str)
-    except (ValueError, TypeError):
-        raise ValueError(
-            f"clinical_context.child_dob must be ISO date (YYYY-MM-DD), got: {dob_str!r}"
-        )
-    return ClinicalContext(
-        child_dob=child_dob,
-        target_country=ctx_dict.get("target_country", "Egypt"),
-        confirmed_doses=ctx_dict.get("confirmed_doses", []),
-    )
 
 
 def _serialize_result(r: ValidationResult) -> dict:
@@ -69,14 +57,34 @@ def _serialize_result(r: ValidationResult) -> dict:
     },
 )
 async def emit_recommendations(args: dict) -> dict:
+    # Deferred import — must stay inside the function to avoid circular import.
+    # See module-level comment above.
+    from hathor.safety.phase_e import ClinicalContext, gate
+
     raw_recs: list = args.get("recommendations", [])
     ctx_dict: dict = args.get("clinical_context", {})
 
-    # Parse clinical context
+    # Build clinical context
+    dob_str = ctx_dict.get("child_dob", "")
     try:
-        ctx = _parse_context(ctx_dict)
-    except ValueError as e:
-        return {"content": [{"type": "text", "text": json.dumps({"error": str(e)})}]}
+        child_dob = date.fromisoformat(dob_str)
+    except (ValueError, TypeError):
+        return {
+            "content": [{
+                "type": "text",
+                "text": json.dumps({
+                    "error": (
+                        f"clinical_context.child_dob must be ISO date (YYYY-MM-DD), "
+                        f"got: {dob_str!r}"
+                    )
+                }),
+            }]
+        }
+    ctx = ClinicalContext(
+        child_dob=child_dob,
+        target_country=ctx_dict.get("target_country", "Egypt"),
+        confirmed_doses=ctx_dict.get("confirmed_doses", []),
+    )
 
     # Validate each recommendation dict against the Recommendation schema
     recommendations: list[Recommendation] = []
