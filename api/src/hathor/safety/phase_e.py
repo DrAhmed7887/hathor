@@ -76,6 +76,35 @@ _EG_INTERVALS: dict[tuple[str, int, int], int] = {
 
 #: Antigens present in the Nigerian + Egyptian EPI schedules (Phase 1 scope).
 #: Recommendations about antigens outside this set trigger HATHOR-AGE-002 (fail).
+# ── Combination vaccine component map (Q2 — resolved) ─────────────────────────
+
+#: Canonical antigen → ordered list of component antigens it satisfies.
+#: "DPT" is the wP/aP-normalized pertussis token (see _normalize_pertussis).
+#: All entries represent WHO-prequalified combination categories.
+COMBINATION_COMPONENTS: dict[str, list[str]] = {
+    "Hexavalent":  ["DPT", "HepB", "Hib", "IPV"],       # DTaP or DTPw + HepB + Hib + IPV
+    "Pentavalent": ["DPT", "HepB", "Hib"],               # Nigerian EPI 5-in-1; no IPV
+    "MMR":         ["Measles", "Mumps", "Rubella"],
+    "MR":          ["Measles", "Rubella"],
+    "MMRV":        ["Measles", "Mumps", "Rubella", "Varicella"],
+}
+
+
+def _normalize_pertussis(antigen: str) -> str:
+    """Normalize wP (DPT) and aP (DTaP, DT) variants to a single token.
+
+    Per Q2 decision: wP and aP are interchangeable for primary series completion.
+    The engine uses "DPT" as the canonical pertussis token for age/interval lookups
+    because Egypt's EPI uses DTPw whole-cell — the normalized token matches the
+    Egypt schedule keys.
+    """
+    return "DPT" if antigen in ("DTaP", "DT") else antigen
+
+
+# ── Phase 1 antigen scope (Q7 — resolved) ─────────────────────────────────────
+
+#: Antigens present in the Nigerian + Egyptian EPI schedules (Phase 1 scope).
+#: Recommendations about antigens outside this set trigger HATHOR-AGE-002 (fail).
 PHASE1_ANTIGENS: frozenset[str] = frozenset({
     # Egypt EPI (compulsory + recommended)
     "HepB", "BCG", "OPV", "Hexavalent", "MMR", "DTaP", "DT", "PCV", "Varicella",
@@ -330,15 +359,135 @@ def _rule_antigen_in_scope(rec: Recommendation, ctx: ClinicalContext) -> Validat
 # ── Stub rules ────────────────────────────────────────────────────────────────
 
 
-def _stub_component_antigen_satisfaction(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
-    """HATHOR-EPI-001 — component_antigen_satisfaction — STUB.
+def _rule_component_antigen_satisfaction(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
+    """HATHOR-EPI-001 — component_antigen_satisfaction.
 
-    Blocked on Q2 (CLINICAL_DECISIONS.md): when a combined vaccine (e.g. MMR) was
-    given in the source country, determines whether individual component antigens
-    (Measles, Mumps, Rubella) satisfy the destination schedule's monovalent or
-    partial-combination requirements.
+    A combination vaccine dose satisfies the destination schedule's per-component
+    requirements when: (1) the product is a known WHO-prequalified combination
+    (identified by membership in COMBINATION_COMPONENTS), (2) the dose was
+    administered at or after the combination's minimum age in the Egypt EPI schedule,
+    (3) the interval to the prior dose meets the Egypt or ACIP/DAK minimum.
+
+    wP (DPT) and aP (DTaP) are interchangeable per Q2 (CLINICAL_DECISIONS.md).
+    Pertussis variants are normalized via _normalize_pertussis before schedule lookups.
+
+    Applies to: dose_verdict on known combination antigens (Hexavalent, Pentavalent,
+    MMR, MR, MMRV). Returns None for monovalent antigens and unknown combinations.
+    HATHOR-AGE-001 and HATHOR-DOSE-002 validate the same dose independently;
+    this rule adds per-combination WHO-prequalification check and wP/aP semantics.
+
+    See docs/CLINICAL_DECISIONS.md Q2 for the full clinical rationale.
     """
-    return None  # Q2 deferred — no-op until CLINICAL_DECISIONS.md lands
+    if rec.kind != "dose_verdict":
+        return None
+
+    components = COMBINATION_COMPONENTS.get(rec.antigen)
+    if components is None:
+        return None  # monovalent or unknown combination — other rules handle this
+
+    if rec.dose_number is None or not rec.source_dose_indices:
+        return None
+
+    # Current dose is always the last source index; prior dose (for interval) is second-to-last.
+    current_idx = rec.source_dose_indices[-1]
+    if current_idx >= len(ctx.confirmed_doses):
+        return None
+
+    date_str = ctx.confirmed_doses[current_idx].get("date_administered")
+    if not date_str:
+        return None
+
+    try:
+        dose_date = datetime.fromisoformat(date_str).date()
+    except ValueError:
+        return None
+
+    age_days = (dose_date - ctx.child_dob).days
+
+    # Min age: use combination's Egypt-schedule minimum (Q3); fall back to
+    # the maximum component minimum (ACIP/DAK) with wP/aP normalization.
+    eg_comb_key = (rec.antigen, rec.dose_number)
+    if eg_comb_key in _EG_MIN_AGE_DAYS:
+        effective_min_age = _EG_MIN_AGE_DAYS[eg_comb_key]
+        age_source = "Egypt EPI schedule"
+    else:
+        effective_min_age = max(
+            MIN_AGE_DAYS.get(_normalize_pertussis(c), MIN_AGE_DAYS.get(c, 42))
+            for c in components
+        )
+        age_source = "ACIP/DAK component maximum"
+
+    age_ok = age_days >= effective_min_age
+
+    # Interval check for dose ≥ 2
+    interval_ok = True
+    actual_interval: int | None = None
+    effective_min_interval: int | None = None
+    interval_source: str | None = None
+
+    if rec.dose_number >= 2 and len(rec.source_dose_indices) >= 2:
+        prior_idx = rec.source_dose_indices[-2]
+        if prior_idx < len(ctx.confirmed_doses):
+            prior_date_str = ctx.confirmed_doses[prior_idx].get("date_administered")
+            if prior_date_str:
+                try:
+                    prior_date = datetime.fromisoformat(prior_date_str).date()
+                    actual_interval = (dose_date - prior_date).days
+                    from_dose = rec.dose_number - 1
+
+                    # Egypt combination interval rule (Q3 — preferred)
+                    eg_int_key = (rec.antigen, from_dose, rec.dose_number)
+                    if eg_int_key in _EG_INTERVALS:
+                        effective_min_interval = _EG_INTERVALS[eg_int_key]
+                        interval_source = "Egypt EPI schedule"
+                    else:
+                        # Max component interval with wP/aP normalization
+                        effective_min_interval = max(
+                            INTERVAL_RULES.get(
+                                _normalize_pertussis(c),
+                                INTERVAL_RULES.get(c, {}),
+                            ).get("standard_min_days", 28)
+                            for c in components
+                        )
+                        interval_source = "ACIP/DAK component maximum"
+
+                    interval_ok = actual_interval >= effective_min_interval
+                except ValueError:
+                    pass
+
+    if age_ok and interval_ok:
+        return ValidationResult(
+            recommendation_id=rec.recommendation_id,
+            severity="pass",
+            rule_id="HATHOR-EPI-001",
+            rule_slug="component_antigen_satisfaction",
+            rule_rationale=(
+                f"{rec.antigen} dose {rec.dose_number} satisfies all {len(components)} component "
+                f"antigens ({', '.join(components)}). WHO-aligned combination; "
+                "wP/aP interchangeable per Q2 decision."
+            ),
+        )
+
+    reasons: list[str] = []
+    if not age_ok:
+        reasons.append(
+            f"age {age_days} days is below minimum {effective_min_age} days ({age_source})"
+        )
+    if not interval_ok and actual_interval is not None:
+        reasons.append(
+            f"interval {actual_interval} days is below minimum {effective_min_interval} days ({interval_source})"
+        )
+
+    return ValidationResult(
+        recommendation_id=rec.recommendation_id,
+        severity="fail",
+        rule_id="HATHOR-EPI-001",
+        rule_slug="component_antigen_satisfaction",
+        rule_rationale=(
+            f"{rec.antigen} dose {rec.dose_number}: component satisfaction failed — "
+            f"{'; '.join(reasons)}."
+        ),
+    )
 
 
 def _stub_acip_grace_period(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
@@ -408,11 +557,11 @@ _RULE_REGISTRY: list[RuleFn] = [
     _rule_max_dose_count,
     _rule_min_interval_met,
     _rule_antigen_in_scope,
-    _stub_component_antigen_satisfaction,
-    _stub_acip_grace_period,
-    _stub_live_vaccine_coadmin,
-    _stub_rotavirus_age_cutoff,
-    _stub_contraindication_source_conflict,
+    _rule_component_antigen_satisfaction,   # Q2 — IMPLEMENTED
+    _stub_acip_grace_period,                # Q4 — STUB
+    _stub_live_vaccine_coadmin,             # Q5 — STUB
+    _stub_rotavirus_age_cutoff,             # Q6 — STUB
+    _stub_contraindication_source_conflict, # Q11 — STUB
 ]
 
 # ── Output dataclass ──────────────────────────────────────────────────────────

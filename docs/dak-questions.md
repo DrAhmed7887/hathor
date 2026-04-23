@@ -1,8 +1,8 @@
 # DAK Clinical Questions — Ahmed's Decisions
 
-Reviewed 2026-04-23. Seven resolved; five deferred to the physician-authored
-`CLINICAL_DECISIONS.md` (pending). **Do not implement rules touching the five
-deferred topics until `CLINICAL_DECISIONS.md` lands.**
+Reviewed 2026-04-23. Eight resolved; four deferred to the physician-authored
+`CLINICAL_DECISIONS.md`. **Do not implement rule bodies for deferred topics until
+their entry appears in `CLINICAL_DECISIONS.md`.**
 
 ---
 
@@ -15,11 +15,13 @@ See `docs/schema-proposal.md` §1.
 
 ---
 
-## Q2. Component-antigen partial satisfaction — DEFERRED
-Physician-authored decision. Pending `CLINICAL_DECISIONS.md`.
+## Q2. Component-antigen partial satisfaction — RESOLVED
+**Decision:** see `docs/CLINICAL_DECISIONS.md` Q2. Combination vaccines satisfy
+per-component requirements when WHO-prequalified, minimum age met, and minimum
+interval met. wP/aP interchangeable for series completion.
 
-**Do not implement:** changes to `_COMPONENT_TO_COMBINED` in `coverage.py`, or
-MMR/Measles/Mumps/Rubella satisfaction framing in FHIR output.
+**Implemented as:** `HATHOR-EPI-001` (`_rule_component_antigen_satisfaction`) in
+`api/src/hathor/safety/phase_e.py`.
 
 ---
 
@@ -117,11 +119,10 @@ as `NotImplementedError` (or absent) until the follow-up conversation.
 ## Deferred summary
 
 Blocked on `CLINICAL_DECISIONS.md`:
-- Q2 Component-antigen partial satisfaction
-- Q4 ACIP 4-day grace
-- Q5 Live vaccine co-administration
-- Q6 Rotavirus age cutoffs
-- Q11 Contraindication source-of-truth conflicts
+- Q4 ACIP 4-day grace (HATHOR-DOSE-003)
+- Q5 Live vaccine co-administration (HATHOR-EPI-002)
+- Q6 Rotavirus age cutoffs (HATHOR-AGE-003)
+- Q11 Contraindication source-of-truth conflicts (HATHOR-CONTRA-001)
 
 Until that document lands, the rules engine may be **scaffolded** (schemas,
 registry pattern, DAK ID plumbing) but rule bodies touching these five topics

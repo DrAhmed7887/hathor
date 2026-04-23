@@ -16,15 +16,16 @@ import unittest
 from datetime import date
 
 from hathor.safety.phase_e import (
+    COMBINATION_COMPONENTS,
     ClinicalContext,
     PhaseEOutput,
     PHASE1_ANTIGENS,
     _rule_antigen_in_scope,
+    _rule_component_antigen_satisfaction,
     _rule_max_dose_count,
     _rule_min_age_valid,
     _rule_min_interval_met,
     _stub_acip_grace_period,
-    _stub_component_antigen_satisfaction,
     _stub_contraindication_source_conflict,
     _stub_live_vaccine_coadmin,
     _stub_rotavirus_age_cutoff,
@@ -322,14 +323,140 @@ class TestAntigenInScope(unittest.TestCase):
 # ── Stub rules return None ────────────────────────────────────────────────────
 
 
+# ── HATHOR-EPI-001 — component_antigen_satisfaction ───────────────────────────
+
+
+class TestComponentAntigenSatisfaction(unittest.TestCase):
+
+    def _hexavalent_ctx(self, admin_date: str, child_dob: date = date(2024, 1, 1)) -> ClinicalContext:
+        return _ctx(
+            child_dob=child_dob,
+            confirmed_doses=[{"antigen": "Hexavalent", "date_administered": admin_date, "dose_number": 1}],
+        )
+
+    def test_hexavalent_dose1_at_correct_age_passes(self):
+        # Egypt min for Hexavalent dose 1 = 2 months * 30 = 60 days.
+        # Child DOB 2024-01-01, dose at 2024-03-10 = 69 days ≥ 60. Expect pass.
+        ctx = self._hexavalent_ctx("2024-03-10")
+        rec = _rec(antigen="Hexavalent", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        result = _rule_component_antigen_satisfaction(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertEqual(result.rule_id, "HATHOR-EPI-001")
+        self.assertEqual(result.rule_slug, "component_antigen_satisfaction")
+        # All 4 components mentioned in rationale
+        self.assertIn("4 component antigens", result.rule_rationale)
+        self.assertIn("wP/aP interchangeable", result.rule_rationale)
+
+    def test_hexavalent_dose1_below_min_age_fails(self):
+        # Child DOB 2024-01-01, dose at 2024-02-01 = 31 days < 60. Expect fail.
+        ctx = self._hexavalent_ctx("2024-02-01")
+        rec = _rec(antigen="Hexavalent", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        result = _rule_component_antigen_satisfaction(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertEqual(result.rule_id, "HATHOR-EPI-001")
+        self.assertIn("below minimum", result.rule_rationale)
+
+    def test_hexavalent_dose2_interval_too_short_fails(self):
+        # Hexavalent Egypt interval dose 1→2 = 56 days. 30 days < 56 → fail.
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[
+                {"antigen": "Hexavalent", "date_administered": "2024-03-10", "dose_number": 1},
+                {"antigen": "Hexavalent", "date_administered": "2024-04-09", "dose_number": 2},
+            ],
+        )
+        rec = _rec(antigen="Hexavalent", dose_number=2, kind="dose_verdict", source_dose_indices=[0, 1])
+        result = _rule_component_antigen_satisfaction(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertIn("interval", result.rule_rationale)
+
+    def test_hexavalent_dose2_sufficient_interval_passes(self):
+        # 56-day interval (exact Egypt minimum for Hexavalent 1→2). Expect pass.
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[
+                {"antigen": "Hexavalent", "date_administered": "2024-03-10", "dose_number": 1},
+                {"antigen": "Hexavalent", "date_administered": "2024-05-05", "dose_number": 2},
+            ],
+        )
+        rec = _rec(antigen="Hexavalent", dose_number=2, kind="dose_verdict", source_dose_indices=[0, 1])
+        result = _rule_component_antigen_satisfaction(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    def test_mmr_dose1_at_correct_age_passes(self):
+        # Egypt min for MMR dose 1 = 12 months * 30 = 360 days.
+        # Child DOB 2024-01-01, dose at 2025-01-20 = 384 days ≥ 360.
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[{"antigen": "MMR", "date_administered": "2025-01-20", "dose_number": 1}],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        result = _rule_component_antigen_satisfaction(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertIn("3 component antigens", result.rule_rationale)
+
+    def test_pentavalent_dose1_passes(self):
+        # Pentavalent: components DPT, HepB, Hib (3 components, no IPV).
+        # Min age fallback to ACIP default (42 days). Child at 50 days → pass.
+        ctx = _ctx(
+            child_dob=date(2024, 1, 1),
+            confirmed_doses=[{"antigen": "Pentavalent", "date_administered": "2024-02-20", "dose_number": 1}],
+        )
+        rec = _rec(antigen="Pentavalent", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        result = _rule_component_antigen_satisfaction(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertIn("3 component antigens", result.rule_rationale)
+
+    def test_monovalent_antigen_not_applicable(self):
+        # Monovalent DTaP — not in COMBINATION_COMPONENTS → rule returns None.
+        ctx = _ctx()
+        rec = _rec(antigen="DTaP", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        self.assertIsNone(_rule_component_antigen_satisfaction(rec, ctx))
+
+    def test_unknown_antigen_not_applicable(self):
+        ctx = _ctx()
+        rec = _rec(antigen="UnknownCombo", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        self.assertIsNone(_rule_component_antigen_satisfaction(rec, ctx))
+
+    def test_non_dose_verdict_not_applicable(self):
+        ctx = _ctx()
+        for kind in ("due", "overdue", "catchup_visit", "contra"):
+            with self.subTest(kind=kind):
+                rec = _rec(antigen="Hexavalent", dose_number=1, kind=kind)
+                self.assertIsNone(_rule_component_antigen_satisfaction(rec, ctx))
+
+    def test_no_source_indices_not_applicable(self):
+        ctx = _ctx()
+        rec = _rec(antigen="Hexavalent", dose_number=1, kind="dose_verdict", source_dose_indices=[])
+        self.assertIsNone(_rule_component_antigen_satisfaction(rec, ctx))
+
+    def test_combination_components_map_exported(self):
+        self.assertIn("Hexavalent", COMBINATION_COMPONENTS)
+        self.assertIn("MMR", COMBINATION_COMPONENTS)
+        self.assertIn("Pentavalent", COMBINATION_COMPONENTS)
+        hex_components = COMBINATION_COMPONENTS["Hexavalent"]
+        self.assertIn("DPT", hex_components)
+        self.assertIn("IPV", hex_components)
+        self.assertIn("HepB", hex_components)
+        self.assertIn("Hib", hex_components)
+        # Pentavalent should NOT include IPV
+        self.assertNotIn("IPV", COMBINATION_COMPONENTS["Pentavalent"])
+
+
+# ── Stub rules return None ────────────────────────────────────────────────────
+
+
 class TestStubRulesReturnNone(unittest.TestCase):
 
     def setUp(self):
         self.rec = _rec()
         self.ctx = _ctx()
-
-    def test_component_antigen_satisfaction_stub(self):
-        self.assertIsNone(_stub_component_antigen_satisfaction(self.rec, self.ctx))
 
     def test_acip_grace_period_stub(self):
         self.assertIsNone(_stub_acip_grace_period(self.rec, self.ctx))
