@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import Link from "next/link";
 import { streamSSE } from "@/lib/sse-parser";
 
 // ── Pharos design system ────────────────────────────────────────────────────
@@ -913,7 +914,13 @@ export default function HathorPage() {
             }}
           >
             <MetaSpan>Vaccination reconciliation for migrant families</MetaSpan>
-            <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
+              <Link href="/reconcile-card" style={{ textDecoration: "none" }}>
+                <MetaSpan color={H.copper}>Card flow →</MetaSpan>
+              </Link>
+              <div style={{ width: 1, height: 10, background: H.stone, alignSelf: "center" }} />
+              <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
+            </div>
           </div>
         </div>
       </header>
