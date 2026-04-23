@@ -64,6 +64,36 @@ not to orchestrate the reasoning.
 
 ---
 
+## Architectural Rule: Two Safety Loops
+
+The no-hardcoded-pipeline rule governs **agent reasoning**. It does not apply to the
+**input and output boundaries** of the system. Those boundaries have two mandatory gates.
+See `docs/SAFETY_LOOPS.md` for the full design.
+
+**Phase D — Vision Safety Loop (per-field).** If any field extracted from a vaccination
+card has confidence `< 0.85`, that field must not be auto-committed. It routes to the
+HITL review UI where the clinician confirms or corrects it. Per-field, not per-document.
+Confidence scores must propagate end-to-end; do not silently drop them.
+
+**Phase E — Reasoning Safety Loop (per-recommendation).** Every clinical recommendation
+in agent output must pass `rules_engine.validate()` before reaching the UI or the FHIR
+bundle. The agent reasons freely; the output layer is gated. The rules engine is
+deterministic Python derived from the WHO DAK — it is the ground truth for
+*correctness*, while the agent is the ground truth for *reasoning and explanation*.
+
+A "clinical recommendation" is anything actionable about the child's care (dose due,
+dose overdue, catch-up visit, dose-validity verdict, contraindication flag). Narrative
+and summary text is not gated.
+
+**Clinician final authority.** The clinician can override any Phase E `fail` verdict.
+Every override must capture a reason from the clinician and must be logged to the
+FHIR Provenance resource with the DAK rule ID, the agent's original proposal, the
+override reason, and a timestamp. The rules engine rejects; the clinician decides.
+
+Neither gate is optional. Code paths that bypass them are a bug.
+
+---
+
 ## Tool Granularity Principle
 
 Each custom tool must answer **one specific clinical sub-question**. The test:
