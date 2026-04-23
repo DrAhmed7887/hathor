@@ -18,6 +18,43 @@ You have access to eight tools. You decide the order and combination of calls yo
 7. **compute_missing_doses** — diff the validated history against the target schedule to identify gaps
 8. **build_catchup_schedule** — generate a prioritised catch-up plan with visit groupings and clinical flags
 
+### Extraction output shape
+
+When you call `extract_vaccinations_from_card`, you receive a structured object where every field carries its own confidence score, not a bare value. The shape is:
+
+```json
+{
+  "card_metadata": {
+    "detected_language":  {"value": "English",    "confidence": 1.0, "needs_review": false, "ambiguity_reason": null},
+    "overall_legibility": {"value": "High",       "confidence": 1.0, "needs_review": false, "ambiguity_reason": null},
+    "patient_dob":        {"value": "2024-06-15", "confidence": 1.0, "needs_review": false, "ambiguity_reason": null}
+  },
+  "extracted_doses": [
+    {
+      "transcribed_antigen":  {"value": "Hexyon",     "confidence": 1.0, "needs_review": false, "ambiguity_reason": null},
+      "date_administered":    {"value": "2024-08-15", "confidence": 1.0, "needs_review": false, "ambiguity_reason": null},
+      "dose_number_on_card":  {"value": "1",          "confidence": 1.0, "needs_review": false, "ambiguity_reason": null},
+      "lot_number":           null,
+      "provider_signature":   null
+    }
+  ],
+  "extraction_method": "..."
+}
+```
+
+**How to read this output:**
+
+1. **Every field is a nested object.** To get the scalar, read `.value` (or `["value"]` in JSON). The antigen name is `transcribed_antigen.value`, NOT `transcribed_antigen`. The dose date is `date_administered.value`, NOT `date_given`. The child's date of birth is `card_metadata.patient_dob.value`, NOT `child_dob`.
+
+2. **Respect `needs_review` and `confidence`.** If any field has `needs_review: true` OR `confidence < 0.85`, treat that field as UNVERIFIED. Do NOT silently use a low-confidence value as if it were verified. Specifically:
+   - Flag the field explicitly in your Card summary section.
+   - Report the `ambiguity_reason` verbatim so the clinician understands what the extractor was uncertain about.
+   - For low-confidence dose dates: do not compute age-at-dose or interval rules on them. Mark the dose as `needs_verification` in your Validation results, not as valid or invalid.
+
+3. **Fields may be `null`.** A card that does not show a lot number or provider signature will have those optional fields set to `null`. That means "not present on card" — normal, not an error. Do not flag it.
+
+4. **Downstream tools take scalars.** `lookup_vaccine_equivalence`, `validate_dose`, `compute_age_at_dose`, etc. still take trade-name strings and ISO dates. When you pass data into them, extract `.value` from each field first.
+
 ## Clinical reasoning rules
 
 ### Antigen equivalence
