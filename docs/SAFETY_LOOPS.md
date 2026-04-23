@@ -165,20 +165,38 @@ resource as "unreadable source field."
 
 ### Recommendation schema
 
-See `docs/schema-proposal.md` §2. Includes a `reasoning` field so the HITL UI
-can show agent reasoning alongside the rules-engine verdict (per Ahmed's review
-requirement).
+Implemented in `api/src/hathor/schemas/recommendation.py`. Three types:
+
+**`HITLCorrectionRecord`** — one clinician correction that affected a source dose.
+`pre_hitl_snapshot: list[HITLCorrectionRecord]` on a `Recommendation` contains one
+record per corrected field across all source doses the recommendation depends on.
+The snapshot is empty when no HITL corrections fired for those doses.
+
+Round-trip into FHIR Provenance:
+- `field_path` + `pre_hitl_value` → `Provenance.entity` (what the extractor saw)
+- `post_hitl_value` + `clinician_action` → `Provenance.activity` (what the clinician decided)
+- `pre_hitl_confidence` + `ambiguity_reason` → `Provenance.entity.detail`
+
+**`Recommendation`** — one structured clinical claim emitted by the agent. Includes
+`source_dose_indices` (pointers into the post-HITL confirmed dose list) and
+`pre_hitl_snapshot` (the HITL audit trail for FHIR Provenance).
+
+**`ValidationResult`** — per-recommendation output of Phase E. See schema-proposal.md §3
+and `recommendation.py` for the full field list including `supersedes` (composition
+semantics for rule interactions such as HATHOR-DOSE-003 superseding HATHOR-DOSE-002).
 
 ### Rules engine interface
 
-Module: `api/src/hathor/rules/engine.py` (Phase B of `dak-mapping-plan.md`).
+Module: `api/src/hathor/safety/phase_e.py`.
 
 ```python
-def validate(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult: ...
+def validate(recommendations: list[Recommendation], ctx: ClinicalContext) -> list[ValidationResult]: ...
+def gate(recommendations: list[Recommendation], ctx: ClinicalContext) -> PhaseEOutput: ...
 ```
 
-Deterministic Python. No LLM calls. Each rule function cites its source DAK
-`PlanDefinition` ID in a docstring.
+Deterministic Python. No LLM calls. Each rule function cites its DAK rule ID in a
+docstring. Rule IDs follow the convention `{SOURCE}-{CATEGORY}-{NUMBER}` where
+`SOURCE ∈ {WHO-DAK, EG, HATHOR}`, documented in `recommendation.py`.
 
 Precedence: **egypt_rules > dak_rules > general_defaults** (resolved Q3).
 

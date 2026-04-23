@@ -6,6 +6,7 @@ from hathor.tools.dose_validation import validate_dose
 from hathor.tools.schedule import get_schedule
 from hathor.tools.coverage import compute_missing_doses
 from hathor.tools.catchup import build_catchup_schedule
+from hathor.tools.emit_recommendations import emit_recommendations
 
 HATHOR_TOOLS = [
     extract_vaccinations_from_card,
@@ -16,4 +17,5 @@ HATHOR_TOOLS = [
     get_schedule,
     compute_missing_doses,
     build_catchup_schedule,
+    emit_recommendations,
 ]
