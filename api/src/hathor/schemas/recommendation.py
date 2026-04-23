@@ -15,8 +15,7 @@ Rule ID naming convention (locked):
     Examples:
       HATHOR-AGE-001    min_age_valid               (project rule, age domain)
       HATHOR-DOSE-002   min_interval_met            (project rule, dose-interval domain)
-      HATHOR-CONTRA-001 contraindication_source_conflict  (project-authored resolution logic)
-      EG-CONTRA-001     would be used only for a rule that Egypt MoH authors and owns
+      EG-CONTRA-001     contraindication_source_conflict  (Egypt-MoH-sovereign precedence rule)
 
 See docs/SAFETY_LOOPS.md — Phase E → Rules engine interface for the full registry.
 """
@@ -82,6 +81,8 @@ class Recommendation(BaseModel):
     agent_confidence: float = Field(ge=0.0, le=1.0)
     source_dose_indices: list[int] = []           # indices into post-HITL confirmed dose list
     pre_hitl_snapshot: list[HITLCorrectionRecord] = []  # HITL audit trail; empty when no corrections fired
+    source_verdicts: list[dict] = []              # for EG-CONTRA-001: [{"source": str, "verdict": bool, "reason": str}]
+                                                  # "source" ∈ {"EgyptMoH", "ManufacturerLabel", "WHO-DAK"}
 
 
 class ValidationResult(BaseModel):

@@ -1,8 +1,8 @@
 # DAK Clinical Questions — Ahmed's Decisions
 
-Reviewed 2026-04-23. Nine resolved; three deferred to the physician-authored
-`CLINICAL_DECISIONS.md`. **Do not implement rule bodies for deferred topics until
-their entry appears in `CLINICAL_DECISIONS.md`.**
+Reviewed 2026-04-23. Twelve resolved; zero deferred. All DAK clinical questions
+resolved and implemented. See `docs/CLINICAL_DECISIONS.md` for physician-authored
+decisions (Q2, Q4, Q5, Q6, Q11).
 
 ---
 
@@ -46,19 +46,23 @@ grace and `HATHOR-AGE-001` for age grace when shortfall is 1–4 days.
 
 ---
 
-## Q5. Live vaccine co-administration — DEFERRED
-Physician-authored decision. Pending `CLINICAL_DECISIONS.md`.
+## Q5. Live vaccine co-administration — RESOLVED
+**Decision:** see `docs/CLINICAL_DECISIONS.md` Q5. Different live parenteral vaccines
+must be ≥28 days apart if not same-day. Live oral vaccines (OPV, Rotavirus) exempt.
+Same-antigen intra-series handled by DOSE-002/003. 4-day grace does NOT apply here.
 
-**Do not implement:** a `check_live_coadmin` rule in the rules engine, or changes
-to the existing live-vaccine guidance in the system prompt.
+**Implemented as:** `HATHOR-EPI-002` (`_rule_live_vaccine_coadmin`) in
+`api/src/hathor/safety/phase_e.py`.
 
 ---
 
-## Q6. Rotavirus age cutoffs — DEFERRED
-Physician-authored decision. Pending `CLINICAL_DECISIONS.md`.
+## Q6. Rotavirus age cutoffs — RESOLVED
+**Decision:** see `docs/CLINICAL_DECISIONS.md` Q6. ACIP cutoffs: dose-1 min 42 days,
+dose-1 max 105 days (warn if exceeded, < 8 months), series max 240 days (fail).
+Migrant advisory warn path for children arriving past dose-1 cutoff.
 
-**Do not implement:** Rotavirus-specific validation logic in `dose_validation.py`
-or the rules engine until the cutoff policy is written.
+**Implemented as:** `HATHOR-AGE-003` (`_rule_rotavirus_age_cutoff`) in
+`api/src/hathor/safety/phase_e.py`.
 
 ---
 
@@ -101,11 +105,14 @@ ValueSet bindings follow DAK's ICD-11/SNOMED CT/LOINC. Phase C (FHIR output) wor
 
 ---
 
-## Q11. Contraindication source-of-truth conflicts — DEFERRED
-Physician-authored decision. Pending `CLINICAL_DECISIONS.md`.
+## Q11. Contraindication source-of-truth conflicts — RESOLVED
+**Decision:** see `docs/CLINICAL_DECISIONS.md` Q11. Precedence: Egypt MoH > Manufacturer
+label > WHO DAK. Strictest applicable source governs; any contraindication verdict
+triggers fail. Source verdicts carried in `Recommendation.source_verdicts`.
 
-**Do not implement:** any resolution logic when Egypt MoH and DAK disagree on
-contraindications.
+**Implemented as:** `EG-CONTRA-001` (`_rule_contraindication_source_conflict`) in
+`api/src/hathor/safety/phase_e.py`. Rule ID changed from HATHOR-CONTRA-001 to
+EG-CONTRA-001 per physician's naming (Egypt-MoH-sovereign authority).
 
 ---
 
@@ -121,11 +128,4 @@ as `NotImplementedError` (or absent) until the follow-up conversation.
 
 ## Deferred summary
 
-Blocked on `CLINICAL_DECISIONS.md`:
-- Q5 Live vaccine co-administration (HATHOR-EPI-002)
-- Q6 Rotavirus age cutoffs (HATHOR-AGE-003)
-- Q11 Contraindication source-of-truth conflicts (HATHOR-CONTRA-001)
-
-Until that document lands, the rules engine may be **scaffolded** (schemas,
-registry pattern, DAK ID plumbing) but rule bodies touching these five topics
-must not be implemented.
+All twelve DAK clinical questions resolved. No open deferrals.

@@ -4,7 +4,7 @@ Validates agent-emitted Recommendation objects against deterministic clinical ru
 before they reach the clinician UI or the FHIR bundle. No LLM calls. No hardcoded
 pipeline. This is the output boundary gate.
 
-Rule registry (9 rules — 6 implemented, 3 stubs):
+Rule registry (9 rules — 9 implemented, 0 stubs):
 
   HATHOR-AGE-001    min_age_valid                       IMPLEMENTED
   HATHOR-DOSE-001   max_dose_count                      IMPLEMENTED
@@ -12,9 +12,9 @@ Rule registry (9 rules — 6 implemented, 3 stubs):
   HATHOR-AGE-002    antigen_in_scope                    IMPLEMENTED
   HATHOR-EPI-001    component_antigen_satisfaction      IMPLEMENTED (Q2)
   HATHOR-DOSE-003   acip_grace_period                   IMPLEMENTED (Q4)
-  HATHOR-EPI-002    live_vaccine_coadmin                STUB (Q5 — CLINICAL_DECISIONS.md)
-  HATHOR-AGE-003    rotavirus_age_cutoff                STUB (Q6 — CLINICAL_DECISIONS.md)
-  HATHOR-CONTRA-001 contraindication_source_conflict    STUB (Q11 — CLINICAL_DECISIONS.md)
+  HATHOR-EPI-002    live_vaccine_coadmin                IMPLEMENTED (Q5)
+  HATHOR-AGE-003    rotavirus_age_cutoff                IMPLEMENTED (Q6)
+  EG-CONTRA-001     contraindication_source_conflict    IMPLEMENTED (Q11)
 
 Schedule precedence: egypt_rules > dak_rules > general_defaults (Q3 — resolved).
 Egypt schedule data (data/schedules/egypt.json) is the primary source for age and
@@ -79,6 +79,62 @@ _EG_INTERVALS: dict[tuple[str, int, int], int] = {
 #: Exception: birth-dose antigens where effective_min_age ≤ 28 days.
 #: See docs/CLINICAL_DECISIONS.md Q4 for full clinical rationale.
 GRACE_PERIOD_DAYS: int = 4
+
+# ── Live vaccine co-administration constants (Q5 — resolved) ─────────────────
+
+#: Oral live vaccines — exempt from the 28-day inter-live-vaccine rule.
+#: Oral live vaccines do not produce sufficient systemic interferon response to
+#: interfere with other live vaccines; they may be administered simultaneously
+#: with or at any interval before or after other live vaccines.
+#: See docs/CLINICAL_DECISIONS.md Q5 for the full clinical rationale.
+LIVE_ORAL_VACCINES: frozenset[str] = frozenset({
+    "OPV",       # oral polio vaccine (both bOPV and tOPV)
+    "Rotavirus", # all WHO-prequalified rotavirus products are oral
+})
+
+#: Live parenteral (injectable or intranasal) vaccines — subject to the 28-day
+#: inter-live-vaccine rule when administered on different days from each other.
+#: Includes component antigens that appear as individual confirmed doses (e.g.,
+#: monovalent Measles) as well as combination live products (MMR, MMRV).
+#: Same-day co-administration of any two live parenterals is valid.
+LIVE_PARENTERAL_VACCINES: frozenset[str] = frozenset({
+    "MMR", "MR", "MMRV",               # live viral, injectable
+    "Varicella",                        # live viral, injectable
+    "YellowFever",                      # live viral, injectable (out of Phase 1 scope, included for future)
+    "Measles", "Mumps", "Rubella",      # monovalent or decomposed component doses
+    "BCG",                              # live bacterial, intradermal (parenteral per WHO definition)
+})
+
+#: Minimum interval (days) between different live parenteral vaccines administered
+#: on different days. Interferon-mediated interference may impair the second dose.
+#: ACIP and WHO align on 28 days. The 4-day grace period (HATHOR-DOSE-003) does
+#: NOT apply to this window. Same-antigen intra-series intervals use DOSE-002.
+LIVE_COADMIN_MIN_DAYS: int = 28
+
+# ── Rotavirus age cutoff constants (Q6 — resolved) ────────────────────────────
+
+#: Minimum age for Rotavirus dose 1 (ACIP): 6 weeks = 42 days.
+ROTAVIRUS_MIN_AGE_DAYS: int = 42
+
+#: Maximum age at which Rotavirus dose 1 may be INITIATED (ACIP): 14 weeks
+#: 6 days = 104 days; doses from 15 weeks 0 days onward (≥ 105 days) are past
+#: the cutoff. Violations return warn severity (migrant-child advisory path).
+ROTAVIRUS_DOSE1_MAX_AGE_DAYS: int = 105   # ≥ this value triggers the cutoff
+
+#: Maximum age by which all Rotavirus doses must be COMPLETED (ACIP/WHO): 8
+#: months. Doses administered at or after this age return fail severity.
+#: Using 8 × 30 days = 240. ACIP calendar-month definition varies slightly;
+#: 240 is the conservative (strict) interpretation.
+ROTAVIRUS_SERIES_MAX_AGE_DAYS: int = 240  # ≥ this value triggers fail
+
+# ── Contraindication source precedence (Q11 — resolved) ──────────────────────
+
+#: Ordered precedence list for EG-CONTRA-001. Index 0 = highest precedence.
+#: "Strictest wins" — if ANY applicable source marks an (antigen, condition)
+#: pair as contraindicated, the recommendation fails. The precedence list
+#: determines which source's reasoning appears in the fail rationale.
+#: See docs/CLINICAL_DECISIONS.md Q11 for the full decision.
+_CONTRA_SOURCE_PRECEDENCE: list[str] = ["EgyptMoH", "ManufacturerLabel", "WHO-DAK"]
 
 # ── Phase 1 antigen scope (Q7 — resolved) ─────────────────────────────────────
 
@@ -631,46 +687,314 @@ def _rule_acip_grace_period(rec: Recommendation, ctx: ClinicalContext) -> Valida
     return None
 
 
-def _stub_live_vaccine_coadmin(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
-    """HATHOR-EPI-002 — live_vaccine_coadmin — STUB.
+def _rule_live_vaccine_coadmin(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
+    """HATHOR-EPI-002 — live_vaccine_coadmin.
 
-    Blocked on Q5 (CLINICAL_DECISIONS.md): validates that live vaccines (MMR,
-    Varicella, OPV, YellowFever) were either co-administered on the same calendar
-    day or separated by at least 28 days. Intervals > 0 and < 28 days are invalid.
+    Two different live parenteral (injectable or intranasal) vaccines administered
+    on different days must be separated by ≥28 days (LIVE_COADMIN_MIN_DAYS). When
+    the interval is shorter, the second dose (the later one) is invalid.
 
-    Rule body will compare administration dates across live-vaccine doses using
-    ``rec.source_dose_indices`` into ``ctx.confirmed_doses``.
+    Exemptions:
+    - Live ORAL vaccines (OPV, Rotavirus) are exempt — no minimum interval with
+      any other live vaccine.
+    - Same-day co-administration of two live parenterals is always valid.
+    - Same-antigen intra-series doses (e.g., MMR dose 1 → MMR dose 2) are
+      handled by HATHOR-DOSE-002/003, not this rule.
+
+    The 4-day grace period (HATHOR-DOSE-003) does NOT apply to this 28-day
+    inter-live window. HATHOR-EPI-002 does not supersede and is not superseded.
+
+    Biological-event rule (Q2 dependency): a combination live vaccine dose (e.g.,
+    MMR) preserved in confirmed_doses governs 28-day spacing as its original
+    product type. Decomposition into component-antigen satisfactions (HATHOR-EPI-001)
+    does not erase the biological event.
+
+    Applies to: dose_verdict for live parenteral antigens.
+    Returns None for: non-dose_verdict kinds, oral live vaccines, non-live antigens,
+    missing source indices or confirmed dose data.
+
+    See docs/CLINICAL_DECISIONS.md Q5 for the full clinical rationale.
     """
-    return None  # Q5 deferred — no-op until CLINICAL_DECISIONS.md lands
+    if rec.kind != "dose_verdict":
+        return None
+    if rec.antigen not in LIVE_PARENTERAL_VACCINES:
+        return None  # oral live vaccines and non-live vaccines: rule does not apply
+    if not rec.source_dose_indices:
+        return None
+
+    current_idx = rec.source_dose_indices[-1]
+    if current_idx >= len(ctx.confirmed_doses):
+        return None
+
+    date_str = ctx.confirmed_doses[current_idx].get("date_administered")
+    if not date_str:
+        return None
+
+    try:
+        current_date = datetime.fromisoformat(date_str).date()
+    except ValueError:
+        return None
+
+    # Scan all confirmed doses for other live parenteral vaccines
+    for i, other_dose in enumerate(ctx.confirmed_doses):
+        if i == current_idx:
+            continue
+
+        other_antigen = other_dose.get("antigen", "")
+
+        # Skip same-antigen doses — intra-series, handled by DOSE-002/003
+        if other_antigen == rec.antigen:
+            continue
+
+        # Skip oral live vaccines and non-live vaccines (exempt)
+        if other_antigen not in LIVE_PARENTERAL_VACCINES:
+            continue
+
+        other_date_str = other_dose.get("date_administered")
+        if not other_date_str:
+            continue
+
+        try:
+            other_date = datetime.fromisoformat(other_date_str).date()
+        except ValueError:
+            continue
+
+        interval = (current_date - other_date).days
+
+        # Same day: co-administration always valid
+        if interval == 0:
+            continue
+
+        # Current dose is the SECOND (later): check the 28-day minimum
+        if 0 < interval < LIVE_COADMIN_MIN_DAYS:
+            return ValidationResult(
+                recommendation_id=rec.recommendation_id,
+                severity="fail",
+                rule_id="HATHOR-EPI-002",
+                rule_slug="live_vaccine_coadmin",
+                rule_rationale=(
+                    f"{rec.antigen} (live parenteral) was administered {interval} day(s) "
+                    f"after {other_antigen} (live parenteral) — below the {LIVE_COADMIN_MIN_DAYS}-day "
+                    "minimum inter-live-vaccine interval. The second dose is invalid and must be "
+                    f"re-administered ≥{LIVE_COADMIN_MIN_DAYS} days after "
+                    f"{current_date.isoformat()}. "
+                    "The ACIP 4-day grace (HATHOR-DOSE-003) does not apply to this window."
+                ),
+            )
+        # interval < 0: current dose is the FIRST; the later dose (if invalid) fails on its own.
+        # interval >= 28: adequate spacing.
+
+    return ValidationResult(
+        recommendation_id=rec.recommendation_id,
+        severity="pass",
+        rule_id="HATHOR-EPI-002",
+        rule_slug="live_vaccine_coadmin",
+        rule_rationale=(
+            f"{rec.antigen} (live parenteral): no inter-live-vaccine spacing violation found. "
+            "Same-day co-administration is valid; live oral vaccines (OPV, Rotavirus) are exempt. "
+            "Same-antigen intra-series intervals are evaluated by HATHOR-DOSE-002."
+        ),
+    )
 
 
-def _stub_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
-    """HATHOR-AGE-003 — rotavirus_age_cutoff — STUB.
+def _rule_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
+    """HATHOR-AGE-003 — rotavirus_age_cutoff.
 
-    Blocked on Q6 (CLINICAL_DECISIONS.md): validates Rotavirus dose recommendations
-    against the age cutoff policy. Dose 1 must be given before 105 days (15 weeks);
-    the full series must complete before 240 days (8 months) for most products.
-    Exact cutoff thresholds are pending physician authorship.
+    ACIP age thresholds for Rotavirus (adopted as Hathor default per Q6):
+
+      Min age dose 1:     6 weeks    = 42 days  (ROTAVIRUS_MIN_AGE_DAYS)
+      Max age dose 1:    15 weeks 0 days = 105 days cutoff (ROTAVIRUS_DOSE1_MAX_AGE_DAYS)
+      Max series age:     8 months   = 240 days (ROTAVIRUS_SERIES_MAX_AGE_DAYS)
+
+    Severity logic:
+    - Dose 1 at <42 days:        fail (below minimum age).
+    - Any dose at ≥240 days:     fail (series completion cutoff).
+    - Dose 1 at ≥105 days AND    warn (ACIP dose-1 max exceeded; high-burden-setting
+      <240 days:                       migrant advisory — clinician decides override).
+    - Dose 2+ at ≥105 days AND   pass (the dose-1 cutoff applies only to dose-1
+      <240 days:                       initiation; subsequent doses evaluated on the
+                                       8-month completion cutoff only, per ACIP).
+    - Otherwise:                 pass.
+
+    Preterm infants: ACIP uses chronological age; Hathor uses chronological age.
+
+    Returns None for non-Rotavirus antigens and non-dose_verdict kinds.
+    See docs/CLINICAL_DECISIONS.md Q6 for the full clinical rationale and migration
+    population override guidance.
     """
-    return None  # Q6 deferred — no-op until CLINICAL_DECISIONS.md lands
+    if rec.antigen != "Rotavirus":
+        return None
+    if rec.kind != "dose_verdict":
+        return None
+    if rec.dose_number is None:
+        return None
+    if not rec.source_dose_indices:
+        return None
+
+    current_idx = rec.source_dose_indices[-1]
+    if current_idx >= len(ctx.confirmed_doses):
+        return None
+
+    date_str = ctx.confirmed_doses[current_idx].get("date_administered")
+    if not date_str:
+        return None
+
+    try:
+        dose_date = datetime.fromisoformat(date_str).date()
+    except ValueError:
+        return None
+
+    age_days = (dose_date - ctx.child_dob).days
+
+    # Series completion cutoff (applies to ALL doses): ≥ 8 months = fail
+    if age_days >= ROTAVIRUS_SERIES_MAX_AGE_DAYS:
+        extra = (
+            " Override available but WHO evidence on benefit past 8 months attenuates — "
+            "document clinical rationale carefully."
+            if age_days >= ROTAVIRUS_SERIES_MAX_AGE_DAYS
+            else ""
+        )
+        return ValidationResult(
+            recommendation_id=rec.recommendation_id,
+            severity="fail",
+            rule_id="HATHOR-AGE-003",
+            rule_slug="rotavirus_age_cutoff",
+            rule_rationale=(
+                f"Rotavirus dose {rec.dose_number} at {age_days} days exceeds the "
+                f"ACIP series-completion maximum of {ROTAVIRUS_SERIES_MAX_AGE_DAYS} days "
+                f"(8 months).{extra}"
+            ),
+        )
+
+    # Dose 1 minimum age: < 6 weeks = fail
+    if rec.dose_number == 1 and age_days < ROTAVIRUS_MIN_AGE_DAYS:
+        return ValidationResult(
+            recommendation_id=rec.recommendation_id,
+            severity="fail",
+            rule_id="HATHOR-AGE-003",
+            rule_slug="rotavirus_age_cutoff",
+            rule_rationale=(
+                f"Rotavirus dose 1 at {age_days} days is below the ACIP minimum age of "
+                f"{ROTAVIRUS_MIN_AGE_DAYS} days (6 weeks)."
+            ),
+        )
+
+    # Dose 1 max-age advisory: ≥ 15 weeks 0 days and < 8 months = warn
+    # (migrant-child high-burden advisory — clinician decides via override)
+    if rec.dose_number == 1 and age_days >= ROTAVIRUS_DOSE1_MAX_AGE_DAYS:
+        return ValidationResult(
+            recommendation_id=rec.recommendation_id,
+            severity="warn",
+            rule_id="HATHOR-AGE-003",
+            rule_slug="rotavirus_age_cutoff",
+            rule_rationale=(
+                f"Rotavirus dose 1 at {age_days} days exceeds the ACIP dose-1 initiation "
+                f"cutoff of {ROTAVIRUS_DOSE1_MAX_AGE_DAYS} days (15 weeks 0 days). "
+                "ACIP: dose 1 should not be initiated at ≥15 weeks. "
+                "For migrant children from high-rotavirus-mortality settings (e.g., Nigeria), "
+                "WHO benefit-risk analyses support clinical override — clinician review required. "
+                "Override is logged via FHIR Provenance."
+            ),
+        )
+
+    return ValidationResult(
+        recommendation_id=rec.recommendation_id,
+        severity="pass",
+        rule_id="HATHOR-AGE-003",
+        rule_slug="rotavirus_age_cutoff",
+        rule_rationale=(
+            f"Rotavirus dose {rec.dose_number} at {age_days} days is within ACIP age "
+            f"parameters (min: {ROTAVIRUS_MIN_AGE_DAYS} days; "
+            f"dose-1 max: {ROTAVIRUS_DOSE1_MAX_AGE_DAYS} days; "
+            f"series max: {ROTAVIRUS_SERIES_MAX_AGE_DAYS} days)."
+        ),
+    )
 
 
-def _stub_contraindication_source_conflict(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
-    """HATHOR-CONTRA-001 — contraindication_source_conflict — STUB.
+def _rule_contraindication_source_conflict(rec: Recommendation, ctx: ClinicalContext) -> ValidationResult | None:
+    """EG-CONTRA-001 — contraindication_source_conflict.
 
-    Blocked on Q11 (CLINICAL_DECISIONS.md): when contraindication sources conflict
-    for a given antigen, applies the physician-authored resolution precedence.
+    When contraindication source verdicts conflict for a given (antigen, condition)
+    pair, this rule applies the Egypt-MoH-sovereign precedence ordering to resolve
+    which verdict governs:
 
-    Rule ID is HATHOR-CONTRA-001 (not EG-CONTRA-001) because the precedence
-    resolution algorithm is Hathor-project-authored. Egypt MoH is one of the sources
-    being adjudicated, not the author of the resolution logic.
+        1. Egyptian MoH directive (governs absolutely for Egyptian destination schedule)
+        2. Manufacturer label (product-specific; SRA-regulated filing)
+        3. WHO DAK / WHO position paper (baseline when the above are silent)
 
-    The stub accepts ``source_verdicts: list[dict]`` — each entry is:
-        {"source": str, "verdict": bool, "reason": str}
-    so the Q11 answer can specify precedence across any number of sources without
-    an interface change to this rule.
+    "Strictest wins" principle: if ANY applicable source marks the (antigen, condition)
+    pair as contraindicated (verdict=True), the recommendation fails. A source's
+    "precaution" does not downgrade another source's "contraindication." The precedence
+    list determines which source's reasoning appears in the fail rationale.
+
+    Source verdicts are provided by the agent via ``Recommendation.source_verdicts``:
+        [{"source": "EgyptMoH", "verdict": bool, "reason": str}, ...]
+    The rule fires only when source_verdicts is non-empty AND sources disagree. When all
+    sources agree (or no verdicts are provided), the rule returns None — no conflict
+    to resolve.
+
+    Applies to: contra kind only.
+    Returns None for: non-contra kinds, empty source_verdicts, unanimous verdicts.
+    See docs/CLINICAL_DECISIONS.md Q11 for the full clinical rationale.
     """
-    return None  # Q11 deferred — no-op until CLINICAL_DECISIONS.md lands
+    if rec.kind != "contra":
+        return None
+
+    source_verdicts: list[dict] = list(rec.source_verdicts or [])
+    if not source_verdicts:
+        return None  # no conflict data available — cannot evaluate
+
+    # Extract boolean verdicts; filter entries with a valid verdict key
+    verdicts = [sv["verdict"] for sv in source_verdicts if isinstance(sv.get("verdict"), bool)]
+    if not verdicts:
+        return None
+    if len(set(verdicts)) == 1:
+        return None  # all sources agree — no conflict to resolve
+
+    # Conflict confirmed. Apply "strictest wins": any contraindicated → fail.
+    contra_entries = [sv for sv in source_verdicts if sv.get("verdict") is True]
+
+    if contra_entries:
+        # Pick the highest-precedence source that says "contraindicated" for the rationale
+        rationale_sv: dict = contra_entries[0]
+        for precedence_source in _CONTRA_SOURCE_PRECEDENCE:
+            for sv in contra_entries:
+                if sv.get("source") == precedence_source:
+                    rationale_sv = sv
+                    break
+            else:
+                continue
+            break
+
+        return ValidationResult(
+            recommendation_id=rec.recommendation_id,
+            severity="fail",
+            rule_id="EG-CONTRA-001",
+            rule_slug="contraindication_source_conflict",
+            rule_rationale=(
+                f"Source conflict for {rec.antigen}: "
+                f"{rationale_sv.get('source', 'authoritative source')} marks as "
+                f"contraindicated — {rationale_sv.get('reason', 'reason unspecified')}. "
+                "EG-CONTRA-001 strictest-wins rule: any contraindication in any applicable "
+                "source triggers a fail. Precedence for rationale: "
+                "Egypt MoH > Manufacturer Label > WHO DAK. "
+                "Clinician override available with documented clinical reason."
+            ),
+        )
+
+    # Conflict was between non-absolute verdicts (e.g., precaution vs. safe);
+    # no source said "contraindicated" — pass at the strictest available level.
+    return ValidationResult(
+        recommendation_id=rec.recommendation_id,
+        severity="pass",
+        rule_id="EG-CONTRA-001",
+        rule_slug="contraindication_source_conflict",
+        rule_rationale=(
+            f"Source conflict for {rec.antigen} resolved under EG-CONTRA-001: "
+            "no applicable source marks this as a contraindication (verdict=True). "
+            "Strictest available verdict is 'precaution' or 'safe' — no absolute bar."
+        ),
+    )
 
 
 # ── Rule registry ─────────────────────────────────────────────────────────────
@@ -680,11 +1004,11 @@ _RULE_REGISTRY: list[RuleFn] = [
     _rule_max_dose_count,
     _rule_min_interval_met,
     _rule_antigen_in_scope,
-    _rule_component_antigen_satisfaction,   # Q2 — IMPLEMENTED
-    _rule_acip_grace_period,               # Q4 — IMPLEMENTED
-    _stub_live_vaccine_coadmin,             # Q5 — STUB
-    _stub_rotavirus_age_cutoff,             # Q6 — STUB
-    _stub_contraindication_source_conflict, # Q11 — STUB
+    _rule_component_antigen_satisfaction,      # Q2 — IMPLEMENTED
+    _rule_acip_grace_period,                   # Q4 — IMPLEMENTED
+    _rule_live_vaccine_coadmin,                # Q5 — IMPLEMENTED
+    _rule_rotavirus_age_cutoff,                # Q6 — IMPLEMENTED
+    _rule_contraindication_source_conflict,    # Q11 — IMPLEMENTED (EG-CONTRA-001)
 ]
 
 # ── Output dataclass ──────────────────────────────────────────────────────────

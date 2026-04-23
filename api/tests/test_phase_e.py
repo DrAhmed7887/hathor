@@ -1,4 +1,4 @@
-"""Tests for Phase E rules engine — 6 implemented rules.
+"""Tests for Phase E rules engine — all 9 rules implemented.
 
 Covers:
   HATHOR-AGE-001  min_age_valid           (dose_verdict + due/overdue paths)
@@ -7,11 +7,11 @@ Covers:
   HATHOR-AGE-002  antigen_in_scope
   HATHOR-EPI-001  component_antigen_satisfaction   (Q2 — combination vaccines)
   HATHOR-DOSE-003 acip_grace_period               (Q4 — ACIP 4-day grace)
-  Stub rules      return None (no result)
+  HATHOR-EPI-002  live_vaccine_coadmin            (Q5 — 28-day inter-live window)
+  HATHOR-AGE-003  rotavirus_age_cutoff            (Q6 — ACIP Rotavirus cutoffs)
+  EG-CONTRA-001   contraindication_source_conflict (Q11 — Egypt MoH precedence)
   validate()      supersession engine
   gate()          has_failures flag
-
-Stub rules (Q5/Q6/Q11) are tested only for None return — no bodies yet.
 """
 
 import unittest
@@ -21,17 +21,23 @@ from hathor.safety.phase_e import (
     COMBINATION_COMPONENTS,
     ClinicalContext,
     GRACE_PERIOD_DAYS,
+    LIVE_COADMIN_MIN_DAYS,
+    LIVE_ORAL_VACCINES,
+    LIVE_PARENTERAL_VACCINES,
     PhaseEOutput,
     PHASE1_ANTIGENS,
+    ROTAVIRUS_DOSE1_MAX_AGE_DAYS,
+    ROTAVIRUS_MIN_AGE_DAYS,
+    ROTAVIRUS_SERIES_MAX_AGE_DAYS,
     _rule_acip_grace_period,
     _rule_antigen_in_scope,
     _rule_component_antigen_satisfaction,
+    _rule_contraindication_source_conflict,
+    _rule_live_vaccine_coadmin,
     _rule_max_dose_count,
     _rule_min_age_valid,
     _rule_min_interval_met,
-    _stub_contraindication_source_conflict,
-    _stub_live_vaccine_coadmin,
-    _stub_rotavirus_age_cutoff,
+    _rule_rotavirus_age_cutoff,
     gate,
     validate,
 )
@@ -649,20 +655,357 @@ class TestGracePeriod(unittest.TestCase):
 # ── Stub rules return None ────────────────────────────────────────────────────
 
 
-class TestStubRulesReturnNone(unittest.TestCase):
+# ── HATHOR-EPI-002 — live_vaccine_coadmin ────────────────────────────────────
 
-    def setUp(self):
-        self.rec = _rec()
-        self.ctx = _ctx()
 
-    def test_live_vaccine_coadmin_stub(self):
-        self.assertIsNone(_stub_live_vaccine_coadmin(self.rec, self.ctx))
+class TestLiveVaccineCoadmin(unittest.TestCase):
+    """28-day inter-live-vaccine rule — Q5 physician decision implemented."""
 
-    def test_rotavirus_age_cutoff_stub(self):
-        self.assertIsNone(_stub_rotavirus_age_cutoff(self.rec, self.ctx))
+    _DOB = date(2024, 1, 1)
 
-    def test_contraindication_source_conflict_stub(self):
-        self.assertIsNone(_stub_contraindication_source_conflict(self.rec, self.ctx))
+    def _mmr_ctx(self, mmr_date: str, other_antigen: str, other_date: str) -> ClinicalContext:
+        return _ctx(
+            child_dob=self._DOB,
+            confirmed_doses=[
+                {"antigen": other_antigen, "date_administered": other_date, "dose_number": 1},
+                {"antigen": "MMR", "date_administered": mmr_date, "dose_number": 1},
+            ],
+        )
+
+    def test_same_day_coadmin_passes(self):
+        # Same-day co-administration of two live parenterals is always valid.
+        ctx = self._mmr_ctx("2025-01-26", "Varicella", "2025-01-26")
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[1])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertEqual(result.rule_id, "HATHOR-EPI-002")
+
+    def test_interval_14_days_fails(self):
+        # MMR given 14 days after Varicella: second dose (MMR) is invalid.
+        ctx = self._mmr_ctx("2025-02-09", "Varicella", "2025-01-26")  # 14 days apart
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[1])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertEqual(result.rule_id, "HATHOR-EPI-002")
+        self.assertIn("14 day(s)", result.rule_rationale)
+        self.assertIn("Varicella", result.rule_rationale)
+
+    def test_interval_exactly_28_days_passes(self):
+        # Exactly 28 days apart — meets the minimum.
+        ctx = self._mmr_ctx("2025-02-23", "Varicella", "2025-01-26")  # exactly 28 days
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[1])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    def test_interval_27_days_fails(self):
+        # 27 days apart — 1 day short; the 4-day grace does NOT apply here.
+        ctx = self._mmr_ctx("2025-02-22", "Varicella", "2025-01-26")  # 27 days
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[1])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertIn("4-day grace", result.rule_rationale)
+
+    def test_current_dose_is_first_passes(self):
+        # MMR comes BEFORE Varicella — current (MMR) is the first; no violation.
+        ctx = _ctx(
+            child_dob=self._DOB,
+            confirmed_doses=[
+                {"antigen": "MMR", "date_administered": "2025-01-26", "dose_number": 1},
+                {"antigen": "Varicella", "date_administered": "2025-02-09", "dose_number": 1},
+            ],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    def test_live_oral_exempt(self):
+        # OPV (live oral) + MMR at any interval: no violation; OPV is exempt.
+        ctx = _ctx(
+            child_dob=self._DOB,
+            confirmed_doses=[
+                {"antigen": "OPV", "date_administered": "2025-01-26", "dose_number": 1},
+                {"antigen": "MMR", "date_administered": "2025-02-09", "dose_number": 1},  # 14 days
+            ],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[1])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    def test_rotavirus_exempt(self):
+        # Rotavirus (live oral) + MMR at 10 days: exempt; no violation.
+        ctx = _ctx(
+            child_dob=self._DOB,
+            confirmed_doses=[
+                {"antigen": "Rotavirus", "date_administered": "2025-01-16", "dose_number": 1},
+                {"antigen": "MMR", "date_administered": "2025-01-26", "dose_number": 1},
+            ],
+        )
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[1])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    def test_non_live_antigen_returns_none(self):
+        # Hexavalent is not live — rule does not apply.
+        ctx = _ctx()
+        rec = _rec(antigen="Hexavalent", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        self.assertIsNone(_rule_live_vaccine_coadmin(rec, ctx))
+
+    def test_same_antigen_intra_series_passes(self):
+        # MMR dose 1 and MMR dose 2 within 28 days: same antigen (intra-series), DOSE-002 handles.
+        ctx = _ctx(
+            child_dob=self._DOB,
+            confirmed_doses=[
+                {"antigen": "MMR", "date_administered": "2025-01-26", "dose_number": 1},
+                {"antigen": "MMR", "date_administered": "2025-02-09", "dose_number": 2},
+            ],
+        )
+        rec = _rec(antigen="MMR", dose_number=2, kind="dose_verdict", source_dose_indices=[0, 1])
+        result = _rule_live_vaccine_coadmin(rec, ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")  # same antigen skipped; no other live vaccines
+
+    def test_non_dose_verdict_returns_none(self):
+        ctx = _ctx()
+        for kind in ("due", "overdue", "catchup_visit", "contra"):
+            with self.subTest(kind=kind):
+                rec = _rec(antigen="MMR", dose_number=1, kind=kind)
+                self.assertIsNone(_rule_live_vaccine_coadmin(rec, ctx))
+
+    def test_constants_exported(self):
+        self.assertEqual(LIVE_COADMIN_MIN_DAYS, 28)
+        self.assertIn("OPV", LIVE_ORAL_VACCINES)
+        self.assertIn("Rotavirus", LIVE_ORAL_VACCINES)
+        self.assertIn("MMR", LIVE_PARENTERAL_VACCINES)
+        self.assertIn("Varicella", LIVE_PARENTERAL_VACCINES)
+        self.assertNotIn("Hexavalent", LIVE_PARENTERAL_VACCINES)
+        self.assertNotIn("OPV", LIVE_PARENTERAL_VACCINES)
+
+
+# ── HATHOR-AGE-003 — rotavirus_age_cutoff ────────────────────────────────────
+
+
+class TestRotavirusAgeCutoff(unittest.TestCase):
+    """ACIP Rotavirus age cutoffs — Q6 physician decision implemented.
+
+    Egypt EPI / ACIP thresholds:
+      Min age dose 1:  42 days (6 weeks)
+      Max age dose 1: 105 days (15 weeks 0 days, cutoff — WARN if exceeded and < 240 days)
+      Max series age: 240 days (8 months — FAIL if exceeded)
+    """
+
+    _DOB = date(2024, 1, 1)
+
+    def _rota_ctx(self, admin_date: str, dose_number: int = 1) -> ClinicalContext:
+        return _ctx(
+            child_dob=self._DOB,
+            confirmed_doses=[
+                {"antigen": "Rotavirus", "date_administered": admin_date, "dose_number": dose_number}
+            ],
+        )
+
+    def _rota_rec(self, dose_number: int = 1) -> Recommendation:
+        return _rec(antigen="Rotavirus", dose_number=dose_number, kind="dose_verdict", source_dose_indices=[0])
+
+    # ── Pass cases ────────────────────────────────────────────────────────────
+
+    def test_dose1_at_min_age_passes(self):
+        # 42 days old — exactly at minimum age.
+        ctx = self._rota_ctx("2024-02-12")  # DOB 2024-01-01, +42 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+        self.assertEqual(result.rule_id, "HATHOR-AGE-003")
+
+    def test_dose1_within_window_passes(self):
+        # 70 days old — within 42–104 day window.
+        ctx = self._rota_ctx("2024-03-11")  # 70 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    def test_dose1_at_104_days_passes(self):
+        # 104 days = last day before cutoff — still pass.
+        ctx = self._rota_ctx("2024-04-14")  # 104 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    def test_dose2_above_dose1_cutoff_but_below_series_max_passes(self):
+        # Dose 2 at 120 days — dose-1 cutoff does NOT apply to dose ≥2.
+        ctx = self._rota_ctx("2024-05-01", dose_number=2)  # ~121 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(dose_number=2), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "pass")
+
+    # ── Warn case (dose 1 past 15-week cutoff, below 8 months) ──────────────
+
+    def test_dose1_at_105_days_warns(self):
+        # 105 days = exactly at the dose-1 cutoff threshold → WARN (migrant advisory).
+        ctx = self._rota_ctx("2024-04-15")  # 105 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "warn")
+        self.assertEqual(result.rule_id, "HATHOR-AGE-003")
+        self.assertIn("migrant", result.rule_rationale.lower())
+
+    def test_dose1_at_200_days_warns_not_fails(self):
+        # 200 days — past dose-1 cutoff but < 240-day series max → WARN (not fail).
+        ctx = self._rota_ctx("2024-07-19")  # ~200 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "warn")
+
+    # ── Fail cases ────────────────────────────────────────────────────────────
+
+    def test_dose1_below_min_age_fails(self):
+        # 41 days — 1 day below minimum → FAIL.
+        ctx = self._rota_ctx("2024-02-11")  # 41 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertIn("minimum age", result.rule_rationale)
+
+    def test_any_dose_at_series_max_fails(self):
+        # Dose 1 at exactly 240 days → FAIL (series-completion cutoff).
+        ctx = self._rota_ctx("2024-08-28")  # 240 days from 2024-01-01
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertIn("series-completion", result.rule_rationale)
+
+    def test_dose2_at_series_max_fails(self):
+        # Dose 2 at 250 days → FAIL.
+        ctx = self._rota_ctx("2024-09-07", dose_number=2)  # 250 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(dose_number=2), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+
+    # ── Not applicable ────────────────────────────────────────────────────────
+
+    def test_non_rotavirus_returns_none(self):
+        ctx = _ctx()
+        rec = _rec(antigen="MMR", dose_number=1, kind="dose_verdict", source_dose_indices=[0])
+        self.assertIsNone(_rule_rotavirus_age_cutoff(rec, ctx))
+
+    def test_non_dose_verdict_returns_none(self):
+        ctx = _ctx()
+        for kind in ("due", "overdue", "catchup_visit", "contra"):
+            with self.subTest(kind=kind):
+                rec = _rec(antigen="Rotavirus", dose_number=1, kind=kind)
+                self.assertIsNone(_rule_rotavirus_age_cutoff(rec, ctx))
+
+    def test_constants_exported(self):
+        self.assertEqual(ROTAVIRUS_MIN_AGE_DAYS, 42)
+        self.assertEqual(ROTAVIRUS_DOSE1_MAX_AGE_DAYS, 105)
+        self.assertEqual(ROTAVIRUS_SERIES_MAX_AGE_DAYS, 240)
+
+
+# ── EG-CONTRA-001 — contraindication_source_conflict ─────────────────────────
+
+
+class TestContraSourceConflict(unittest.TestCase):
+    """EG-CONTRA-001 — Egypt MoH precedence for conflicting contraindication verdicts."""
+
+    def _contra_rec(self, source_verdicts: list[dict] | None = None) -> Recommendation:
+        from hathor.schemas.recommendation import Recommendation
+        return Recommendation(
+            recommendation_id="rec-contra",
+            kind="contra",
+            antigen="MMR",
+            agent_rationale="test contra",
+            reasoning="test reasoning",
+            agent_confidence=0.9,
+            source_verdicts=source_verdicts or [],
+        )
+
+    def test_no_source_verdicts_returns_none(self):
+        # No conflict data — rule cannot evaluate.
+        rec = self._contra_rec([])
+        self.assertIsNone(_rule_contraindication_source_conflict(rec, _ctx()))
+
+    def test_all_agree_contraindicated_returns_none(self):
+        # No conflict — all say contraindicated; no resolution needed.
+        rec = self._contra_rec([
+            {"source": "EgyptMoH", "verdict": True, "reason": "allergy"},
+            {"source": "WHO-DAK", "verdict": True, "reason": "allergy"},
+        ])
+        self.assertIsNone(_rule_contraindication_source_conflict(rec, _ctx()))
+
+    def test_all_agree_safe_returns_none(self):
+        # No conflict — all say safe; no resolution needed.
+        rec = self._contra_rec([
+            {"source": "EgyptMoH", "verdict": False, "reason": "safe"},
+            {"source": "WHO-DAK", "verdict": False, "reason": "safe"},
+        ])
+        self.assertIsNone(_rule_contraindication_source_conflict(rec, _ctx()))
+
+    def test_conflict_any_contraindicated_fails(self):
+        # Egypt says safe, WHO says contraindicated → strictest wins → FAIL.
+        rec = self._contra_rec([
+            {"source": "EgyptMoH", "verdict": False, "reason": "safe per Egypt directive"},
+            {"source": "WHO-DAK", "verdict": True, "reason": "contraindicated per DAK"},
+        ])
+        result = _rule_contraindication_source_conflict(rec, _ctx())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertEqual(result.rule_id, "EG-CONTRA-001")
+        self.assertEqual(result.rule_slug, "contraindication_source_conflict")
+        self.assertIn("WHO-DAK", result.rule_rationale)
+
+    def test_conflict_egypt_contraindicated_fails(self):
+        # Egypt says contraindicated, manufacturer says safe → Egypt governs.
+        rec = self._contra_rec([
+            {"source": "EgyptMoH", "verdict": True, "reason": "Egypt MoH directive 2024"},
+            {"source": "ManufacturerLabel", "verdict": False, "reason": "safe per label"},
+        ])
+        result = _rule_contraindication_source_conflict(rec, _ctx())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertIn("EgyptMoH", result.rule_rationale)
+
+    def test_conflict_highest_precedence_source_in_rationale(self):
+        # Both WHO and Egypt say contraindicated — Egypt (highest precedence) in rationale.
+        rec = self._contra_rec([
+            {"source": "WHO-DAK", "verdict": True, "reason": "DAK reason"},
+            {"source": "EgyptMoH", "verdict": True, "reason": "Egypt reason"},
+            {"source": "ManufacturerLabel", "verdict": False, "reason": "safe"},
+        ])
+        result = _rule_contraindication_source_conflict(rec, _ctx())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertIn("EgyptMoH", result.rule_rationale)  # highest precedence cited
+
+    def test_conflict_precaution_vs_safe_passes(self):
+        # Conflict between non-absolute verdicts; none say contraindicated → pass.
+        rec = self._contra_rec([
+            {"source": "EgyptMoH", "verdict": False, "reason": "precaution"},
+            {"source": "WHO-DAK", "verdict": False, "reason": "safe"},
+        ])
+        # All verdicts are False → no conflict (len(set([False])) == 1) → None
+        self.assertIsNone(_rule_contraindication_source_conflict(rec, _ctx()))
+
+    def test_non_contra_kind_returns_none(self):
+        ctx = _ctx()
+        for kind in ("dose_verdict", "due", "overdue", "catchup_visit"):
+            with self.subTest(kind=kind):
+                rec = _rec(antigen="MMR", dose_number=1, kind=kind)
+                self.assertIsNone(_rule_contraindication_source_conflict(rec, ctx))
+
+    def test_override_allowed_is_true(self):
+        rec = self._contra_rec([
+            {"source": "EgyptMoH", "verdict": True, "reason": "contra"},
+            {"source": "WHO-DAK", "verdict": False, "reason": "safe"},
+        ])
+        result = _rule_contraindication_source_conflict(rec, _ctx())
+        self.assertIsNotNone(result)
+        self.assertTrue(result.override_allowed)
 
 
 # ── gate() and validate() ─────────────────────────────────────────────────────
