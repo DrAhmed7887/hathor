@@ -35,7 +35,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from hathor.schemas.recommendation import Recommendation, ValidationResult
+from hathor.schemas.recommendation import (
+    OVERRIDE_JUSTIFICATION_CODES,
+    Recommendation,
+    ValidationResult,
+)
 from hathor.tools.dose_validation import MIN_AGE_DAYS
 from hathor.tools.intervals import INTERVAL_RULES
 
@@ -110,6 +114,30 @@ LIVE_PARENTERAL_VACCINES: frozenset[str] = frozenset({
 #: ACIP and WHO align on 28 days. The 4-day grace period (HATHOR-DOSE-003) does
 #: NOT apply to this window. Same-antigen intra-series intervals use DOSE-002.
 LIVE_COADMIN_MIN_DAYS: int = 28
+
+# ── High-burden source countries (Friction by Design — HATHOR-AGE-003) ───────
+
+#: Countries where WHO child-mortality stratum indicates very high under-5 mortality.
+#: When ``ClinicalContext.source_country`` matches a country in this set, HATHOR-AGE-003
+#: returns ``override_required`` (Friction by Design) rather than plain ``fail`` for
+#: rotavirus age-cutoff violations. Phase 1 validated source country: Nigeria.
+#: List is non-exhaustive — extend as clinical scope expands.
+#: See docs/CLINICAL_DECISIONS.md § Clinical UI Policy — Friction by Design.
+HIGH_BURDEN_COUNTRIES: frozenset[str] = frozenset({
+    # Phase 1 validated source country
+    "Nigeria",
+    # Sahel / West Africa
+    "Sudan", "Chad", "Niger", "Mali", "Burkina Faso",
+    "Guinea", "Guinea-Bissau", "Sierra Leone", "Liberia",
+    "Côte d'Ivoire", "Ivory Coast", "Benin", "Togo", "Senegal",
+    # Central Africa
+    "South Sudan", "Democratic Republic of the Congo", "DRC", "Congo",
+    "Central African Republic", "Cameroon",
+    # East Africa
+    "Ethiopia", "Somalia", "Uganda", "Tanzania", "Rwanda", "Burundi",
+    # Southern Africa
+    "Mozambique", "Angola", "Malawi", "Zambia", "Zimbabwe",
+})
 
 # ── Rotavirus age cutoff constants (Q6 — resolved) ────────────────────────────
 
@@ -190,10 +218,16 @@ class ClinicalContext:
     ``confirmed_doses`` is the post-HITL dose list the agent reasoned from.
     Each entry is a dict with at minimum:
       {"antigen": str, "date_administered": str (ISO), "dose_number": int | None}
+
+    ``source_country`` is the patient's country of origin (ISO or common name).
+    Used by HATHOR-AGE-003 (Friction by Design contextual trigger): when the patient
+    arrives from a country in HIGH_BURDEN_COUNTRIES, age-cutoff violations return
+    ``override_required`` rather than ``fail``. Empty string = unknown/not applicable.
     """
 
     child_dob: date
     target_country: str
+    source_country: str = ""               # patient's country of origin (Friction by Design trigger)
     confirmed_doses: list[dict] = field(default_factory=list)
 
 
@@ -806,21 +840,30 @@ def _rule_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> Val
       Max age dose 1:    15 weeks 0 days = 105 days cutoff (ROTAVIRUS_DOSE1_MAX_AGE_DAYS)
       Max series age:     8 months   = 240 days (ROTAVIRUS_SERIES_MAX_AGE_DAYS)
 
-    Severity logic:
-    - Dose 1 at <42 days:        fail (below minimum age).
-    - Any dose at ≥240 days:     fail (series completion cutoff).
-    - Dose 1 at ≥105 days AND    warn (ACIP dose-1 max exceeded; high-burden-setting
-      <240 days:                       migrant advisory — clinician decides override).
-    - Dose 2+ at ≥105 days AND   pass (the dose-1 cutoff applies only to dose-1
-      <240 days:                       initiation; subsequent doses evaluated on the
-                                       8-month completion cutoff only, per ACIP).
-    - Otherwise:                 pass.
+    Severity logic — amended per Friction by Design clinical UI policy:
+    - Dose 1 at <42 days:
+        → fail (below minimum age; independent of source country)
+    - Any dose at ≥240 days, patient from HIGH_BURDEN_COUNTRIES:
+        → override_required (Friction by Design; structured justification required)
+    - Any dose at ≥240 days, patient NOT from HIGH_BURDEN_COUNTRIES:
+        → fail
+    - Dose 1 at ≥105 days AND <240 days, patient from HIGH_BURDEN_COUNTRIES:
+        → override_required (migrant advisory — structured justification required)
+    - Dose 1 at ≥105 days AND <240 days, patient NOT from HIGH_BURDEN_COUNTRIES:
+        → fail
+    - Dose 2+ at ≥105 days AND <240 days:
+        → pass (dose-1 cutoff applies to dose-1 initiation only; subsequent doses
+                evaluated on the 8-month completion cutoff only, per ACIP)
+    - Otherwise: pass.
+
+    override_required rules use distinct UI treatment (not standard yellow warning),
+    present available justification codes to the clinician, and log both the code and
+    free-text to FHIR Provenance. See CLINICAL_DECISIONS.md § Clinical UI Policy.
 
     Preterm infants: ACIP uses chronological age; Hathor uses chronological age.
 
     Returns None for non-Rotavirus antigens and non-dose_verdict kinds.
-    See docs/CLINICAL_DECISIONS.md Q6 for the full clinical rationale and migration
-    population override guidance.
+    See docs/CLINICAL_DECISIONS.md Q6 (rule) and § Clinical UI Policy (amendment).
     """
     if rec.antigen != "Rotavirus":
         return None
@@ -845,28 +888,9 @@ def _rule_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> Val
         return None
 
     age_days = (dose_date - ctx.child_dob).days
+    high_burden = ctx.source_country in HIGH_BURDEN_COUNTRIES
 
-    # Series completion cutoff (applies to ALL doses): ≥ 8 months = fail
-    if age_days >= ROTAVIRUS_SERIES_MAX_AGE_DAYS:
-        extra = (
-            " Override available but WHO evidence on benefit past 8 months attenuates — "
-            "document clinical rationale carefully."
-            if age_days >= ROTAVIRUS_SERIES_MAX_AGE_DAYS
-            else ""
-        )
-        return ValidationResult(
-            recommendation_id=rec.recommendation_id,
-            severity="fail",
-            rule_id="HATHOR-AGE-003",
-            rule_slug="rotavirus_age_cutoff",
-            rule_rationale=(
-                f"Rotavirus dose {rec.dose_number} at {age_days} days exceeds the "
-                f"ACIP series-completion maximum of {ROTAVIRUS_SERIES_MAX_AGE_DAYS} days "
-                f"(8 months).{extra}"
-            ),
-        )
-
-    # Dose 1 minimum age: < 6 weeks = fail
+    # Dose 1 minimum age: < 6 weeks = fail (independent of source country)
     if rec.dose_number == 1 and age_days < ROTAVIRUS_MIN_AGE_DAYS:
         return ValidationResult(
             recommendation_id=rec.recommendation_id,
@@ -879,21 +903,66 @@ def _rule_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> Val
             ),
         )
 
-    # Dose 1 max-age advisory: ≥ 15 weeks 0 days and < 8 months = warn
-    # (migrant-child high-burden advisory — clinician decides via override)
-    if rec.dose_number == 1 and age_days >= ROTAVIRUS_DOSE1_MAX_AGE_DAYS:
+    # Series completion cutoff: ≥ 8 months (all doses)
+    if age_days >= ROTAVIRUS_SERIES_MAX_AGE_DAYS:
+        if high_burden:
+            return ValidationResult(
+                recommendation_id=rec.recommendation_id,
+                severity="override_required",
+                rule_id="HATHOR-AGE-003",
+                rule_slug="rotavirus_age_cutoff",
+                rule_rationale=(
+                    f"Rotavirus dose {rec.dose_number} at {age_days} days exceeds the "
+                    f"ACIP series-completion maximum of {ROTAVIRUS_SERIES_MAX_AGE_DAYS} days "
+                    f"(8 months). Patient origin ({ctx.source_country}) is a high-rotavirus-"
+                    "mortality setting. WHO benefit-risk analyses support a structured override "
+                    "decision — clinician must select a justification code and document the "
+                    "clinical rationale. Both are logged to FHIR Provenance. Note: evidence for "
+                    "benefit attenuates past 8 months; document accordingly."
+                ),
+                override_justification_codes=sorted(OVERRIDE_JUSTIFICATION_CODES),
+            )
         return ValidationResult(
             recommendation_id=rec.recommendation_id,
-            severity="warn",
+            severity="fail",
+            rule_id="HATHOR-AGE-003",
+            rule_slug="rotavirus_age_cutoff",
+            rule_rationale=(
+                f"Rotavirus dose {rec.dose_number} at {age_days} days exceeds the "
+                f"ACIP series-completion maximum of {ROTAVIRUS_SERIES_MAX_AGE_DAYS} days "
+                "(8 months). Override available with documented clinical reason."
+            ),
+        )
+
+    # Dose 1 max-age cutoff: ≥ 15 weeks 0 days and < 8 months
+    if rec.dose_number == 1 and age_days >= ROTAVIRUS_DOSE1_MAX_AGE_DAYS:
+        if high_burden:
+            return ValidationResult(
+                recommendation_id=rec.recommendation_id,
+                severity="override_required",
+                rule_id="HATHOR-AGE-003",
+                rule_slug="rotavirus_age_cutoff",
+                rule_rationale=(
+                    f"Rotavirus dose 1 at {age_days} days exceeds the ACIP dose-1 initiation "
+                    f"cutoff of {ROTAVIRUS_DOSE1_MAX_AGE_DAYS} days (15 weeks 0 days). "
+                    f"Patient origin ({ctx.source_country}) is a high-rotavirus-mortality "
+                    "setting. WHO benefit-risk analyses support a structured override decision "
+                    f"(~154 rotavirus deaths prevented per intussusception risk). Clinician must "
+                    "select a justification code and document the clinical rationale — both logged "
+                    "to FHIR Provenance. Distinct visual treatment applies (Friction by Design)."
+                ),
+                override_justification_codes=sorted(OVERRIDE_JUSTIFICATION_CODES),
+            )
+        return ValidationResult(
+            recommendation_id=rec.recommendation_id,
+            severity="fail",
             rule_id="HATHOR-AGE-003",
             rule_slug="rotavirus_age_cutoff",
             rule_rationale=(
                 f"Rotavirus dose 1 at {age_days} days exceeds the ACIP dose-1 initiation "
                 f"cutoff of {ROTAVIRUS_DOSE1_MAX_AGE_DAYS} days (15 weeks 0 days). "
-                "ACIP: dose 1 should not be initiated at ≥15 weeks. "
-                "For migrant children from high-rotavirus-mortality settings (e.g., Nigeria), "
-                "WHO benefit-risk analyses support clinical override — clinician review required. "
-                "Override is logged via FHIR Provenance."
+                "ACIP: dose 1 should not be initiated at ≥15 weeks. Override available with "
+                "documented clinical reason."
             ),
         )
 
@@ -1016,11 +1085,19 @@ _RULE_REGISTRY: list[RuleFn] = [
 
 @dataclass
 class PhaseEOutput:
-    """Full output of phase_e.gate() — both active and Provenance audit sets."""
+    """Full output of phase_e.gate() — both active and Provenance audit sets.
+
+    ``has_failures`` — True when any active result has severity "fail".
+    ``has_override_required`` — True when any active result has severity
+      "override_required" (Friction by Design structured override pathway).
+      The UI applies distinct visual treatment for these results (contextual
+      trigger, mandatory justification code, separate FHIR Provenance logging).
+    """
 
     active: list[ValidationResult]       # results presented to clinician / forwarded to FHIR
     superseded: list[ValidationResult]   # results suppressed by a superseding rule; log to Provenance
     has_failures: bool
+    has_override_required: bool = False  # Friction by Design: any override_required result in active
 
     @property
     def all_results(self) -> list[ValidationResult]:
@@ -1075,4 +1152,5 @@ def gate(recommendations: list[Recommendation], ctx: ClinicalContext) -> PhaseEO
         active=active,
         superseded=superseded,
         has_failures=any(r.severity == "fail" for r in active),
+        has_override_required=any(r.severity == "override_required" for r in active),
     )

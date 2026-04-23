@@ -31,6 +31,7 @@ def _serialize_result(r: ValidationResult) -> dict:
         "override_allowed": r.override_allowed,
         "override_logged_as": r.override_logged_as,
         "supersedes": r.supersedes,
+        "override_justification_codes": r.override_justification_codes,
     }
 
 
@@ -46,10 +47,16 @@ def _serialize_result(r: ValidationResult) -> dict:
         "uncertainty annotations) goes in your text response, not here. "
         "Phase E will validate each recommendation against deterministic clinical rules "
         "and return a ValidationResult per recommendation with severity 'pass', 'warn', "
-        "or 'fail'. For 'fail' results: explain the blocking rule in one sentence, state "
+        "'fail', or 'override_required'. "
+        "For 'fail' results: explain the blocking rule in one sentence, state "
         "that clinician override is available and will be logged via FHIR Provenance, "
         "ask for the clinical reason as free text, and do not finalize the recommendation "
-        "until the clinician responds."
+        "until the clinician responds. "
+        "For 'override_required' results (Friction by Design): apply distinct visual "
+        "treatment — these carry documented adverse-event risk. Present the available "
+        "justification codes from override_justification_codes to the clinician, require "
+        "selection of exactly one code plus optional free text, and log both to FHIR "
+        "Provenance. Do not treat override_required the same as fail."
     ),
     {
         "recommendations": list,
@@ -83,6 +90,7 @@ async def emit_recommendations(args: dict) -> dict:
     ctx = ClinicalContext(
         child_dob=child_dob,
         target_country=ctx_dict.get("target_country", "Egypt"),
+        source_country=ctx_dict.get("source_country", ""),
         confirmed_doses=ctx_dict.get("confirmed_doses", []),
     )
 
@@ -112,6 +120,7 @@ async def emit_recommendations(args: dict) -> dict:
     result = {
         "total_recommendations": len(recommendations),
         "has_failures": output.has_failures,
+        "has_override_required": output.has_override_required,
         "active_results": [_serialize_result(r) for r in output.active],
         "superseded_results": [_serialize_result(r) for r in output.superseded],
         "provenance_note": (

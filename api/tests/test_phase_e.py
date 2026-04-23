@@ -21,6 +21,7 @@ from hathor.safety.phase_e import (
     COMBINATION_COMPONENTS,
     ClinicalContext,
     GRACE_PERIOD_DAYS,
+    HIGH_BURDEN_COUNTRIES,
     LIVE_COADMIN_MIN_DAYS,
     LIVE_ORAL_VACCINES,
     LIVE_PARENTERAL_VACCINES,
@@ -41,7 +42,11 @@ from hathor.safety.phase_e import (
     gate,
     validate,
 )
-from hathor.schemas.recommendation import Recommendation, ValidationResult
+from hathor.schemas.recommendation import (
+    OVERRIDE_JUSTIFICATION_CODES,
+    Recommendation,
+    ValidationResult,
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -795,16 +800,23 @@ class TestRotavirusAgeCutoff(unittest.TestCase):
     """ACIP Rotavirus age cutoffs — Q6 physician decision implemented.
 
     Egypt EPI / ACIP thresholds:
-      Min age dose 1:  42 days (6 weeks)
-      Max age dose 1: 105 days (15 weeks 0 days, cutoff — WARN if exceeded and < 240 days)
-      Max series age: 240 days (8 months — FAIL if exceeded)
+      Min age dose 1:   42 days (6 weeks)       — FAIL below minimum (any source country)
+      Max age dose 1:  105 days (15 weeks 0 d)  — FAIL (non-high-burden) / OVERRIDE_REQUIRED (high-burden)
+      Max series age:  240 days (8 months)       — FAIL (non-high-burden) / OVERRIDE_REQUIRED (high-burden)
+
+    Friction by Design amendment (Clinical UI Policy):
+      When source_country ∈ HIGH_BURDEN_COUNTRIES, dose-1 max-age and series-max violations
+      return override_required with justification codes rather than plain fail. The UI applies
+      distinct visual treatment and requires a structured justification code from the clinician.
     """
 
     _DOB = date(2024, 1, 1)
 
-    def _rota_ctx(self, admin_date: str, dose_number: int = 1) -> ClinicalContext:
-        return _ctx(
+    def _rota_ctx(self, admin_date: str, dose_number: int = 1, source_country: str = "") -> ClinicalContext:
+        return ClinicalContext(
             child_dob=self._DOB,
+            target_country="Egypt",
+            source_country=source_country,
             confirmed_doses=[
                 {"antigen": "Rotavirus", "date_administered": admin_date, "dose_number": dose_number}
             ],
@@ -844,23 +856,25 @@ class TestRotavirusAgeCutoff(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.severity, "pass")
 
-    # ── Warn case (dose 1 past 15-week cutoff, below 8 months) ──────────────
+    # ── Fail cases: dose-1 max-age, non-high-burden ──────────────────────────
 
-    def test_dose1_at_105_days_warns(self):
-        # 105 days = exactly at the dose-1 cutoff threshold → WARN (migrant advisory).
-        ctx = self._rota_ctx("2024-04-15")  # 105 days
+    def test_dose1_at_105_days_non_high_burden_fails(self):
+        # 105 days = exactly at the dose-1 cutoff threshold.
+        # source_country="" (unknown/non-high-burden) → FAIL.
+        ctx = self._rota_ctx("2024-04-15")  # 105 days; source_country="" default
         result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
         self.assertIsNotNone(result)
-        self.assertEqual(result.severity, "warn")
+        self.assertEqual(result.severity, "fail")
         self.assertEqual(result.rule_id, "HATHOR-AGE-003")
-        self.assertIn("migrant", result.rule_rationale.lower())
+        self.assertIn("cutoff", result.rule_rationale.lower())
 
-    def test_dose1_at_200_days_warns_not_fails(self):
-        # 200 days — past dose-1 cutoff but < 240-day series max → WARN (not fail).
-        ctx = self._rota_ctx("2024-07-19")  # ~200 days
+    def test_dose1_at_200_days_non_high_burden_fails(self):
+        # 200 days — past dose-1 cutoff but < 240-day series max.
+        # Non-high-burden → FAIL (not warn).
+        ctx = self._rota_ctx("2024-07-19")  # ~200 days; source_country="" default
         result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
         self.assertIsNotNone(result)
-        self.assertEqual(result.severity, "warn")
+        self.assertEqual(result.severity, "fail")
 
     # ── Fail cases ────────────────────────────────────────────────────────────
 
@@ -872,20 +886,76 @@ class TestRotavirusAgeCutoff(unittest.TestCase):
         self.assertEqual(result.severity, "fail")
         self.assertIn("minimum age", result.rule_rationale)
 
-    def test_any_dose_at_series_max_fails(self):
-        # Dose 1 at exactly 240 days → FAIL (series-completion cutoff).
-        ctx = self._rota_ctx("2024-08-28")  # 240 days from 2024-01-01
+    def test_any_dose_at_series_max_non_high_burden_fails(self):
+        # Dose 1 at exactly 240 days, non-high-burden → FAIL (series-completion cutoff).
+        ctx = self._rota_ctx("2024-08-28")  # 240 days from 2024-01-01; source_country="" default
         result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
         self.assertIsNotNone(result)
         self.assertEqual(result.severity, "fail")
         self.assertIn("series-completion", result.rule_rationale)
 
-    def test_dose2_at_series_max_fails(self):
-        # Dose 2 at 250 days → FAIL.
-        ctx = self._rota_ctx("2024-09-07", dose_number=2)  # 250 days
+    def test_dose2_at_series_max_non_high_burden_fails(self):
+        # Dose 2 at 250 days, non-high-burden → FAIL.
+        ctx = self._rota_ctx("2024-09-07", dose_number=2)  # 250 days; source_country="" default
         result = _rule_rotavirus_age_cutoff(self._rota_rec(dose_number=2), ctx)
         self.assertIsNotNone(result)
         self.assertEqual(result.severity, "fail")
+
+    # ── High-burden: override_required (Friction by Design) ──────────────────
+
+    def test_dose1_at_105_days_high_burden_override_required(self):
+        # 105 days, source_country="Nigeria" (HIGH_BURDEN_COUNTRIES) → OVERRIDE_REQUIRED.
+        ctx = self._rota_ctx("2024-04-15", source_country="Nigeria")  # 105 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "override_required")
+        self.assertEqual(result.rule_id, "HATHOR-AGE-003")
+        self.assertIn("Nigeria", result.rule_rationale)
+
+    def test_dose1_at_200_days_high_burden_override_required(self):
+        # 200 days, source_country="Nigeria" → OVERRIDE_REQUIRED (dose-1 max cutoff).
+        ctx = self._rota_ctx("2024-07-19", source_country="Nigeria")  # ~200 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "override_required")
+
+    def test_series_max_high_burden_override_required(self):
+        # Dose 1 at exactly 240 days, source_country="Nigeria" → OVERRIDE_REQUIRED.
+        ctx = self._rota_ctx("2024-08-28", source_country="Nigeria")  # 240 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "override_required")
+        self.assertEqual(result.rule_id, "HATHOR-AGE-003")
+
+    def test_dose1_below_min_always_fails_regardless_of_source_country(self):
+        # Dose 1 < 42 days is always fail regardless of source country.
+        ctx = self._rota_ctx("2024-02-11", source_country="Nigeria")  # 41 days
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")  # min-age violation: never override_required
+
+    def test_override_justification_codes_populated_when_override_required(self):
+        # When severity is override_required, override_justification_codes must be non-empty
+        # and must be a subset of OVERRIDE_JUSTIFICATION_CODES.
+        ctx = self._rota_ctx("2024-04-15", source_country="Nigeria")  # 105 days, high-burden
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "override_required")
+        self.assertTrue(len(result.override_justification_codes) > 0)
+        for code in result.override_justification_codes:
+            self.assertIn(code, OVERRIDE_JUSTIFICATION_CODES)
+
+    def test_override_justification_codes_empty_on_fail(self):
+        # Plain fail results must NOT carry justification codes.
+        ctx = self._rota_ctx("2024-04-15")  # 105 days, non-high-burden → fail
+        result = _rule_rotavirus_age_cutoff(self._rota_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertEqual(result.override_justification_codes, [])
+
+    def test_high_burden_countries_constant_includes_nigeria(self):
+        # Nigeria is the Phase 1 validated source country.
+        self.assertIn("Nigeria", HIGH_BURDEN_COUNTRIES)
 
     # ── Not applicable ────────────────────────────────────────────────────────
 
@@ -1096,6 +1166,64 @@ class TestGate(unittest.TestCase):
         output = gate([], ctx)
         self.assertEqual(output.active, [])
         self.assertEqual(output.superseded, [])
+        self.assertFalse(output.has_failures)
+
+    def test_has_override_required_true_when_override_required_present(self):
+        """gate() sets has_override_required=True when any active result is override_required."""
+        from hathor.safety import phase_e as pe_mod
+
+        def _fake_override_required_rule(rec, ctx):
+            return ValidationResult(
+                recommendation_id=rec.recommendation_id,
+                severity="override_required",
+                rule_id="HATHOR-AGE-003",
+                rule_slug="rotavirus_age_cutoff",
+                rule_rationale="High-burden origin — override_required.",
+                override_justification_codes=["HIGH_BURDEN_ORIGIN"],
+            )
+
+        original = pe_mod._RULE_REGISTRY[:]
+        try:
+            pe_mod._RULE_REGISTRY = [_fake_override_required_rule]
+            ctx = _ctx()
+            rec = _rec(antigen="Rotavirus", dose_number=1, kind="dose_verdict",
+                       source_dose_indices=[0], rec_id="rec-or")
+            output = gate([rec], ctx)
+        finally:
+            pe_mod._RULE_REGISTRY = original
+
+        self.assertTrue(output.has_override_required)
+        self.assertFalse(output.has_failures)  # override_required ≠ fail
+
+    def test_has_override_required_false_when_none_present(self):
+        """gate() sets has_override_required=False when no active result is override_required."""
+        ctx = _ctx()
+        rec = _rec(antigen="MMR", dose_number=None, kind="catchup_visit", rec_id="rec-001")
+        output = gate([rec], ctx)
+        self.assertFalse(output.has_override_required)
+
+    def test_rotavirus_high_burden_triggers_override_required_in_gate(self):
+        """End-to-end: gate() with high-burden Nigeria source → has_override_required=True."""
+        from hathor.safety import phase_e as pe_mod
+        ctx = ClinicalContext(
+            child_dob=date(2024, 1, 1),
+            target_country="Egypt",
+            source_country="Nigeria",
+            confirmed_doses=[
+                {"antigen": "Rotavirus", "date_administered": "2024-04-15", "dose_number": 1}
+            ],
+        )
+        rec = _rec(antigen="Rotavirus", dose_number=1, kind="dose_verdict",
+                   source_dose_indices=[0], rec_id="rec-rota-nigeria")
+        # Isolate to just the rotavirus rule to avoid noise
+        original = pe_mod._RULE_REGISTRY[:]
+        try:
+            pe_mod._RULE_REGISTRY = [pe_mod._rule_rotavirus_age_cutoff]
+            output = gate([rec], ctx)
+        finally:
+            pe_mod._RULE_REGISTRY = original
+
+        self.assertTrue(output.has_override_required)
         self.assertFalse(output.has_failures)
 
 

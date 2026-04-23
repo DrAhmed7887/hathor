@@ -263,28 +263,45 @@ Override is logged via FHIR Provenance with the stated clinical reason.
 ## Q6. Rotavirus age cutoffs — HATHOR-AGE-003
 
 **Status:** RESOLVED 2026-04-23. Unblocks `_rule_rotavirus_age_cutoff` in
-`api/src/hathor/safety/phase_e.py`.
+`api/src/hathor/safety/phase_e.py`. **Amended** by Clinical UI Policy — Friction by
+Design (same session): high-burden-origin path changed from `warn` to `override_required`.
 
 ### Decision
 
 Hathor adopts the ACIP age cutoffs as the default rule:
 - Dose 1 must be administered before age 15 weeks 0 days (i.e., at or before 14 weeks
   6 days = 104 days; the cutoff threshold is ≥ 105 days).
-- All doses must be completed before age 8 months 0 days (≥ 240 days triggers fail).
+- All doses must be completed before age 8 months 0 days (≥ 240 days triggers fail or
+  override_required per Friction by Design).
 - Minimum interval between rotavirus doses is 4 weeks (handled by HATHOR-DOSE-002).
 - Minimum age for dose 1 is 6 weeks (42 days).
 
-A rotavirus dose-1 recommendation violating the dose-1 max age (≥ 105 days at
-administration) but below the series-completion max age returns **warn** severity with a
-migrant-advisory rationale. A series-completion cutoff violation (≥ 240 days) returns
-**fail** severity. Dose 1 below minimum age (< 42 days) returns **fail** severity.
+**Severity logic — amended by Friction by Design:**
 
-**Special handling for older migrant children:** When a child arrives in the destination
-with no prior rotavirus doses and is already past the dose-1 cutoff (≥ 105 days), Hathor
-does not silently drop rotavirus from the catch-up plan. Instead, the rule emits a
-warn-severity advisory noting that ACIP cutoff applies but that WHO and clinical
-benefit-risk analyses in high-burden settings support override. The clinician decides
-whether to initiate the series via standard override with documented reason.
+| Condition | source_country ∈ HIGH_BURDEN_COUNTRIES | Severity |
+|-----------|----------------------------------------|----------|
+| Dose 1 < 42 days | any | `fail` (absolute) |
+| Any dose ≥ 240 days | Yes | `override_required` |
+| Any dose ≥ 240 days | No | `fail` |
+| Dose 1 ≥ 105 days AND < 240 days | Yes | `override_required` |
+| Dose 1 ≥ 105 days AND < 240 days | No | `fail` |
+| Dose 2+ ≥ 105 days AND < 240 days | any | `pass` (dose-1 cutoff doesn't apply) |
+| Otherwise | any | `pass` |
+
+**`override_required`** is the Friction by Design structured override pathway. It is
+distinct from plain `fail`: the UI applies separate visual treatment, contextual triggering
+on `ClinicalContext.source_country`, and the clinician must select a structured
+justification code from `OVERRIDE_JUSTIFICATION_CODES` (`HIGH_BURDEN_ORIGIN`,
+`OUTBREAK_CATCHUP`, `CLINICIAN_DETERMINED`) in addition to optional free text. Both are
+logged to FHIR Provenance. See § Clinical UI Policy — Friction by Design below.
+
+**Special handling for older migrant children:** When a child arrives from a
+`HIGH_BURDEN_COUNTRIES` origin with no prior rotavirus doses and is already past the
+dose-1 cutoff (≥ 105 days), the rule returns `override_required` rather than the plain
+`fail` returned for non-high-burden cases. This surfaces the decision as a structured
+override rather than a silent block, and records the clinical justification code that
+drove the decision. The clinician selects a code (most commonly `HIGH_BURDEN_ORIGIN`)
+and the system logs the full decision trail to Provenance.
 
 ### Rationale
 
@@ -317,30 +334,41 @@ logs the override decision to Provenance for audit.
 
 ### Known limitations / edge cases
 
-- **Child arriving at 15–32 weeks with no rotavirus:** warn-with-override-path as
-  described. Rationale explicitly cites Nigerian/high-burden-setting mortality context.
-- **Child arriving >8 months with no rotavirus:** fail severity; override is available
-  but WHO data on post-cutoff efficacy attenuates, so the clinical case for override
-  weakens. Rule flags this explicitly in the fail rationale.
+- **Child arriving at 15–32 weeks with no rotavirus, high-burden origin:** returns
+  `override_required` with `HIGH_BURDEN_ORIGIN` as the most applicable justification code.
+  Rationale explicitly cites Nigerian/high-burden-setting mortality context (~154 deaths
+  prevented per intussusception risk). Clinician must select a code and document the
+  rationale; both logged to Provenance.
+- **Child arriving at 15–32 weeks with no rotavirus, non-high-burden origin:** returns
+  `fail`. Standard clinician override with free-text reason is available.
+- **Child arriving >8 months with no rotavirus:** `override_required` (high-burden) or
+  `fail` (non-high-burden). WHO data on post-cutoff efficacy attenuates past 8 months;
+  the rule rationale notes this explicitly so the clinician documents accordingly.
 - **Dose 1 inadvertently given ≥ 15 weeks 0 days:** ACIP states the remaining doses
   should be completed on normal schedule by 8 months — the cutoff does not invalidate
   subsequent doses. HATHOR-AGE-003 respects this: only the dose-1 event triggers the
-  ≥ 15-week warn; subsequent doses are evaluated on the 8-month completion cutoff only.
+  ≥ 15-week cutoff logic; subsequent doses are evaluated on the 8-month completion cutoff
+  only.
 - **Preterm infants:** ACIP uses chronological age, not corrected age, for rotavirus
   cutoffs. Hathor uses chronological age.
 
 ### Override conditions
 
-A clinician may override a fail verdict if:
-- The child is from a high-rotavirus-mortality setting (e.g., Nigeria, Sudan, South
-  Sudan) and the clinical benefit-risk analysis favors vaccination despite the age.
-- Egyptian MoH guidance for catch-up of migrant children specifies rotavirus
-  administration past cutoff.
-- Local outbreak or high-exposure risk elevates benefit.
+Two override pathways apply, depending on severity:
 
-Override is logged via FHIR Provenance with the stated clinical reason. The
-override-reason free-text is expected to cite the clinical context (source-country
-mortality data, outbreak status, or local directive).
+**`override_required` (high-burden origin):** The clinician must select exactly one
+justification code from `OVERRIDE_JUSTIFICATION_CODES`:
+- `HIGH_BURDEN_ORIGIN` — child arrives from a WHO high-child-mortality stratum country
+- `OUTBREAK_CATCHUP` — local outbreak or high-exposure risk elevates benefit
+- `CLINICIAN_DETERMINED` — clinician-determined case-by-case assessment
+
+The selected code plus optional free-text are logged to FHIR Provenance. The clinician
+is expected to cite the clinical context (source-country mortality data, outbreak status,
+or documented case-by-case rationale).
+
+**`fail` (non-high-burden / dose-1 minimum-age violation):** Standard clinician override
+with free-text reason is available via the usual override path. Free-text is logged to
+FHIR Provenance.
 
 ### Revision trigger
 
@@ -350,6 +378,7 @@ mortality data, outbreak status, or local directive).
 - Emergence of intussusception safety data for vaccination past cutoff.
 - New rotavirus vaccine formulations with broader age indications (e.g., Rotavac,
   Rotasiil in broader WHO prequalification).
+- Changes to the `HIGH_BURDEN_COUNTRIES` list as Phase 1 scope expands.
 
 ---
 
@@ -440,3 +469,81 @@ contraindication is being overridden and why.
 - Product label updates for WHO-prequalified products in Phase 1 scope.
 - Discovery of systematic disagreement between sources that this precedence does not
   resolve cleanly.
+
+---
+
+## Clinical UI Policy — Friction by Design
+
+**Status:** ADOPTED 2026-04-23. Applies immediately to HATHOR-AGE-003 (Q6, rotavirus
+cutoffs). Architecture is in place for future rules that carry documented adverse-event
+risk.
+
+Author: Ahmed Zayed MD.
+
+### Purpose
+
+Some Phase E rule violations carry documented adverse-event risk that makes a plain
+`fail` → free-text-override pathway insufficient. For these cases, the standard two-tier
+model (`pass`/`fail`) is extended by a fourth severity tier: `override_required`. This
+tier applies **Friction by Design** — intentional clinical friction that surfaces the
+specific risk, prompts structured justification, and records the decision for audit.
+
+The goal is not to prevent override. Clinician authority is an unconditional hard rule
+(see CLAUDE.md). The goal is to ensure that overrides of high-risk rules are:
+1. Deliberate — the clinician cannot proceed without acknowledging the specific risk.
+2. Documented — a structured justification code (machine-readable) plus optional
+   free text (clinician's narrative) are both logged to FHIR Provenance.
+3. Distinguishable — the UI applies distinct visual treatment so these decisions are
+   not processed with the same cognitive load as routine `fail` overrides.
+
+### Severity tiers
+
+| Severity | Meaning | UI Treatment | Clinician Action Required |
+|----------|---------|-------------|--------------------------|
+| `pass` | Meets all rules | Normal display | None |
+| `warn` | Meets rules with caveat | Yellow badge + rationale | None |
+| `fail` | Rule violation | Blocked + override affordance | Free-text override reason |
+| `override_required` | High-risk violation | Distinct treatment + justification selector | Justification code + optional free text |
+
+### `override_required` protocol
+
+When a ValidationResult has severity `override_required`:
+
+1. **Visual treatment** — distinct from `fail`. The UI must not render `override_required`
+   results with the same styling as plain `fail` results.
+2. **Contextual trigger** — the rule may use `ClinicalContext.source_country` (or other
+   context fields) to determine whether this tier applies. For HATHOR-AGE-003, the trigger
+   is `source_country ∈ HIGH_BURDEN_COUNTRIES`.
+3. **Justification code** — the `ValidationResult.override_justification_codes` list is
+   populated with applicable codes. The clinician must select exactly one code from this
+   list. Codes are defined in `OVERRIDE_JUSTIFICATION_CODES`:
+   - `HIGH_BURDEN_ORIGIN` — child arrives from WHO high-child-mortality stratum country
+   - `OUTBREAK_CATCHUP` — local outbreak or high-exposure risk elevates benefit
+   - `CLINICIAN_DETERMINED` — clinician-determined case-by-case assessment
+4. **Free text** — optional, in addition to the code. If provided, captured alongside.
+5. **FHIR Provenance logging** — both the code and free text are logged to the FHIR
+   Provenance resource for the recommendation, alongside the rule ID and agent's original
+   proposal. This is a hard requirement — not optional.
+6. **Clinician authority** — the clinician may select any code and proceed. The override
+   is allowed and logged. The system does not block the clinician's final decision.
+
+### Currently applicable rules
+
+| Rule | When triggered | Trigger condition |
+|------|---------------|-------------------|
+| HATHOR-AGE-003 | Rotavirus dose-1 max-age or series-max violation | `source_country ∈ HIGH_BURDEN_COUNTRIES` |
+
+### Architectural note
+
+`PhaseEOutput.has_override_required` is True when any active ValidationResult has severity
+`override_required`. `emit_recommendations` surfaces this flag in its response so the
+clinical UI can conditionally render the override_required pathway. Rules that do not
+meet the Friction by Design threshold return plain `fail` with standard free-text override.
+
+### Revision trigger
+
+- Any new rule carrying documented adverse-event risk where structured override
+  justification would improve clinical audit quality.
+- Changes to `OVERRIDE_JUSTIFICATION_CODES` (versioned alongside rule definitions).
+- Changes to `HIGH_BURDEN_COUNTRIES` list as Phase 1 scope expands.
+- FHIR IG updates affecting Provenance resource structure for justification codes.

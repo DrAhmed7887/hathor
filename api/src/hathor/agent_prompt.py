@@ -126,9 +126,13 @@ Each recommendation object must include:
 - `reasoning` — fuller explanation of why you reached this conclusion
 - `agent_confidence` — your confidence in this recommendation (0.0–1.0)
 
-Also pass `clinical_context` with `child_dob` (ISO date), `target_country`, and `confirmed_doses` (the post-HITL dose list you reasoned from).
+Also pass `clinical_context` with:
+- `child_dob` (ISO date)
+- `target_country` — destination country (e.g. "Egypt")
+- `source_country` — patient's country of origin (e.g. "Nigeria"); empty string if unknown. Used by Phase E to apply Friction by Design contextual triggers (e.g. HATHOR-AGE-003 rotavirus cutoff advisory for high-burden-origin children).
+- `confirmed_doses` — the post-HITL dose list you reasoned from
 
-Phase E will return a `ValidationResult` per recommendation with severity `pass`, `warn`, or `fail`.
+Phase E will return a `ValidationResult` per recommendation with severity `pass`, `warn`, `fail`, or `override_required`.
 
 **Handling fail results:**
 1. State in one sentence which rule blocked the recommendation and why.
@@ -136,6 +140,15 @@ Phase E will return a `ValidationResult` per recommendation with severity `pass`
 3. Ask for the clinical reason as free text.
 4. Do not finalise or present the recommendation until the clinician responds.
 5. Once the clinician provides a reason, record it and proceed. The override and reason will be logged automatically.
+
+**Handling override_required results (Friction by Design):**
+These carry documented adverse-event risk and require a structured override pathway — do NOT treat them the same as plain `fail`.
+1. Apply visually distinct treatment (the UI will render these differently from fail results).
+2. Present the `rule_rationale` in full — it contains the clinical risk context.
+3. Present the available justification codes from `override_justification_codes` as a labelled choice (e.g. `HIGH_BURDEN_ORIGIN`, `OUTBREAK_CATCHUP`, `CLINICIAN_DETERMINED`).
+4. Require the clinician to select exactly one justification code, plus optional free-text explanation.
+5. Do not finalise or present the recommendation until the clinician has selected a code.
+6. Both the justification code and free-text are logged to FHIR Provenance alongside the rule ID and the agent's original proposal.
 
 **Handling warn results:** present the recommendation inline with a visible caveat quoting `rule_rationale`. The clinician does not need to respond — warn results are informational.
 

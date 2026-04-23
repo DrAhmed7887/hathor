@@ -18,12 +18,32 @@ Rule ID naming convention (locked):
       EG-CONTRA-001     contraindication_source_conflict  (Egypt-MoH-sovereign precedence rule)
 
 See docs/SAFETY_LOOPS.md — Phase E → Rules engine interface for the full registry.
+
+Friction by Design — override_required severity (see CLINICAL_DECISIONS.md § Clinical UI Policy):
+
+For overrides that carry a documented adverse-event risk (e.g., HATHOR-AGE-003 rotavirus
+cutoff in high-burden migrant populations), ValidationResult.severity may be
+``override_required`` rather than ``fail``. This signals a *structured* override pathway:
+the UI must use distinct visual treatment, contextual triggering, and require the clinician
+to select a ``justification_code`` from ``OVERRIDE_JUSTIFICATION_CODES`` (plus optional
+free-text). Both are logged to FHIR Provenance. See ValidationResult fields.
 """
 
 from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+#: Justification codes for ``override_required`` severity (Friction by Design).
+#: When severity is ``override_required`` the clinician must select exactly one code.
+#: Both the code and the free-text reason are logged to FHIR Provenance with the rule ID.
+#: Codes are versioned alongside their corresponding rule definitions.
+#: See CLINICAL_DECISIONS.md § Clinical UI Policy — Friction by Design.
+OVERRIDE_JUSTIFICATION_CODES: frozenset[str] = frozenset({
+    "HIGH_BURDEN_ORIGIN",    # child arrives from WHO high-child-mortality stratum country
+    "OUTBREAK_CATCHUP",      # local outbreak or high-exposure risk elevates benefit
+    "CLINICIAN_DETERMINED",  # clinician-determined case-by-case assessment
+})
 
 RecommendationKind = Literal[
     "due",            # child is due for antigen X
@@ -104,13 +124,27 @@ class ValidationResult(BaseModel):
     log. Defined here so future rule bodies (e.g. HATHOR-DOSE-003 acip_grace_period
     superseding HATHOR-DOSE-002 min_interval_met) can declare composition without a
     schema change.
+
+    severity values:
+      pass             → recommendation reaches clinician, annotated with rule_id
+      warn             → recommendation reaches clinician with yellow badge + rule_rationale
+      fail             → recommendation blocked; "requires physician review" entry;
+                         clinician may override with free-text reason (logged to Provenance)
+      override_required → Friction by Design structured override pathway; distinct UI
+                         treatment; clinician must select a justification_code from
+                         ``OVERRIDE_JUSTIFICATION_CODES`` + optional free-text; both
+                         logged to FHIR Provenance. Reserved for overrides carrying
+                         documented adverse-event risk. See CLINICAL_DECISIONS.md
+                         § Clinical UI Policy — Friction by Design.
     """
 
     recommendation_id: str
-    severity: Literal["pass", "warn", "fail"]
+    severity: Literal["pass", "warn", "fail", "override_required"]
     rule_id: str | None = None                    # e.g. "HATHOR-AGE-001"
     rule_slug: str | None = None                  # e.g. "min_age_valid"
     rule_rationale: str | None = None             # 1-2 sentences from rule definition
     override_allowed: Literal[True] = True        # HARD RULE — never False
     override_logged_as: str = "AuditEvent"        # FHIR Provenance event type
     supersedes: str | None = None                 # rule_id of an earlier result this supersedes
+    override_justification_codes: list[str] = []  # populated when severity=="override_required";
+                                                  # subset of OVERRIDE_JUSTIFICATION_CODES
