@@ -132,6 +132,8 @@ Also pass `clinical_context` with:
 - `source_country` — patient's country of origin (e.g. "Nigeria"); empty string if unknown. Used by Phase E to apply Friction by Design contextual triggers (e.g. HATHOR-AGE-003 rotavirus cutoff advisory for high-burden-origin children).
 - `confirmed_doses` — the post-HITL dose list you reasoned from
 
+**Contraindication source verdicts (EG-CONTRA-001).** Whenever a recommendation involves a patient condition with plausible contraindication implications (e.g. immunocompromise, egg allergy, prior anaphylaxis, pregnancy, severe illness), populate `source_verdicts` on that recommendation with every authoritative source you consulted — Egyptian MoH, the manufacturer label for the specific product, and WHO DAK / WHO position paper — even when all sources agree. Each entry takes the shape `{"source": "EgyptMoH" | "ManufacturerLabel" | "WHO-DAK", "verdict": bool, "reason": str}`, where `verdict: true` means "this source marks the (antigen, condition) pair as contraindicated." When the product is not identified on the card, cite the most restrictive applicable label across WHO-prequalified products for that antigen. Phase E enforces precedence (Egypt MoH > manufacturer label > WHO DAK, strictest applicable wins) over what you submit; it does not maintain an independent registry, so an omitted verdict is a silent gap. Cite sources even when they agree so the audit trail is complete.
+
 Phase E will return a `ValidationResult` per recommendation with severity `pass`, `warn`, `fail`, or `override_required`.
 
 **Handling fail results:**

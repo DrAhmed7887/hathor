@@ -382,93 +382,118 @@ FHIR Provenance.
 
 ---
 
-## Q11. Contraindication source-of-truth conflicts — EG-CONTRA-001
+## Q11. EG-CONTRA-001 — contraindication_source_conflict
 
-**Status:** RESOLVED 2026-04-23. Unblocks `_rule_contraindication_source_conflict` in
-`api/src/hathor/safety/phase_e.py`. Rule ID updated from HATHOR-CONTRA-001 to
-EG-CONTRA-001 per physician's naming: the rule applies Egypt MoH authority, making EG-
+**Status:** RESOLVED 2026-04-23; doc aligned with shipped design 2026-04-24. Implemented
+as `_rule_contraindication_source_conflict` in `api/src/hathor/safety/phase_e.py`. Rule ID
+is EG-CONTRA-001 per physician's naming: the rule applies Egypt MoH authority, making EG-
 the correct source prefix (see `recommendation.py` naming convention).
+
+### Clinical question
+
+When multiple authoritative sources (Egyptian Ministry of Health, manufacturer label, WHO
+DAK) disagree about whether a given condition is a contraindication for a given antigen,
+which source's verdict governs, and what is Phase E's role in enforcing that precedence?
 
 ### Decision
 
-When contraindication sources conflict for a given (antigen, condition) pair, Hathor
-applies the following precedence in order, taking the strictest applicable
-contraindication:
+Hathor's contraindication handling is a two-layer system:
 
-1. **Egyptian MoH directive** — if published for the antigen and condition, governs
-   absolutely for patients being assessed against the Egyptian destination schedule.
-2. **Manufacturer label (product-specific)** — applies when the specific product
-   administered or to be administered is identified and its label carries a
-   contraindication.
-3. **WHO DAK / WHO position paper** — applies as the baseline when neither of the above
-   is available or applicable.
+**Layer 1 — Agent-provided source assessment.** The agent, drawing on its clinical
+knowledge, assesses each recommendation against applicable contraindication sources and
+populates `Recommendation.source_verdicts` with the consulted sources (Egyptian MoH,
+manufacturer label, WHO DAK) and their individual verdicts. The agent is responsible for
+identifying which contraindications apply to a given (antigen, patient-condition) pair.
 
-"Strictest applicable" means: if any applicable source marks the (antigen, condition)
-pair as contraindicated, the recommendation fails. A source marking it as merely
-"precaution" does not downgrade a stricter source's "contraindication" — the higher
-stringency wins.
+**Layer 2 — Phase E precedence enforcement.** When the agent submits `source_verdicts`,
+Phase E's EG-CONTRA-001 rule applies the following precedence, taking the strictest
+applicable contraindication:
 
-### Rationale
+1. **Egyptian MoH directive** — if a verdict is provided, governs absolutely for patients
+   being assessed against the Egyptian destination schedule.
+2. **Manufacturer label (product-specific)** — applies when the specific product is
+   identified and its label verdict is provided.
+3. **WHO DAK / WHO position paper** — applies as the baseline when provided.
 
-Egyptian MoH sovereignty over clinical policy in Egypt is the foundational principle.
-Where Egypt has issued a specific directive, that directive governs — Hathor does not
-position itself as second-guessing Egyptian clinical authority. Where Egypt is silent, the
-manufacturer label (product-specific, FDA/EMA/SRA-regulated) is the next most
-authoritative source because it reflects the regulatory filing under which the product was
-authorized. WHO DAK is the baseline WHO position, broadly applicable across jurisdictions,
-and serves as the default when more specific sources are silent.
+"Strictest applicable wins" means: if any provided verdict marks the (antigen, condition)
+pair as contraindicated, the recommendation fails, and the rationale cites the
+highest-precedence source holding that verdict. A source marking merely "precaution" does
+not downgrade a stricter source's "contraindication."
 
-The "strictest wins" rule errs toward safety: a false-positive contraindication triggers
-clinician review via the override path; a false-negative could harm the child. This is
-consistent with the rest of Phase E's design posture.
+When `source_verdicts` is empty or absent, EG-CONTRA-001 returns no violation. Phase E
+does not maintain an independent contraindication registry; the rule is a precedence
+enforcer over agent-cited sources, not an independent knowledge base.
 
-### Sources
+### Rationale for the two-layer design
 
-- Egyptian Ministry of Health and Population: vaccine-specific contraindication guidance
-  (where published)
-- WHO Digital Adaptation Kit (DAK) for Immunization
-- WHO Position Papers for each antigen in Phase 1 scope
-- Prescribing information / product labels for each WHO-prequalified product used in
-  Phase 1 scope (Pentavac, Rotarix, RotaTeq, BCG products, MMR products, HepB products)
+A static contraindication registry maintained inside the codebase would require ongoing
+clinical-data governance that Hathor does not currently have. Tiny or incomplete
+registries create a false sense of safety — any (antigen, condition) pair not in the
+registry would appear to be "cleared" by silence. Agent-sourced verdicts, combined with
+structural precedence enforcement, gives Hathor a defensible posture: the agent cites its
+clinical reasoning explicitly, and Phase E audits whether the cited sources are being
+weighted correctly. Any contraindication the agent misses is a gap in the agent's
+reasoning to be caught by clinician review via HITL — not a silent false-negative inside
+a registry the clinician cannot inspect.
+
+This design also scales to new antigens and jurisdictions without code changes to Phase
+E's contraindication rule.
+
+### Agent prompt requirement
+
+The agent is instructed to populate `source_verdicts` whenever a recommendation involves
+a patient condition with plausible contraindication implications, citing all sources
+consulted even when they agree. This provides the audit trail even when no conflict
+exists.
+
+### Sources consulted (for Phase E's precedence logic)
+
+- Egyptian Ministry of Health and Population: vaccine-specific contraindication guidance,
+  where published.
+- WHO Digital Adaptation Kit (DAK) for Immunization.
+- WHO Position Papers for antigens in Phase 1 scope.
+- Prescribing information / product labels for WHO-prequalified products in Phase 1 scope.
 
 ### Known limitations / edge cases
 
-- **Source availability:** Egyptian MoH does not publish comprehensive contraindication
-  tables for every antigen. Where Egyptian guidance is absent, the rule falls through to
-  manufacturer label, then WHO DAK, without flagging the absence as a rule violation.
-- **Label vs. WHO disagreement on precaution vs. contraindication:** If the manufacturer
-  label says "precaution" and WHO DAK says "contraindication," WHO DAK governs per
-  "strictest wins." If the reverse, the label governs.
-- **Ambiguous patient condition:** The rule does not resolve ambiguity about whether the
-  patient's condition meets a contraindication's clinical definition (e.g., "moderate
-  immunosuppression" requires clinical judgment). This rule only governs which source's
-  definition applies once the condition is known.
-- **Multiple products of the same antigen:** When the administered product is not
-  specified (Yellow Card says "Pentavalent" without brand), the rule applies the most
-  restrictive label across WHO-prequalified pentavalent products as a safety default.
+- **Agent omission:** If the agent fails to populate `source_verdicts` when a
+  contraindication applies, the rule does not fire. This is a known limitation; clinician
+  review via HITL is the safety net. Alert-fatigue-safe UI treatment (see Clinical UI
+  Policy section) applies to any override decision.
+- **Ambiguous patient condition:** The rule does not resolve clinical ambiguity about
+  whether the patient's condition meets a contraindication's definition. The agent makes
+  that determination upstream; this rule handles source precedence only.
+- **Unspecified product:** When Yellow Card documentation lacks brand specificity (e.g.,
+  "Pentavalent" without manufacturer), the agent is instructed to cite the most
+  restrictive applicable label across WHO-prequalified products. This is an agent-prompt
+  convention, not a Phase E lookup.
+- **Absence of Egyptian MoH guidance:** Many (antigen, condition) pairs lack published
+  Egyptian MoH directives. The rule falls through to manufacturer and WHO cleanly in
+  these cases.
 
 ### Override conditions
 
 A clinician may override a contraindication fail if:
 - The patient's specific clinical situation does not meet the contraindication's
   definition despite superficial match.
-- The clinician has documented evidence that the contraindication is outdated or no
-  longer reflects current practice.
-- The benefit-risk in the specific clinical context favors vaccination despite the
-  contraindication (e.g., outbreak exposure in an immunocompromised patient where risk
-  of disease exceeds risk of vaccine).
+- Documented evidence exists that the cited contraindication is outdated or no longer
+  reflects current practice.
+- Benefit-risk in the specific clinical context favors vaccination despite the
+  contraindication (e.g., outbreak exposure in an immunocompromised patient where disease
+  risk exceeds vaccine risk).
 
-Override is logged via FHIR Provenance with the stated clinical reason, and the
-override-reason free-text is expected to specify which authoritative source's
-contraindication is being overridden and why.
+Override is logged via FHIR Provenance with the stated clinical reason and the specific
+source being overridden.
 
 ### Revision trigger
 
+- Availability of structured Egyptian MoH contraindication data suitable for registry
+  integration would enable a future shift to a hybrid design (agent verdicts + registry
+  backstop).
 - New Egyptian MoH directive on contraindications for any Phase 1 antigen.
 - WHO DAK 2026 release with updated contraindication sections.
 - Product label updates for WHO-prequalified products in Phase 1 scope.
-- Discovery of systematic disagreement between sources that this precedence does not
-  resolve cleanly.
+- Discovery of a systematic agent-omission pattern in contraindication reasoning.
 
 ---
 
