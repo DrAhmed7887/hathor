@@ -92,6 +92,8 @@ override reason, and a timestamp. The rules engine rejects; the clinician decide
 
 Neither gate is optional. Code paths that bypass them are a bug.
 
+The rules engine is exposed over HTTP via `POST /validate-schedule` on the FastAPI app in `api/src/hathor/server.py` (thin wrapper, no engine logic — delegates to `hathor.tools.dose_validation.validate_dose`).
+
 ---
 
 ## Tool Granularity Principle

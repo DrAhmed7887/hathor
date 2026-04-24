@@ -80,6 +80,18 @@ class DoseRecord(BaseModel):
     source: str = "vaccination card"
 
 
+class ValidateScheduleRecord(BaseModel):
+    antigen: str
+    date: str
+    dose_number: int
+    prior_dose_age_days: int | None = None
+
+
+class ValidateScheduleRequest(BaseModel):
+    records: list[ValidateScheduleRecord]
+    child_dob: str
+
+
 class ReconcileRequest(BaseModel):
     child_dob: str
     target_country: str = "Egypt"
@@ -629,6 +641,39 @@ async def submit_override(session_id: str, req: OverrideSubmissionRequest) -> di
         "session_id": session_id,
         "provenance_id": provenance_id,
     }
+
+
+@app.post("/validate-schedule")
+async def validate_schedule(req: ValidateScheduleRequest) -> list[dict]:
+    """Thin HTTP wrapper over the validate_dose engine.
+
+    Per input record, computes age_at_dose_days = date - child_dob and invokes
+    the existing validate_dose tool, returning the engine's native per-record
+    output unchanged. target_country defaults to "Egypt" (Phase 1 destination).
+    """
+    from hathor.tools.dose_validation import validate_dose
+
+    try:
+        dob = _dt.date.fromisoformat(req.child_dob)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"invalid child_dob: {req.child_dob!r}")
+
+    results: list[dict] = []
+    for record in req.records:
+        try:
+            given = _dt.date.fromisoformat(record.date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"invalid date: {record.date!r}")
+        args = {
+            "antigen": record.antigen,
+            "dose_number": record.dose_number,
+            "age_at_dose_days": (given - dob).days,
+            "target_country": "Egypt",
+            "prior_dose_age_days": record.prior_dose_age_days,
+        }
+        envelope = await validate_dose.handler(args)
+        results.append(json.loads(envelope["content"][0]["text"]))
+    return results
 
 
 @app.get("/health")
