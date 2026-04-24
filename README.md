@@ -20,6 +20,52 @@ The frontend is Next.js with SSE streaming, so the agent's reasoning is visible 
 
 ---
 
+## CrossBeam-inspired document intelligence
+
+Hathor treats a vaccination card the way a blueprint-analysis tool treats a
+permit drawing: decompose first, interpret second, and preserve the evidence
+so the clinician can audit every conclusion. The pipeline is staged, not
+multi-agent — a single vision call emits both the final parsed rows and a
+layout/evidence trace in the same tool call, and the downstream code reads
+the trace for transparency without letting it override clinician-facing
+data.
+
+Pipeline, in order:
+
+1. **Decompose the card into layout regions.** The vision pass classifies
+   each visible area — child-info block, vaccine table, individual rows,
+   dose labels, date cells, clinic stamps, free-text notes — and records a
+   confidence for every region.
+2. **Extract evidence from row labels and date cells separately.** For each
+   row the model emits two kinds of evidence fragment: the *printed row
+   label* ("جرعة ثالثة" / "3rd dose" / "booster") verbatim, and the *raw
+   date text* as it appears on the card. The interpreted ISO date lives on
+   the parsed row; the fragment preserves what the eye actually saw.
+3. **Preserve uncertainty and source text.** Orientation, crop, and
+   low-confidence warnings surface at both the page level and the fragment
+   level. Nothing is silently smoothed.
+4. **Merge evidence conservatively.** A pure helper
+   (`web/lib/document-intelligence.ts`) passes parsed rows through
+   unchanged and attaches warnings when the layout evidence disagrees with
+   the parsed row. It never auto-corrects a date or a dose number.
+5. **Hand reviewed rows to the deterministic vaccine rules.** The existing
+   AMBER and RED gates still own every clinical decision — the trace
+   informs them, it does not replace them.
+6. **Require clinician confirmation before action.** A public-health nurse
+   or physician is always the party who authorises administration.
+
+The `/demo` review screen exposes a "Document intelligence trace" panel
+with the region count, the raw row-label and date evidence, and any
+warnings — so a judge can see exactly what layout the model inferred
+before any clinical claim is made.
+
+This is **lightweight staged document intelligence, not autonomous medical
+decision-making.** If the model omits the trace or emits a malformed one,
+the route falls back to the direct parse and the panel says so
+transparently. The safety gates are unchanged either way.
+
+---
+
 ## Clinical safety architecture
 
 Hathor does not autonomously decide vaccination. It reads, it reconciles, and

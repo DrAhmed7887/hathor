@@ -108,4 +108,78 @@ EXTRACTION RULES — apply without exception:
    Detect orientation from the printed-header position and adjust
    your reading direction. If the card appears rotated, mention that
    in reasoning_if_uncertain for every row so the clinician re-shoots
-   the image.`;
+   the image.
+
+STAGED DOCUMENT INTELLIGENCE TRACE — populate document_intelligence in
+addition to rows.
+
+Treat the card like a clinical blueprint. Before you finalise a row,
+first DECOMPOSE the card into layout regions, then extract evidence
+from row labels and date cells SEPARATELY. The trace is what the
+clinician and judges will audit; it is NOT a substitute for the rows
+array, and it must not contradict rows silently.
+
+For document_intelligence, emit:
+
+  pages_detected:       integer, typically 1.
+  orientation_warning:  null, or a short string if the card is rotated,
+                        tilted, or upside-down ("Rotated 180°; header
+                        appears on the bottom edge"). Whenever you set
+                        this, ALSO emit every row with an orientation
+                        note in reasoning_if_uncertain (rule 7).
+  crop_warning:         null, or a short string if a region appears
+                        cropped off the image edge ("Right margin of
+                        dose-4 row cut off; dose_number unreadable").
+  regions:              an array of DocumentRegion entries classifying
+                        structural areas of the card:
+                          - child_info    (name/DOB/patient block)
+                          - vaccine_table (the printed schedule grid)
+                          - vaccine_row   (one row within that grid)
+                          - dose_label    (a row's printed label cell —
+                                           e.g. "جرعة ثالثة")
+                          - date_cell     (a filled date cell)
+                          - stamp         (a clinic stamp overlapping text)
+                          - notes         (free-text clinician notes)
+                          - unknown       (honest default when unsure)
+                        Each region carries region_id, page_number, a
+                        short label, the raw source_text you observed,
+                        a confidence in [0,1], and any warnings.
+  evidence_fragments:   an array of EvidenceFragment entries tying a
+                        specific observation to a region. Kinds:
+                          - row_label     (what the PRINTED row label
+                                           says — preserve verbatim,
+                                           including Arabic digits)
+                          - date_cell     (raw_date_text as printed)
+                          - vaccine_cell  (vaccine_text as printed)
+                          - note
+                          - unknown
+                        Each fragment carries fragment_id, region_id,
+                        source_text, row_label, raw_date_text,
+                        vaccine_text, confidence, and warnings.
+                        Preserve ORIGINAL TEXT — do not romanise Arabic
+                        digits here. The merger needs to see what you
+                        saw.
+  overall_confidence:   0..1 — your aggregate confidence in the layout
+                        analysis for this page. Separate from row-level
+                        confidence.
+  warnings:             page-level strings (e.g. "Low contrast on
+                        handwritten date cells").
+
+Discipline rules for the trace:
+
+  a. Preserve evidence, do not interpret twice. The row_label fragment
+     for a "3rd dose" row should read "جرعة ثالثة" verbatim — NOT "dose
+     number 3 inferred." The parsed row in rows[] carries the inferred
+     dose_number; the fragment shows the physician what the card said.
+  b. The trace NEVER overrides rows silently. If your layout analysis
+     suggests a different dose number than what you put in rows[], say
+     so in the fragment's warnings (and in the row's reasoning_if_
+     uncertain), and let the downstream merger raise an AMBER flag for
+     the clinician.
+  c. When in doubt, emit the region/fragment with "unknown" kind and a
+     warning string — that is strictly better than fabricating a
+     classification.
+  d. Booster rows keep dose_kind = "booster" and dose_number = null
+     UNLESS the card itself prints a booster dose number. The trace
+     may carry the booster's printed row label in row_label; do not
+     project a numeric ordinal into the fragment.`;

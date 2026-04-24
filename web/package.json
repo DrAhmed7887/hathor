@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/validation.test.ts"
+    "test": "node --experimental-strip-types --test lib/validation.test.ts lib/document-intelligence.test.ts",
+    "smoke": "node --experimental-strip-types scripts/smoke-egyptian-mohp.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.0",
