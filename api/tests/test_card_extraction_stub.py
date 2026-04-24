@@ -43,7 +43,7 @@ class TestHappyPathVariant(unittest.TestCase):
 
     def test_extraction_method_label(self):
         out = build_stub_output("cards/nigeria_happy.jpg")
-        self.assertIn("happy path", out.extraction_method)
+        self.assertIn("Nigerian EPI flagship", out.extraction_method)
 
 
 class TestPhaseDDemoVariant(unittest.TestCase):
@@ -64,10 +64,11 @@ class TestPhaseDDemoVariant(unittest.TestCase):
         r = gate(out)
         self.assertTrue(r.requires_review)
         self.assertEqual(len(r.hitl_queue), 1)
-        # the smudged field is dose 3's date
+        # the smudged field is Pentavalent dose 3's date (index 5 in the new
+        # flagship: BCG=0, Penta1=1, OPV1=2, Penta2=3, OPV2=4, Penta3=5, OPV3=6)
         self.assertEqual(
             r.hitl_queue[0].field_path,
-            "extracted_doses[2].date_administered",
+            "extracted_doses[5].date_administered",
         )
         self.assertIn("smudged", r.hitl_queue[0].reason.lower())
 
@@ -75,12 +76,12 @@ class TestPhaseDDemoVariant(unittest.TestCase):
         out = build_stub_output("cards/phase_d_test.jpg")
         r = gate(out)
         # the smudged field is nulled; everything else on that row survives
-        dose3 = r.auto_committed.extracted_doses[2]
+        dose3 = r.auto_committed.extracted_doses[5]  # Pentavalent dose 3 is at index 5
         self.assertIsNone(dose3.date_administered)
-        self.assertEqual(dose3.transcribed_antigen.value, "Hexyon")
+        self.assertEqual(dose3.transcribed_antigen.value, "Pentavalent (DPT-HepB-Hib)")
         self.assertEqual(dose3.dose_number_on_card.value, "3")
-        # the other 3 doses are untouched
-        for i in (0, 1, 3):
+        # the other 6 doses are untouched
+        for i in (0, 1, 2, 3, 4, 6):
             self.assertIsNotNone(
                 r.auto_committed.extracted_doses[i].date_administered
             )

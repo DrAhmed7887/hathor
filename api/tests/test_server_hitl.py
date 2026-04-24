@@ -17,7 +17,9 @@ multiplexes requests as independent tasks.
 import asyncio
 import datetime as dt
 import json
+import time
 import unittest
+from unittest.mock import patch
 
 import httpx
 from fastapi.testclient import TestClient
@@ -33,6 +35,7 @@ from hathor.schemas.extraction import (
 from hathor.server import (
     HITLCorrection,
     _apply_corrections,
+    _card_reconciliation_stream,
     _validate_image_path,
     app,
 )
@@ -243,6 +246,47 @@ class TestReconcileCardEndpoint(unittest.TestCase):
             "target_country": "Egypt",
         })
         self.assertEqual(r.status_code, 400)
+
+
+class TestDemoFastReconcileMode(unittest.IsolatedAsyncioTestCase):
+    async def test_fast_mode_emits_phase_e_without_live_agent(self):
+        validated = _validate_image_path("cards/demo.jpg")
+        req = server_mod.ReconcileCardRequest(
+            image_path="cards/demo.jpg",
+            child_dob="2025-12-09",
+            target_country="Egypt",
+        )
+
+        started = time.perf_counter()
+        events: list[tuple[str, dict]] = []
+        with patch.dict("os.environ", {"DEMO_FAST_RECONCILE": "true"}):
+            async for chunk in _card_reconciliation_stream(validated, req):
+                raw = chunk.decode()
+                event_type = raw.split("\n", 1)[0].replace("event: ", "")
+                data_line = next(
+                    line for line in raw.splitlines() if line.startswith("data: ")
+                )
+                events.append((event_type, json.loads(data_line[6:])))
+        elapsed = time.perf_counter() - started
+
+        self.assertLess(elapsed, 5.0)
+        self.assertIn("phase_e_complete", [event for event, _ in events])
+        self.assertIn("run_complete", [event for event, _ in events])
+
+        phase_e = next(data for event, data in events if event == "phase_e_complete")
+        self.assertTrue(phase_e["has_override_required"])
+        self.assertIn("fast-rotavirus-review", phase_e["recommendations"])
+        self.assertTrue(
+            any(
+                r["rule_slug"] == "rotavirus_age_cutoff"
+                and r["severity"] == "override_required"
+                for r in phase_e["active_results"]
+            )
+        )
+
+        run_complete = next(data for event, data in events if event == "run_complete")
+        self.assertEqual(run_complete["tool_call_count"], 0)
+        self.assertTrue(run_complete["demo_fast"])
 
 
 # -----------------------------------------------------------------------------
@@ -488,9 +532,11 @@ class TestSSEIntegration(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("expires_at", data)
         self.assertEqual(len(data["hitl_queue"]), 1)
+        # Pentavalent dose 3 is at index 5 in the flagship dose ordering:
+        # BCG=0, Penta1=1, OPV1=2, Penta2=3, OPV2=4, Penta3=5, OPV3=6
         self.assertEqual(
             data["hitl_queue"][0]["field_path"],
-            "extracted_doses[2].date_administered",
+            "extracted_doses[5].date_administered",
         )
         SESSIONS.drop(data["session_id"])
 
@@ -539,9 +585,9 @@ class TestSSEIntegration(unittest.IsolatedAsyncioTestCase):
                 r = await client.post(
                     f"/reconcile/hitl/{hit['session_id']}/corrections",
                     json={"corrections": [{
-                        "field_path": "extracted_doses[2].date_administered",
+                        "field_path": "extracted_doses[5].date_administered",
                         "action": "edit",
-                        "corrected_value": "2024-12-15",
+                        "corrected_value": "2026-03-17",
                     }]},
                 )
                 self.assertEqual(r.status_code, 200)

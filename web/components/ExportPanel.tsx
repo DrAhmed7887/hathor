@@ -95,8 +95,9 @@ export function ExportPanel({
     return { valid, invalid, review, total: doses.length };
   }, [doses]);
 
-  const canDownloadBundle = counts.valid > 0;
-  const canGenerateLetter = doses.length > 0;
+  const hasBlockingReview = counts.invalid > 0 || counts.review > 0;
+  const canDownloadBundle = counts.valid > 0 && !hasBlockingReview;
+  const canGenerateLetter = doses.length > 0 && !hasBlockingReview;
 
   const downloadFhir = useCallback(() => {
     try {
@@ -246,6 +247,20 @@ export function ExportPanel({
             Immunization bundle — {counts.valid} engine-validated dose
             {counts.valid === 1 ? "" : "s"}
           </div>
+          {hasBlockingReview && (
+            <p
+              style={{
+                fontFamily: F.sans,
+                fontSize: 12.5,
+                color: H.bad,
+                margin: 0,
+                lineHeight: 1.55,
+              }}
+            >
+              Export is disabled until clinician-review and safety-blocking
+              items are resolved.
+            </p>
+          )}
           <p
             style={{
               fontFamily: F.sans,

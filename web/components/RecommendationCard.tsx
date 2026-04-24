@@ -75,6 +75,7 @@ export interface Recommendation {
   agent_confidence?: number;
   dose_number?: number | null;
   target_date?: string | null;
+  source_dose_indices?: number[];
 }
 
 interface Props {
@@ -125,6 +126,22 @@ function SeverityBadge({ severity }: { severity: ValidationResult["severity"] })
   );
 }
 
+function StatusPill({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex", alignItems: "center",
+        background: H.plumSoft, color: H.plum,
+        fontFamily: F.mono, fontSize: 10.5, letterSpacing: "0.14em", textTransform: "uppercase",
+        padding: "4px 10px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 // ── Main card ────────────────────────────────────────────────────────────────
 
 export function RecommendationCard({
@@ -142,6 +159,14 @@ export function RecommendationCard({
   const isOverrideRequired = result.severity === "override_required";
   const isFail             = result.severity === "fail";
   const isWarn             = result.severity === "warn";
+  const isRotavirusGapReview =
+    recommendation.antigen === "Rotavirus" &&
+    result.rule_slug === "rotavirus_age_cutoff" &&
+    (isOverrideRequired || isFail) &&
+    (
+      !Array.isArray(recommendation.source_dose_indices) ||
+      recommendation.source_dose_indices.length === 0
+    );
 
   // Submit enabled only when the payload is valid for the severity.
   const submitEnabled =
@@ -197,17 +222,57 @@ export function RecommendationCard({
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 10 }}>
         <div>
           <div style={{ fontFamily: F.mono, fontSize: 10.5, letterSpacing: "0.14em", textTransform: "uppercase", color: H.meta }}>
-            {recommendation.kind} · {recommendation.antigen}
+            {isRotavirusGapReview ? "Rotavirus · clinician review" : `${recommendation.kind} · ${recommendation.antigen}`}
           </div>
           <h3 style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 400, color: H.ink, margin: "4px 0 0", lineHeight: 1.35 }}>
-            {recommendation.agent_rationale}
+            {isRotavirusGapReview ? "Rotavirus requires clinician review" : recommendation.agent_rationale}
           </h3>
         </div>
-        <SeverityBadge severity={result.severity} />
+        {isRotavirusGapReview ? <StatusPill>Do not auto-recommend</StatusPill> : <SeverityBadge severity={result.severity} />}
       </div>
 
+      {isRotavirusGapReview && (
+        <div
+          data-testid="rotavirus-review-card"
+          style={{
+            background: H.plumSoft,
+            borderLeft: `2px solid ${H.plum}`,
+            padding: "12px 14px",
+            marginBottom: 12,
+          }}
+        >
+          <p style={{ fontFamily: F.serif, fontSize: 14, color: H.ink2, margin: 0, lineHeight: 1.55 }}>
+            No confirmed rotavirus dose was found. The child may be beyond the routine initiation age window. Verify the applicable local/national catch-up guidance before administration.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+            {[
+              "Mark as not indicated",
+              "Refer to local guideline",
+              "Document clinician override",
+              "Leave unresolved",
+            ].map((action) => (
+              <span
+                key={action}
+                style={{
+                  border: `1px solid ${H.plumRule}`,
+                  background: H.card,
+                  color: action === "Document clinician override" ? H.plum : H.meta,
+                  padding: "6px 8px",
+                  fontFamily: F.mono,
+                  fontSize: 10.5,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {action}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Override_required headline */}
-      {isOverrideRequired && (
+      {isOverrideRequired && !isRotavirusGapReview && (
         <div
           data-testid="override-required-headline"
           style={{
@@ -220,17 +285,44 @@ export function RecommendationCard({
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <ShieldGlyph size={16} color={H.plum} />
             <span style={{ fontFamily: F.mono, fontSize: 10.5, letterSpacing: "0.16em", textTransform: "uppercase", color: H.plum }}>
-              Migrant Protocol · structured override
+              Cross-border immunization reconciliation
             </span>
           </div>
           <p style={{ fontFamily: F.serif, fontSize: 13.5, color: H.ink2, margin: 0, lineHeight: 1.5 }}>
-            This rule carries documented adverse-event risk. Proceeding requires a structured justification, logged to FHIR Provenance.
+            This recommendation requires structured clinician documentation before it can be treated as resolved. The decision is logged to FHIR Provenance.
           </p>
         </div>
       )}
 
       {/* Rule rationale (warn / fail / override_required) */}
-      {result.severity !== "pass" && result.rule_slug && (
+      {isRotavirusGapReview && result.rule_slug && (
+        <details style={{ marginBottom: 12 }}>
+          <summary
+            style={{
+              cursor: "pointer",
+              fontFamily: F.mono,
+              fontSize: 10.5,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: H.meta,
+            }}
+          >
+            Evidence note
+          </summary>
+          <div style={{ marginTop: 8, padding: "10px 12px", background: H.paper2, border: `1px solid ${H.rule}` }}>
+            <div style={{ fontFamily: F.mono, fontSize: 10.5, letterSpacing: "0.14em", textTransform: "uppercase", color: H.meta, marginBottom: 4 }}>
+              Rule · {result.rule_id} ({result.rule_slug})
+            </div>
+            {result.rule_rationale && (
+              <p style={{ fontFamily: F.serif, fontSize: 13.5, color: H.ink2, margin: 0, lineHeight: 1.55 }}>
+                {result.rule_rationale}
+              </p>
+            )}
+          </div>
+        </details>
+      )}
+
+      {result.severity !== "pass" && result.rule_slug && !isRotavirusGapReview && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontFamily: F.mono, fontSize: 10.5, letterSpacing: "0.14em", textTransform: "uppercase", color: H.meta, marginBottom: 4 }}>
             Rule · {result.rule_id} ({result.rule_slug})

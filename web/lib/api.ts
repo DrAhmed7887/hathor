@@ -41,6 +41,7 @@ export type Severity = "pass" | "warn" | "fail" | "override_required";
 
 export interface ValidationResult {
   recommendation_id: string;
+  agent_id?: string | null;
   severity: Severity;
   rule_id: string | null;
   rule_slug: string | null;
@@ -56,6 +57,17 @@ export interface PhaseECompletePayload {
   has_failures: boolean;
   has_override_required: boolean;
   active_results: ValidationResult[];
+  recommendations?: Record<string, {
+    recommendation_id: string;
+    kind: string;
+    antigen: string;
+    agent_rationale: string;
+    reasoning?: string;
+    agent_confidence?: number;
+    dose_number?: number | null;
+    target_date?: string | null;
+    source_dose_indices?: number[];
+  }>;
   override_endpoint: string;
   expires_at: string;
 }
