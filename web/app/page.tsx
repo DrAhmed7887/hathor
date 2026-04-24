@@ -915,8 +915,12 @@ export default function HathorPage() {
           >
             <MetaSpan>Vaccination reconciliation for migrant families</MetaSpan>
             <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
+              <Link href="/demo" style={{ textDecoration: "none" }}>
+                <MetaSpan color={H.copper}>Fast-path demo →</MetaSpan>
+              </Link>
+              <div style={{ width: 1, height: 10, background: H.stone, alignSelf: "center" }} />
               <Link href="/reconcile-card" style={{ textDecoration: "none" }}>
-                <MetaSpan color={H.copper}>Card flow →</MetaSpan>
+                <MetaSpan color={H.copper}>Agent flow →</MetaSpan>
               </Link>
               <div style={{ width: 1, height: 10, background: H.stone, alignSelf: "center" }} />
               <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
