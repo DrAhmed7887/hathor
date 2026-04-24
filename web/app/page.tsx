@@ -914,7 +914,7 @@ export default function HathorPage() {
               alignItems: "baseline",
             }}
           >
-            <MetaSpan>Vaccination reconciliation for migrant families</MetaSpan>
+            <MetaSpan>Cross-border immunization reconciliation</MetaSpan>
             <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
               <Link href="/demo" style={{ textDecoration: "none" }}>
                 <MetaSpan color={H.copper}>Fast-path demo →</MetaSpan>
@@ -1434,7 +1434,7 @@ export default function HathorPage() {
               alignItems: "baseline",
             }}
           >
-            <MetaSpan>Vaccination reconciliation for migrant families</MetaSpan>
+            <MetaSpan>Cross-border immunization reconciliation</MetaSpan>
             <MetaSpan color={H.faint}>MIT licensed · Anthropic Claude Agent SDK</MetaSpan>
           </div>
         </div>

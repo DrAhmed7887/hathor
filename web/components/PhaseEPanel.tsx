@@ -24,11 +24,14 @@
  * No gaps vs. PRD §5.6 at the container level.
  */
 
+import { useMemo, useState } from "react";
 import { type PhaseECompletePayload } from "@/lib/api";
+import { buildPhaseESummary } from "@/lib/phase-e-summary";
 import { RecommendationCard, type Recommendation } from "./RecommendationCard";
 
 const H = {
   paper2:    "#FBF6EC",
+  card:      "#FFFDF7",
   rule:      "#E7E2DA",
   copper:    "#CC785C",
   copperInk: "#9A5743",
@@ -54,93 +57,155 @@ export interface PhaseEPanelProps {
 }
 
 export function PhaseEPanel({ payload, recommendations, onOverrideSubmitted }: PhaseEPanelProps) {
-  const { has_override_required, has_failures, active_results, override_endpoint } = payload;
+  const { active_results, override_endpoint } = payload;
+  const [resolvedReviewIds, setResolvedReviewIds] = useState<Set<string>>(new Set());
+  const mergedRecommendations = useMemo(
+    () => ({ ...(payload.recommendations ?? {}), ...recommendations }),
+    [payload.recommendations, recommendations],
+  );
+  const summary = useMemo(
+    () => buildPhaseESummary(active_results, mergedRecommendations, resolvedReviewIds),
+    [active_results, mergedRecommendations, resolvedReviewIds],
+  );
+
+  function handleOverrideSubmitted(data: { recommendation_id: string; provenance_id: string }) {
+    setResolvedReviewIds((prev) => new Set([...prev, data.recommendation_id]));
+    onOverrideSubmitted?.(data);
+  }
 
   return (
     <div data-testid="phase-e-panel" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Header */}
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontFamily: F.mono, fontSize: 10.5, letterSpacing: "0.16em", textTransform: "uppercase", color: H.copperInk }}>
-          Phase E · rules engine verdicts
+          Phase E · cross-border immunization reconciliation
         </div>
         <h2 style={{ fontFamily: F.serif, fontSize: 24, fontWeight: 400, color: H.ink, margin: "6px 0 0", letterSpacing: "-0.015em" }}>
-          Clinical recommendations
+          Immunization reconciliation summary
         </h2>
       </div>
 
-      {/* Override-required banner */}
-      {has_override_required && (
+      <section
+        data-testid="phase-e-summary-card"
+        style={{
+          background: H.paper2,
+          border: `1px solid ${H.rule}`,
+          borderLeft: `3px solid ${summary.needsClinicianReview > 0 ? H.plum : H.copper}`,
+          padding: "16px 18px",
+        }}
+      >
         <div
-          data-testid="override-required-banner"
           style={{
-            background: H.plumSoft,
-            border: `1px solid ${H.plumRule}`,
-            borderLeft: `3px solid ${H.plum}`,
-            padding: "12px 16px",
-            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: 12,
           }}
         >
-          <div>
-            <div style={{ fontFamily: F.mono, fontSize: 10.5, letterSpacing: "0.16em", textTransform: "uppercase", color: H.plum }}>
-              Migrant Protocol engaged
+          {[
+            ["Card status", summary.cardStatus],
+            ["Doses found", String(summary.dosesFound)],
+            ["Confirmed matches", String(summary.confirmedMatches)],
+            ["Needs clinician review", String(summary.needsClinicianReview)],
+            ["Missing or uncertain vaccines", String(summary.missingOrUncertainVaccines)],
+            ["Export status", summary.exportStatus],
+          ].map(([label, value]) => (
+            <div key={label} style={{ background: H.card, border: `1px solid ${H.rule}`, padding: "10px 12px" }}>
+              <div style={{ fontFamily: F.mono, fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: H.meta, marginBottom: 4 }}>
+                {label}
+              </div>
+              <div style={{ fontFamily: F.serif, fontSize: 15, color: H.ink, lineHeight: 1.3 }}>
+                {value}
+              </div>
             </div>
-            <p style={{ fontFamily: F.serif, fontSize: 13.5, color: H.ink, margin: "4px 0 0", lineHeight: 1.5 }}>
-              One or more recommendations require a structured override. Each is flagged below with its justification selector.
-            </p>
-          </div>
+          ))}
         </div>
-      )}
 
-      {/* Recommendation list — deduped by recommendation_id.
-          The Phase-E stream can emit multiple ValidationResults for
-          the same recommendation_id across iterative agent passes
-          (each new emit_recommendations tool call re-validates and
-          appends). The UI contract is "the latest verdict supersedes
-          earlier ones" — matches Phase-E semantics where
-          result.supersedes points backward, not forward. Rendering
-          the raw array produced duplicate React keys (rec-025,
-          rec-026, etc.) flooding the console. Dedupe here, keep
-          insertion order of the FIRST time each id was seen so the
-          list doesn't visually jitter when a later iteration lands. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 12 }}>
+          {[
+            ["Evidence extracted", true],
+            ["Rules applied", active_results.length > 0],
+            ["Clinician action needed", summary.needsClinicianReview > 0],
+            ["Export package generated", summary.needsClinicianReview === 0],
+          ].map(([label, active]) => (
+            <div
+              key={String(label)}
+              style={{
+                border: `1px solid ${active ? H.plumRule : H.rule}`,
+                color: active ? H.plum : H.meta,
+                background: active ? H.plumSoft : H.card,
+                padding: "7px 8px",
+                fontFamily: F.mono,
+                fontSize: 10,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                textAlign: "center",
+              }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Actionable recommendations only. PASS rows live in the audit log. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {(() => {
-          const lastByRecId = new Map<string, typeof active_results[number]>();
-          for (const r of active_results) lastByRecId.set(r.recommendation_id, r);
-          const firstOrderIds: string[] = [];
-          const seen = new Set<string>();
-          for (const r of active_results) {
-            if (!seen.has(r.recommendation_id)) {
-              seen.add(r.recommendation_id);
-              firstOrderIds.push(r.recommendation_id);
-            }
-          }
-          return firstOrderIds.map((id) => {
-            const result = lastByRecId.get(id)!;
-            const rec = recommendations[id] ?? {
-              recommendation_id: id,
-              kind: "dose_verdict",
-              antigen: "",
-              agent_rationale: result.rule_slug ?? id,
-            };
-            return (
-              <RecommendationCard
-                key={id}
-                recommendation={rec}
-                result={result}
-                overrideEndpoint={override_endpoint}
-                onOverrideSubmitted={onOverrideSubmitted}
-              />
-            );
-          });
-        })()}
+        {summary.actionableGroups.length === 0 && (
+          <div style={{ background: H.paper2, border: `1px solid ${H.rule}`, padding: "12px 16px", fontFamily: F.serif, fontSize: 14, color: H.ink }}>
+            No unresolved Phase E recommendations require clinician action.
+          </div>
+        )}
+        {summary.actionableGroups.map((group) => {
+          const id = group.recommendationId;
+          const rec = mergedRecommendations[id] ?? {
+            recommendation_id: id,
+            kind: "dose_verdict",
+            antigen: group.primaryResult.rule_slug === "rotavirus_age_cutoff" ? "Rotavirus" : "",
+            agent_rationale: group.primaryResult.rule_slug ?? id,
+          };
+          return (
+            <RecommendationCard
+              key={id}
+              recommendation={rec}
+              result={group.primaryResult}
+              overrideEndpoint={override_endpoint}
+              onOverrideSubmitted={handleOverrideSubmitted}
+            />
+          );
+        })}
       </div>
 
-      {/* Footer summary */}
-      <div style={{ borderTop: `1px solid ${H.rule}`, paddingTop: 10, fontFamily: F.mono, fontSize: 11, color: H.meta, letterSpacing: "0.08em" }}>
-        {active_results.length} result{active_results.length !== 1 ? "s" : ""}
-        {has_failures ? " · blocks present" : ""}
-        {has_override_required ? " · structured override required" : ""}
-      </div>
+      <details style={{ borderTop: `1px solid ${H.rule}`, paddingTop: 10 }}>
+        <summary style={{ cursor: "pointer", fontFamily: F.mono, fontSize: 11, color: H.meta, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          Technical audit log · {active_results.length} rule result{active_results.length !== 1 ? "s" : ""} · {summary.passResults.length} pass
+        </summary>
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+          {active_results.map((result, index) => {
+            const rec = mergedRecommendations[result.recommendation_id];
+            return (
+              <div
+                key={`${result.recommendation_id}-${result.rule_id ?? index}-${index}`}
+                style={{
+                  background: H.card,
+                  border: `1px solid ${H.rule}`,
+                  padding: "8px 10px",
+                  fontFamily: F.mono,
+                  fontSize: 11,
+                  color: H.meta,
+                  display: "grid",
+                  gridTemplateColumns: "1.2fr 1.2fr 0.8fr",
+                  gap: 8,
+                }}
+              >
+                <span>{rec?.antigen || "Recommendation"} · {rec?.kind || "rule"}</span>
+                <span>{result.rule_slug || result.rule_id || "rule"}</span>
+                <span style={{ color: result.severity === "pass" ? "#5F7A52" : H.plum, textTransform: "uppercase" }}>
+                  {result.severity === "override_required" ? "Review" : result.severity}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </details>
     </div>
   );
 }

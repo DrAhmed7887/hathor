@@ -389,6 +389,9 @@ export default function ReconcileCardPage() {
                     agent_confidence: rec.agent_confidence as number | undefined,
                     dose_number: (rec.dose_number as number | null) ?? null,
                     target_date: (rec.target_date as string | null) ?? null,
+                    source_dose_indices: Array.isArray(rec.source_dose_indices)
+                      ? (rec.source_dose_indices as number[])
+                      : [],
                   };
                 }
               }
@@ -435,7 +438,23 @@ export default function ReconcileCardPage() {
 
         } else if (sse.type === "phase_e_complete") {
           setStatus("Phase E verdicts ready");
-          setPhaseE(d as unknown as PhaseECompletePayload);
+          const phasePayload = d as unknown as PhaseECompletePayload;
+          setEmittedRecsById((prev) => {
+            const next: Record<string, PhaseERecommendation> = {
+              ...prev,
+              ...(phasePayload.recommendations ?? {}),
+            };
+            for (const result of phasePayload.active_results) {
+              if (result.agent_id && prev[result.agent_id]) {
+                next[result.recommendation_id] = {
+                  ...prev[result.agent_id],
+                  recommendation_id: result.recommendation_id,
+                };
+              }
+            }
+            return next;
+          });
+          setPhaseE(phasePayload);
 
         } else if (sse.type === "hitl_timeout") {
           setStatus("Review timed out");
@@ -702,7 +721,7 @@ export default function ReconcileCardPage() {
             </p>
           )}
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${H.rule}`, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <MetaSpan>Vaccination reconciliation for migrant families</MetaSpan>
+            <MetaSpan>Cross-border immunization reconciliation</MetaSpan>
             <MetaSpan color={H.faint}>MIT licensed · Anthropic Claude Agent SDK</MetaSpan>
           </div>
         </div>

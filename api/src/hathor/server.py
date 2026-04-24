@@ -255,6 +255,179 @@ def _confirmed_to_dose_records(confirmed: CardExtractionOutput) -> list[DoseReco
     return out
 
 
+def _demo_fast_reconcile_enabled() -> bool:
+    return os.environ.get("DEMO_FAST_RECONCILE", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _canonical_demo_antigen(raw: str) -> str:
+    key = raw.strip().lower()
+    if "pentavalent" in key:
+        return "Pentavalent"
+    if key in {"bcg", "opv", "ipv", "rotavirus", "mmr", "measles"}:
+        return raw.strip()
+    return raw.strip()
+
+
+def _parse_card_dose_number(field: FieldExtraction | None) -> int | None:
+    if field is None or field.value is None:
+        return None
+    try:
+        return int(str(field.value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _confirmed_to_phase_e_context_doses(confirmed: CardExtractionOutput) -> list[dict]:
+    doses: list[dict] = []
+    for dose in confirmed.extracted_doses:
+        antigen = dose.transcribed_antigen.value if dose.transcribed_antigen else None
+        date_given = dose.date_administered.value if dose.date_administered else None
+        if not antigen or not date_given:
+            continue
+        doses.append({
+            "antigen": _canonical_demo_antigen(antigen),
+            "date_administered": date_given,
+            "dose_number": _parse_card_dose_number(dose.dose_number_on_card),
+        })
+    return doses
+
+
+def _serialize_validation_result(result) -> dict:
+    return result.model_dump(mode="json")
+
+
+def _serialize_recommendation(rec) -> dict:
+    data = rec.model_dump(mode="json")
+    return {
+        "recommendation_id": data["recommendation_id"],
+        "kind": data["kind"],
+        "antigen": data["antigen"],
+        "agent_rationale": data["agent_rationale"],
+        "reasoning": data.get("reasoning"),
+        "agent_confidence": data.get("agent_confidence"),
+        "dose_number": data.get("dose_number"),
+        "target_date": data.get("target_date"),
+        "source_dose_indices": data.get("source_dose_indices", []),
+    }
+
+
+async def _stream_demo_fast_reconciliation(
+    confirmed: CardExtractionOutput,
+    child_dob: str,
+    target_country: str,
+) -> AsyncGenerator[bytes, None]:
+    """Deterministic Phase E demo path.
+
+    This is an output-boundary shortcut, not a replacement for agent reasoning:
+    Phase D has already run, recommendations are derived only from confirmed
+    rows plus the explicit Rotavirus gap, and Phase E still gates every
+    actionable item through the deterministic rules engine.
+    """
+    from datetime import date
+
+    from hathor.safety.phase_e import ClinicalContext, gate
+    from hathor.schemas.recommendation import Recommendation
+
+    yield _sse("agent_start", {
+        "model": "deterministic-demo-fast",
+        "tools": 0,
+        "demo_fast": True,
+    })
+    yield _sse("assistant_text", {"text": "Evidence extracted."})
+
+    confirmed_doses = _confirmed_to_phase_e_context_doses(confirmed)
+    recommendations: list[Recommendation] = []
+
+    for idx, dose in enumerate(confirmed_doses):
+        dose_number = dose.get("dose_number")
+        antigen = dose.get("antigen", "")
+        recommendations.append(Recommendation(
+            recommendation_id=f"fast-dose-{idx + 1:03d}",
+            kind="dose_verdict",
+            antigen=antigen,
+            dose_number=dose_number,
+            agent_rationale=(
+                f"{antigen} dose {dose_number} recorded on the card."
+                if dose_number is not None
+                else f"{antigen} dose recorded on the card."
+            ),
+            reasoning="Deterministic demo-fast reconciliation from confirmed Phase D rows.",
+            agent_confidence=1.0,
+            source_dose_indices=[idx],
+        ))
+
+    has_rotavirus = any(d.get("antigen") == "Rotavirus" for d in confirmed_doses)
+    if not has_rotavirus:
+        recommendations.append(Recommendation(
+            recommendation_id="fast-rotavirus-review",
+            kind="dose_verdict",
+            antigen="Rotavirus",
+            dose_number=1,
+            agent_rationale="No confirmed rotavirus dose was found.",
+            reasoning=(
+                "Gap-mode recommendation created from confirmed rows so Phase E "
+                "can evaluate the Rotavirus initiation window."
+            ),
+            agent_confidence=1.0,
+            source_dose_indices=[],
+        ))
+
+    ctx = ClinicalContext(
+        child_dob=date.fromisoformat(child_dob),
+        target_country=target_country,
+        source_country="Nigeria",
+        confirmed_doses=confirmed_doses,
+    )
+    output = gate(recommendations, ctx)
+
+    yield _sse("assistant_text", {"text": "Rules applied."})
+
+    all_results = [
+        *[_serialize_validation_result(r) for r in output.active],
+        *[_serialize_validation_result(r) for r in output.superseded],
+    ]
+    rsession = RECONCILE_SESSIONS.create(recommendations=all_results)
+    recs_by_id = {
+        rec.recommendation_id: _serialize_recommendation(rec)
+        for rec in recommendations
+    }
+
+    yield _sse(
+        "phase_e_complete",
+        {
+            "session_id": rsession.session_id,
+            "has_failures": output.has_failures,
+            "has_override_required": output.has_override_required,
+            "active_results": [
+                _serialize_validation_result(r) for r in output.active
+            ],
+            "recommendations": recs_by_id,
+            "override_endpoint": f"/session/{rsession.session_id}/override",
+            "expires_at": rsession.expires_at.isoformat(),
+        },
+    )
+
+    if output.has_failures or output.has_override_required:
+        yield _sse("assistant_text", {"text": "Clinician action needed."})
+    else:
+        yield _sse("assistant_text", {"text": "Export package generated."})
+
+    yield _sse("final_plan", {
+        "markdown": (
+            "## Reconciliation package\n\n"
+            "Evidence extracted, rules applied, and clinician-review items "
+            "prepared for Phase E resolution."
+        )
+    })
+    yield _sse("run_complete", {
+        "tool_call_count": 0,
+        "model": "deterministic-demo-fast",
+        "demo_fast": True,
+    })
+
+
 def _build_prompt(req: ReconcileRequest) -> str:
     import datetime
 
@@ -492,6 +665,15 @@ async def _card_reconciliation_stream(
             and confirmed.card_metadata.patient_dob.value)
         else req.child_dob
     )
+    if _demo_fast_reconcile_enabled():
+        async for chunk in _stream_demo_fast_reconciliation(
+            confirmed=confirmed,
+            child_dob=child_dob,
+            target_country=req.target_country,
+        ):
+            yield chunk
+        return
+
     delegated = ReconcileRequest(
         child_dob=child_dob,
         target_country=req.target_country,

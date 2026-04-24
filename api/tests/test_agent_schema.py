@@ -75,11 +75,12 @@ class TestToolOutputRoundTripsIntoSchema(unittest.TestCase):
     def test_happy_path_round_trip(self):
         payload = self._invoke("cards/nigeria.jpg")
         parsed = CardExtractionOutput.model_validate(payload)
+        # Nigerian EPI flagship: BCG at birth is dose 0
         self.assertEqual(
-            parsed.extracted_doses[0].transcribed_antigen.value, "Hexyon"
+            parsed.extracted_doses[0].transcribed_antigen.value, "BCG"
         )
-        self.assertEqual(parsed.card_metadata.patient_dob.value, "2024-06-15")
-        # Every field's confidence is 1.0 on the happy path.
+        self.assertEqual(parsed.card_metadata.patient_dob.value, "2025-12-09")
+        # Every field's confidence is 1.0 on the flagship path.
         for f in (
             parsed.card_metadata.patient_dob,
             parsed.extracted_doses[0].transcribed_antigen,
@@ -90,7 +91,9 @@ class TestToolOutputRoundTripsIntoSchema(unittest.TestCase):
     def test_phase_d_variant_round_trip(self):
         payload = self._invoke("cards/phase_d_demo.jpg")
         parsed = CardExtractionOutput.model_validate(payload)
-        smudged = parsed.extracted_doses[2].date_administered
+        # Pentavalent dose 3 is at index 5 in the flagship dose ordering:
+        # BCG=0, Penta1=1, OPV1=2, Penta2=3, OPV2=4, Penta3=5, OPV3=6
+        smudged = parsed.extracted_doses[5].date_administered
         self.assertTrue(smudged.needs_review)
         self.assertLess(smudged.confidence, 0.85)
         self.assertIn("smudged", smudged.ambiguity_reason.lower())
@@ -117,11 +120,12 @@ class TestAgentTranslationFromSchemaToDownstreamTools(unittest.TestCase):
                 "date_given": dose.date_administered.value,
             })
 
-        self.assertEqual(child_dob, "2024-06-15")
-        self.assertEqual(len(scalar_doses), 4)
-        self.assertEqual(scalar_doses[0]["vaccine_trade_name"], "Hexyon")
-        self.assertEqual(scalar_doses[0]["date_given"], "2024-08-15")
-        self.assertEqual(scalar_doses[-1]["vaccine_trade_name"], "MMR")
+        # Nigerian EPI flagship: DOB 2025-12-09, BCG + Penta×3 + OPV×3 (7 doses)
+        self.assertEqual(child_dob, "2025-12-09")
+        self.assertEqual(len(scalar_doses), 7)
+        self.assertEqual(scalar_doses[0]["vaccine_trade_name"], "BCG")
+        self.assertEqual(scalar_doses[0]["date_given"], "2025-12-09")
+        self.assertEqual(scalar_doses[-1]["vaccine_trade_name"], "OPV")
 
     def test_phase_d_variant_yields_three_scalars_and_one_flagged(self):
         """On the demo variant, the agent should end up with three usable
@@ -140,10 +144,11 @@ class TestAgentTranslationFromSchemaToDownstreamTools(unittest.TestCase):
             else:
                 usable.append(dose)
 
-        self.assertEqual(len(usable), 3)
+        # Flagship has 7 doses; Pentavalent dose 3 (index 5) is smudged → 6 usable
+        self.assertEqual(len(usable), 6)
         self.assertEqual(len(needs_verification), 1)
         self.assertEqual(
-            needs_verification[0].transcribed_antigen.value, "Hexyon"
+            needs_verification[0].transcribed_antigen.value, "Pentavalent (DPT-HepB-Hib)"
         )
 
 
