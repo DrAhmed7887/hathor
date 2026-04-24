@@ -68,8 +68,22 @@ EXTRACTION RULES — apply without exception:
      the card uses day/month/year order, convert; if the order itself
      is ambiguous (e.g., "05/04/24"), emit null and explain.
    - dose_number: the dose position within the series as shown on the
-     card (1, 2, 3, …). If not indicated, emit null — do NOT infer
-     from date order.
+     card. Most MoH cards (including the Egyptian MoHP "mandatory
+     immunizations" card and the Nigerian NPI card) print a FIXED
+     label next to each row stating the dose — e.g.,
+       "جرعة أولى: عند إتمام شهرين من العمر" (1st dose at 2 months)
+       "جرعة ثانية: عند إتمام ٤ شهور من العمر" (2nd dose at 4 months)
+       "جرعة ثالثة: عند إتمام ٦ شهور من العمر" (3rd dose at 6 months)
+       "جرعة منشطة: عند إتمام ١٨ شهراً" (booster at 18 months)
+     READ THE ROW LABEL and use THAT as dose_number. Do NOT assign
+     dose_number by counting filled rows — if the 1st-dose row is
+     blank and the 2nd-dose row is filled, the filled row is dose 2,
+     not dose 1. A booster row is labeled as such; if the schedule
+     numbers boosters (e.g., OPV booster is listed as dose 5 on many
+     Egyptian templates), use the number printed; otherwise emit null
+     for boosters explicitly marked as "booster / منشطة" and note
+     "booster dose" in reasoning. If no label is readable at all,
+     emit null — do NOT infer from position.
    - lot_number: the batch/lot number if legible; otherwise null.
    - confidence: your aggregate confidence for the row in [0,1].
      Calibrate honestly:
@@ -100,7 +114,26 @@ EXTRACTION RULES — apply without exception:
 
 5. If the image is not a vaccination card at all (e.g., a photo of a
    landscape, an unrelated medical document), return an empty rows
-   array. Do not fabricate.`;
+   array. Do not fabricate.
+
+6. Arabic numerals. Egyptian cards frequently mix Western (0-9) and
+   Eastern Arabic (٠١٢٣٤٥٦٧٨٩) digits in the same handwritten date.
+   Key confusions seen in real cards:
+     ٣ (3) vs ١ (1) — similar vertical stroke; lean on surrounding
+                       year digits and the child's apparent age.
+     ٢ (2) vs ٧ (7) — different shapes but sloppy handwriting can
+                       invert. Cross-check against biological
+                       plausibility (a dose years before a plausible
+                       DOB is a year misread).
+   If a year digit is ambiguous — say so in reasoning_if_uncertain
+   explicitly ("year digit reads ٣ or ١; ambiguous between 2021 and
+   2023"), and lower the date's field confidence to <= 0.5.
+
+7. Card orientation. Some cards are photographed rotated 90° or 180°.
+   Detect orientation from the printed-header position and adjust
+   your reading direction. If the card appears rotated, mention that
+   in reasoning_if_uncertain for every row so the clinician re-shoots
+   the image.`;
 
 // ── Tool schema (structured output) ──────────────────────────────────────────
 
