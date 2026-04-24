@@ -16,6 +16,9 @@ import {
 import Link from "next/link";
 import { streamSSE } from "@/lib/sse-parser";
 import { HeroIntroPlayer } from "@/components/HeroIntroPlayer";
+import { PhaseEPanel } from "@/components/PhaseEPanel";
+import type { PhaseECompletePayload } from "@/lib/api";
+import type { Recommendation as PhaseERecommendation } from "@/components/RecommendationCard";
 
 // ── Pharos design system ────────────────────────────────────────────────────
 
@@ -519,6 +522,7 @@ function PilgrimagePanel({
   if (collapsed) {
     return (
       <button
+        data-testid="audit-trail-collapsed"
         onClick={onToggleCollapse}
         style={{
           width: "100%", textAlign: "left",
@@ -529,7 +533,21 @@ function PilgrimagePanel({
           cursor: "pointer",
         }}
       >
-        <MetaSpan>Agent reasoning · click to expand</MetaSpan>
+        <span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <MetaSpan>Technical audit trail · click to expand</MetaSpan>
+          <span
+            style={{
+              fontFamily: F.serif,
+              fontSize: 13,
+              fontStyle: "italic",
+              color: H.meta,
+              letterSpacing: 0,
+              textTransform: "none",
+            }}
+          >
+            Optional trace for debugging and audit. Not required for routine clinical review.
+          </span>
+        </span>
         <PharosGlyph size={18} color={H.stone} />
       </button>
     );
@@ -557,7 +575,7 @@ function PilgrimagePanel({
           justifyContent: "space-between", marginBottom: 28,
         }}
       >
-        <MetaSpan>Live reasoning · the agent at work</MetaSpan>
+        <MetaSpan>Technical audit log</MetaSpan>
         {!running && (
           <button
             onClick={onToggleCollapse}
@@ -657,16 +675,174 @@ function PilgrimagePanel({
   );
 }
 
+function ExportPacketCard({
+  needsReview,
+  finalPlanReady,
+}: {
+  needsReview: boolean;
+  finalPlanReady: boolean;
+}) {
+  const ready = finalPlanReady && !needsReview;
+  const blockedNote = needsReview
+    ? "Export is locked until every clinician-review item is resolved."
+    : !finalPlanReady
+      ? "Export will unlock once reconciliation completes."
+      : "Sign off below to release the export bundle.";
+
+  return (
+    <section
+      data-testid="export-packet-card"
+      style={{
+        background: H.card,
+        border: `1px solid ${H.rule}`,
+        borderLeft: `3px solid ${ready ? H.copper : H.stone}`,
+        padding: "18px 22px",
+      }}
+    >
+      <MetaSpan color={ready ? H.copperInk : H.meta}>Export packet</MetaSpan>
+      <div
+        style={{
+          fontFamily: F.serif,
+          fontSize: 17,
+          color: H.ink,
+          margin: "6px 0 14px",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {ready
+          ? "Ready for clinician sign-off."
+          : "Locked pending clinician review."}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: 10,
+        }}
+      >
+        {[
+          ["CSV", "Reconciled dose ledger"],
+          ["FHIR draft", "Immunization bundle (R4)"],
+          ["Pre-visit summary", "Printable clinical letter"],
+        ].map(([label, sub]) => (
+          <div
+            key={label}
+            data-testid={`export-target-${label.toLowerCase().replace(/\s+/g, "-")}`}
+            data-export-state={ready ? "ready" : "locked"}
+            style={{
+              border: `1px solid ${H.rule}`,
+              background: ready ? H.paper2 : "transparent",
+              padding: "10px 12px",
+              opacity: ready ? 1 : 0.65,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: F.mono,
+                fontSize: 10.5,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: ready ? H.copperInk : H.meta,
+              }}
+            >
+              {label}
+            </div>
+            <div
+              style={{
+                fontFamily: F.serif,
+                fontSize: 13.5,
+                color: ready ? H.ink2 : H.meta,
+                marginTop: 4,
+              }}
+            >
+              {sub}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p
+        style={{
+          fontFamily: F.serif,
+          fontSize: 13,
+          fontStyle: "italic",
+          color: H.meta,
+          margin: "14px 0 0",
+          lineHeight: 1.55,
+        }}
+      >
+        {blockedNote}
+      </p>
+    </section>
+  );
+}
+
+function ClinicalProgressPanel({
+  started,
+  phaseE,
+  finalPlan,
+}: {
+  started: boolean;
+  phaseE: PhaseECompletePayload | null;
+  finalPlan: string | null;
+}) {
+  if (!started) return null;
+
+  const needsAction = Boolean(
+    phaseE && (phaseE.has_failures || phaseE.has_override_required),
+  );
+  const steps = [
+    ["Evidence extracted", true],
+    ["Rules applied", Boolean(phaseE)],
+    ["Clinician action needed", needsAction],
+    ["Export package generated", Boolean(finalPlan) && !needsAction],
+  ] as const;
+
+  return (
+    <section
+      style={{
+        background: H.paper2,
+        border: `1px solid ${H.rule}`,
+        borderLeft: `3px solid ${needsAction ? H.bad : H.copper}`,
+        padding: "14px 16px",
+        marginBottom: 24,
+      }}
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+        {steps.map(([label, active]) => (
+          <div
+            key={label}
+            style={{
+              border: `1px solid ${active ? H.copper : H.rule}`,
+              background: active ? H.card : "transparent",
+              color: active ? H.copperInk : H.meta,
+              padding: "8px 10px",
+              fontFamily: F.mono,
+              fontSize: 10,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              textAlign: "center",
+            }}
+          >
+            {label}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ── Animated dots ───────────────────────────────────────────────────────────
 
 function AnimatedDots({ active }: { active: boolean }) {
   const [count, setCount] = useState(0);
   useEffect(() => {
-    if (!active) { setCount(0); return; }
+    if (!active) return;
     const t = setInterval(() => setCount((c) => (c + 1) % 4), 400);
     return () => clearInterval(t);
   }, [active]);
-  return <span>{".".repeat(count)}</span>;
+  return <span>{active ? ".".repeat(count) : ""}</span>;
 }
 
 // ── Main page ───────────────────────────────────────────────────────────────
@@ -684,7 +860,9 @@ export default function HathorPage() {
   const [finalPlan,          setFinalPlan]          = useState<string | null>(null);
   const [stats,              setStats]              = useState<RunStats | null>(null);
   const [started,            setStarted]            = useState(false);
-  const [reasoningCollapsed, setReasoningCollapsed] = useState(false);
+  const [reasoningCollapsed, setReasoningCollapsed] = useState(true);
+  const [phaseE,             setPhaseE]             = useState<PhaseECompletePayload | null>(null);
+  const [emittedRecsById,    setEmittedRecsById]    = useState<Record<string, PhaseERecommendation>>({});
 
   const startTimeRef      = useRef<number>(0);
   const currentGroupIdRef = useRef<string | null>(null);
@@ -724,8 +902,10 @@ export default function HathorPage() {
     setToolMap({});
     setFinalPlan(null);
     setStats(null);
+    setPhaseE(null);
+    setEmittedRecsById({});
     setStatus("Starting up");
-    setReasoningCollapsed(false);
+    setReasoningCollapsed(true);
     currentGroupIdRef.current = null;
     lastItemTypeRef.current   = "other";
 
@@ -773,6 +953,34 @@ export default function HathorPage() {
             status: "pending",
           };
           setToolMap((prev) => ({ ...prev, [idx]: toolState }));
+
+          if (name === "mcp__hathor__emit_recommendations") {
+            const input = (d.input as Record<string, unknown>) ?? {};
+            const recsRaw = (input.recommendations as unknown[]) ?? [];
+            const byId: Record<string, PhaseERecommendation> = {};
+            for (const r of recsRaw) {
+              if (r && typeof r === "object") {
+                const rec = r as Record<string, unknown>;
+                const id = String(rec.recommendation_id ?? "");
+                if (id) {
+                  byId[id] = {
+                    recommendation_id: id,
+                    kind: String(rec.kind ?? ""),
+                    antigen: String(rec.antigen ?? ""),
+                    agent_rationale: String(rec.agent_rationale ?? ""),
+                    reasoning: rec.reasoning as string | undefined,
+                    agent_confidence: rec.agent_confidence as number | undefined,
+                    dose_number: (rec.dose_number as number | null) ?? null,
+                    target_date: (rec.target_date as string | null) ?? null,
+                    source_dose_indices: Array.isArray(rec.source_dose_indices)
+                      ? (rec.source_dose_indices as number[])
+                      : [],
+                  };
+                }
+              }
+            }
+            setEmittedRecsById((prev) => ({ ...prev, ...byId }));
+          }
 
           if (
             lastItemTypeRef.current === "tool_group" &&
@@ -825,6 +1033,25 @@ export default function HathorPage() {
             }
             return next;
           });
+        } else if (sse.type === "phase_e_complete") {
+          setStatus("Phase E verdicts ready");
+          const phasePayload = d as unknown as PhaseECompletePayload;
+          setEmittedRecsById((prev) => {
+            const next: Record<string, PhaseERecommendation> = {
+              ...prev,
+              ...(phasePayload.recommendations ?? {}),
+            };
+            for (const result of phasePayload.active_results) {
+              if (result.agent_id && prev[result.agent_id]) {
+                next[result.recommendation_id] = {
+                  ...prev[result.agent_id],
+                  recommendation_id: result.recommendation_id,
+                };
+              }
+            }
+            return next;
+          });
+          setPhaseE(phasePayload);
         } else if (sse.type === "run_complete") {
           const elapsed = (
             (Date.now() - startTimeRef.current) / 1000
@@ -955,7 +1182,7 @@ export default function HathorPage() {
                   color: H.ink, margin: "8px 0 0",
                 }}
               >
-                Bring the doses. We&apos;ll reconcile them.
+                Enter or upload a child&apos;s vaccine history. Hathor will reconcile it against the selected national schedule.
               </h2>
             </div>
 
@@ -978,10 +1205,10 @@ export default function HathorPage() {
                     color: H.ink, marginBottom: 3,
                   }}
                 >
-                  Lagos → Cairo demo
+                  Cross-border immunization review
                 </div>
                 <MetaSpan color={H.meta}>
-                  Nigerian infant · NPI primary series + Measles + YF · reconcile against Egyptian EPI
+                  Nigerian child record · routine infant series + measles + yellow fever · reconcile against Egyptian schedule
                 </MetaSpan>
               </div>
               <label
@@ -1201,39 +1428,23 @@ export default function HathorPage() {
                 color: H.meta, marginTop: 12, paddingLeft: 2,
               }}
             >
-              Demo: reconciles a Nigerian infant&apos;s NPI vaccination card against
-              Egypt&apos;s MoHP EPI schedule.
+              Demo: reconciles a Nigerian child&apos;s routine infant immunization
+              record against Egypt&apos;s national schedule.
             </p>
           )}
         </section>
 
-        {/* ── Reasoning stream ── */}
+        {/* ── Pre-visit immunization packet ── */}
         {started && (
-          <section style={{ marginBottom: 40 }}>
-            <div
-              style={{
-                background: H.paper2,
-                border: `1px solid ${H.rule}`,
-                padding: "28px 36px",
-              }}
-            >
-              <PilgrimagePanel
-                items={items}
-                toolMap={toolMap}
-                running={running}
-                finalPlan={finalPlan}
-                collapsed={reasoningCollapsed && !running}
-                onToggleCollapse={() => setReasoningCollapsed((c) => !c)}
-              />
-            </div>
-          </section>
-        )}
-
-        {/* ── Report ── */}
-        {finalPlan && (
-          <section style={{ animation: "hathor-fade-in 0.5s ease-out both" }}>
-            <div style={{ marginBottom: 28 }}>
-              <MetaSpan color={H.copperInk}>Reconciliation report</MetaSpan>
+          <section
+            data-testid="pre-visit-immunization-packet"
+            style={{
+              marginBottom: 40,
+              animation: "hathor-fade-in 0.4s ease-out both",
+            }}
+          >
+            <div style={{ marginBottom: 20 }}>
+              <MetaSpan color={H.copperInk}>Pre-visit immunization packet</MetaSpan>
               <div
                 style={{
                   display: "flex", alignItems: "baseline",
@@ -1242,7 +1453,69 @@ export default function HathorPage() {
               >
                 <h2
                   style={{
-                    fontFamily: F.serif, fontSize: 30, fontWeight: 400,
+                    fontFamily: F.serif, fontSize: 28, fontWeight: 400,
+                    letterSpacing: "-0.018em", lineHeight: 1.15,
+                    color: H.ink, margin: 0,
+                  }}
+                >
+                  Pre-visit immunization packet
+                </h2>
+                <div
+                  style={{
+                    height: 1, background: H.copper, width: 64,
+                    transform: "translateY(-6px)", flexShrink: 0,
+                  }}
+                />
+              </div>
+              <p
+                style={{
+                  fontFamily: F.serif, fontSize: 14, fontStyle: "italic",
+                  color: H.meta, margin: "10px 0 0",
+                }}
+              >
+                What was found, what is missing or uncertain, what the clinician
+                must decide, and what can be exported after sign-off.
+              </p>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              <ClinicalProgressPanel
+                started={started}
+                phaseE={phaseE}
+                finalPlan={finalPlan}
+              />
+
+              {phaseE && (
+                <PhaseEPanel
+                  payload={phaseE}
+                  recommendations={emittedRecsById}
+                />
+              )}
+
+              <ExportPacketCard
+                needsReview={Boolean(
+                  phaseE && (phaseE.has_failures || phaseE.has_override_required),
+                )}
+                finalPlanReady={Boolean(finalPlan)}
+              />
+            </div>
+          </section>
+        )}
+
+        {/* ── Report ── */}
+        {finalPlan && (
+          <section style={{ animation: "hathor-fade-in 0.5s ease-out both", marginBottom: 40 }}>
+            <div style={{ marginBottom: 28 }}>
+              <MetaSpan color={H.copperInk}>Clinical narrative</MetaSpan>
+              <div
+                style={{
+                  display: "flex", alignItems: "baseline",
+                  gap: 14, marginTop: 8,
+                }}
+              >
+                <h2
+                  style={{
+                    fontFamily: F.serif, fontSize: 24, fontWeight: 400,
                     letterSpacing: "-0.018em", lineHeight: 1.15,
                     color: H.ink, margin: 0,
                   }}
@@ -1379,6 +1652,31 @@ export default function HathorPage() {
                   {finalPlan}
                 </ReactMarkdown>
               </article>
+            </div>
+          </section>
+        )}
+
+        {/* ── Technical audit trail (collapsed by default) ── */}
+        {started && (
+          <section
+            data-testid="technical-audit-trail"
+            style={{ marginBottom: 40 }}
+          >
+            <div
+              style={{
+                background: H.paper2,
+                border: `1px solid ${H.rule}`,
+                padding: reasoningCollapsed ? 0 : "28px 36px",
+              }}
+            >
+              <PilgrimagePanel
+                items={items}
+                toolMap={toolMap}
+                running={running}
+                finalPlan={finalPlan}
+                collapsed={reasoningCollapsed}
+                onToggleCollapse={() => setReasoningCollapsed((c) => !c)}
+              />
             </div>
           </section>
         )}

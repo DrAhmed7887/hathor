@@ -288,6 +288,86 @@ class TestDemoFastReconcileMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run_complete["tool_call_count"], 0)
         self.assertTrue(run_complete["demo_fast"])
 
+    async def test_fast_mode_emits_no_live_tool_or_thinking_events(self):
+        """CrossBeam-style: the deterministic fast path must NOT push raw
+        agent reasoning (Thinking, ToolSearch, parallel-call counts) into the
+        clinician-facing stream. Those belong only in the optional, collapsed
+        audit trail of the agent path."""
+        confirmed_doses = [
+            {"antigen": "BCG", "date_administered": "2024-06-16", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-07-27", "dose_number": 1},
+        ]
+        events: list[tuple[str, dict]] = []
+        with patch.dict("os.environ", {"DEMO_FAST_RECONCILE": "true"}):
+            async for chunk in server_mod._stream_demo_fast_phase_e_from_doses(
+                confirmed_doses=confirmed_doses,
+                child_dob="2024-06-15",
+                target_country="Egypt",
+            ):
+                raw = chunk.decode()
+                event_type = raw.split("\n", 1)[0].replace("event: ", "")
+                data_line = next(
+                    line for line in raw.splitlines() if line.startswith("data: ")
+                )
+                events.append((event_type, json.loads(data_line[6:])))
+
+        types = [t for t, _ in events]
+        # No noisy debug-trace events should reach the main UI.
+        for forbidden in ("thinking", "tool_use", "tool_result"):
+            self.assertNotIn(
+                forbidden,
+                types,
+                f"fast path leaked {forbidden!r} into clinician-facing stream",
+            )
+        # But the deliverable IS still present.
+        self.assertIn("phase_e_complete", types)
+        self.assertIn("final_plan", types)
+        self.assertIn("run_complete", types)
+
+    async def test_fast_mode_structured_doses_skips_live_agent(self):
+        req = server_mod.ReconcileRequest(
+            child_dob="2024-06-15",
+            target_country="Egypt",
+            given_doses=[
+                server_mod.DoseRecord(
+                    vaccine_trade_name="BCG",
+                    date_given="2024-06-16",
+                ),
+                server_mod.DoseRecord(
+                    vaccine_trade_name="Pentavalent (DPT-HepB-Hib)",
+                    date_given="2024-07-27",
+                ),
+                server_mod.DoseRecord(
+                    vaccine_trade_name="Rotavirus",
+                    date_given="2024-07-27",
+                ),
+            ],
+        )
+
+        started = time.perf_counter()
+        events: list[tuple[str, dict]] = []
+        with patch.dict("os.environ", {"DEMO_FAST_RECONCILE": "true"}):
+            async for chunk in server_mod._stream_demo_fast_phase_e_from_doses(
+                confirmed_doses=server_mod._dose_records_to_phase_e_context_doses(
+                    req.given_doses
+                ),
+                child_dob=req.child_dob,
+                target_country=req.target_country,
+            ):
+                raw = chunk.decode()
+                event_type = raw.split("\n", 1)[0].replace("event: ", "")
+                data_line = next(
+                    line for line in raw.splitlines() if line.startswith("data: ")
+                )
+                events.append((event_type, json.loads(data_line[6:])))
+        elapsed = time.perf_counter() - started
+
+        self.assertLess(elapsed, 5.0)
+        self.assertIn("phase_e_complete", [event for event, _ in events])
+        phase_e = next(data for event, data in events if event == "phase_e_complete")
+        self.assertGreater(len(phase_e["active_results"]), 0)
+        self.assertIn("recommendations", phase_e)
+
 
 # -----------------------------------------------------------------------------
 # Endpoint tests: /reconcile/hitl/{id}/corrections
