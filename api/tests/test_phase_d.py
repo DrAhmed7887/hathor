@@ -7,7 +7,11 @@ or `uv run python -m unittest tests.test_phase_d` from `api/`.
 
 import unittest
 
-from hathor.safety.phase_d import CONFIDENCE_THRESHOLD, gate
+from hathor.safety.phase_d import (
+    CONFIDENCE_THRESHOLD,
+    filter_confirmed_doses,
+    gate,
+)
 from hathor.schemas.extraction import (
     CardExtractionOutput,
     CardMetadata,
@@ -169,6 +173,151 @@ class TestPhaseDGate(unittest.TestCase):
         ])
         r = gate(e)
         self.assertEqual(r.auto_committed.extraction_method, "test-fixture")
+
+
+class TestFilterConfirmedDoses(unittest.TestCase):
+    """Trust gate — nothing reaches the agent unless it is either
+    vision-confident (confidence >= threshold, not flagged) or was
+    clinician-corrected (HITL merge writes confidence=1.0)."""
+
+    def test_all_confirmed_passes_through(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_hi("2024-08-15"),
+            ),
+            ExtractedDose(
+                transcribed_antigen=_hi("MMR"),
+                date_administered=_hi("2025-02-01"),
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 2)
+        self.assertEqual(r.dropped, [])
+
+    def test_low_confidence_antigen_dropped(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_lo("Hexyon", "faded ink"),
+                date_administered=_hi("2024-08-15"),
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(r.confirmed, [])
+        self.assertEqual(len(r.dropped), 1)
+        self.assertEqual(r.dropped[0].dose_index, 0)
+        self.assertIn("antigen", r.dropped[0].reason)
+
+    def test_low_confidence_date_dropped(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_lo("2024-08-1?", "smudged day digit"),
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(r.confirmed, [])
+        self.assertEqual(len(r.dropped), 1)
+        self.assertIn("date", r.dropped[0].reason)
+
+    def test_needs_review_flag_drops_even_with_high_confidence(self):
+        flagged = FieldExtraction(
+            value="MMR",
+            confidence=0.95,
+            needs_review=True,
+            ambiguity_reason="ambiguous abbreviation",
+        )
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=flagged,
+                date_administered=_hi("2025-06-15"),
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(r.confirmed, [])
+        self.assertEqual(len(r.dropped), 1)
+
+    def test_missing_field_dropped(self):
+        # No date_administered at all — the card did not record one,
+        # or HITL clinician chose "skip" on that field.
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("BCG"),
+                date_administered=None,
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(r.confirmed, [])
+        self.assertEqual(len(r.dropped), 1)
+
+    def test_clinician_corrected_field_passes_through(self):
+        # Post-HITL merge: clinician-corrected fields arrive with
+        # confidence=1.0 and needs_review=False. The filter must
+        # treat them as confirmed.
+        corrected = FieldExtraction(
+            value="2024-08-15",
+            confidence=1.0,
+            needs_review=False,
+            ambiguity_reason=None,
+        )
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=corrected,
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 1)
+        self.assertEqual(r.dropped, [])
+
+    def test_threshold_inclusivity(self):
+        # confidence == CONFIDENCE_THRESHOLD passes (the Phase D
+        # inclusivity convention is ">= threshold").
+        on_threshold = FieldExtraction(
+            value="Hexyon",
+            confidence=CONFIDENCE_THRESHOLD,
+            needs_review=False,
+        )
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=on_threshold,
+                date_administered=_hi("2024-08-15"),
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 1)
+
+    def test_partial_set_some_confirmed_some_dropped(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_hi("2024-08-15"),
+            ),
+            ExtractedDose(
+                transcribed_antigen=_lo("MMR", "faded"),
+                date_administered=_hi("2025-02-01"),
+            ),
+            ExtractedDose(
+                transcribed_antigen=_hi("BCG"),
+                date_administered=_hi("2024-01-01"),
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 2)
+        self.assertEqual(len(r.dropped), 1)
+        self.assertEqual(r.dropped[0].dose_index, 1)
+
+    def test_pure_function_does_not_mutate_input(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_lo("2024-08-1?", "smudged"),
+            ),
+        ])
+        before = e.model_dump()
+        filter_confirmed_doses(e)
+        after = e.model_dump()
+        self.assertEqual(before, after)
 
 
 if __name__ == "__main__":
