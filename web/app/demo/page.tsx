@@ -441,7 +441,12 @@ export default function DemoPage() {
   const [parsed, setParsed] = useState<ParsedCardOutput | null>(null);
   const [rows, setRows] = useState<ParsedCardRow[]>([]);
 
-  // Validate
+  // Validate — phaseEReady gates the Reasoning Loop. Set true by user
+  // clicking "Cross-check against WHO rules →" in ParsedResults. Reset
+  // to false when rows change (edit lands user back in review until
+  // they re-submit). Keeps the correction loop: review → edit →
+  // re-validate single-click.
+  const [phaseEReady, setPhaseEReady] = useState(false);
   const [validationResults, setValidationResults] = useState<
     ValidateScheduleResult[] | null
   >(null);
@@ -470,6 +475,7 @@ export default function DemoPage() {
     setRedacted(null);
     setParsed(null);
     setRows([]);
+    setPhaseEReady(false);
     setValidationResults(null);
   }, []);
 
@@ -479,8 +485,17 @@ export default function DemoPage() {
     setRedacted(null);
     setParsed(null);
     setRows([]);
+    setPhaseEReady(false);
     setValidationResults(null);
   }, [acceptedFile]);
+
+  // Any edit to rows invalidates prior validation — user needs to
+  // re-submit. This is the core of the correction loop.
+  const handleRowsChanged = useCallback((next: ParsedCardRow[]) => {
+    setRows(next);
+    setPhaseEReady(false);
+    setValidationResults(null);
+  }, []);
 
   const handleRedactionApplied = useCallback(
     (payload: RedactionApplyPayload) => {
@@ -535,6 +550,16 @@ export default function DemoPage() {
   const { records: validationRecords, indices: validationIndices } = useMemo(
     () => buildValidationRecords(rows, meta.childDob),
     [rows, meta.childDob],
+  );
+
+  // Stable signature for the active validation payload — used to
+  // re-key ScheduleView so it remounts and re-auto-runs the engine
+  // call when the clinician edits a row and re-submits.
+  const rowsSignature = useMemo(
+    () => validationRecords.map(r =>
+      `${r.antigen}|${r.date}|${r.dose_number}|${r.prior_dose_age_days ?? 'n'}`,
+    ).join('·') + '|' + meta.childDob,
+    [validationRecords, meta.childDob],
   );
 
   // Zip parsed rows with their engine verdicts into ReconciledDose[].
@@ -721,35 +746,48 @@ export default function DemoPage() {
           <ParsedResults
             rows={rows}
             imageUrl={redacted?.dataUrl ?? null}
-            onRowsChanged={setRows}
+            onRowsChanged={handleRowsChanged}
             headerSlot={<ExplainerParsePlayer maxWidth={1040} autoPlay loop={false} />}
-            onProceed={() => {
-              // No-op here — validation auto-runs via ScheduleView mount
-              // below once rows are frozen by presence of validation box.
-              // This callback only gates the amber-row check; when it
-              // fires we render ScheduleView.
-              setValidationResults([]);
-              setValidationResults(null);
-            }}
+            onProceed={() => setPhaseEReady(true)}
           />
         )}
 
-        {/* ── Phase E: Validate ── */}
-        {parsed && rows.length > 0 && validationResults === null && (
+        {/* ── Phase E: Validate ──
+            Single render path. phaseEReady flips to true when the
+            clinician clicks Proceed in ParsedResults. handleRowsChanged
+            flips it back to false on any edit — the edit invalidates
+            prior engine verdicts and sends the clinician back through
+            the Reasoning Loop on the next Proceed. key={rowsSignature}
+            forces ScheduleView to re-mount on row changes so its
+            internal autoRun useEffect fires again cleanly. */}
+        {parsed && phaseEReady && validationRecords.length > 0 && (
           <ScheduleView
-            records={validationRecords}
-            childDob={meta.childDob}
-            autoRun={false}
-            onValidated={setValidationResults}
-          />
-        )}
-        {parsed && validationResults !== null && (
-          <ScheduleView
+            key={rowsSignature}
             records={validationRecords}
             childDob={meta.childDob}
             autoRun
             onValidated={setValidationResults}
           />
+        )}
+        {parsed && phaseEReady && validationRecords.length === 0 && (
+          <div
+            role="status"
+            style={{
+              padding: "14px 18px",
+              background: H.amberSoft,
+              border: `1px solid ${H.amber}`,
+              fontFamily: F.mono,
+              fontSize: 12,
+              color: H.amber,
+              lineHeight: 1.6,
+            }}
+          >
+            No engine-eligible rows. Every row either has a null date,
+            a null dose number, or an antigen outside Phase-1 engine
+            scope (BCG · HepB · OPV · IPV · DTP · Hib · PCV · Rotavirus ·
+            MMR). Fix a date or dose number above and click Cross-check
+            again.
+          </div>
         )}
 
         {/* ── Phase F: Export ── */}

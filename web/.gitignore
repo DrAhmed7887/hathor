@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Local-only PHI test fixtures — NEVER commit
+public/test-cards/
+public/card-images/test-*.jpg
+public/card-images/test-*.jpeg
+public/card-images/test-*.png

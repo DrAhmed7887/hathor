@@ -315,6 +315,7 @@ function RowCard({
               onCancel={cancel}
               placeholder="YYYY-MM-DD"
               mono
+              inputType="date"
             />
           </div>
           <div>
@@ -329,6 +330,7 @@ function RowCard({
               onCancel={cancel}
               placeholder="—"
               mono
+              inputType="number"
             />
           </div>
           <div>
@@ -456,6 +458,9 @@ interface EditableValueProps {
   placeholder?: string;
   mono?: boolean;
   size?: "md" | "lg";
+  /** Native input type. "date" gives a browser date picker enforcing
+   * YYYY-MM-DD wire format; "number" a numeric spinner; default text. */
+  inputType?: "text" | "date" | "number";
 }
 
 function EditableValue({
@@ -469,11 +474,13 @@ function EditableValue({
   placeholder,
   mono,
   size = "md",
+  inputType = "text",
 }: EditableValueProps) {
   if (editing) {
     return (
       <input
         autoFocus
+        type={inputType}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={onCommit}
@@ -487,6 +494,8 @@ function EditableValue({
           }
         }}
         placeholder={placeholder}
+        min={inputType === "number" ? 1 : undefined}
+        max={inputType === "number" ? 10 : undefined}
         style={{
           width: "100%",
           fontFamily: mono ? F.mono : F.sans,
