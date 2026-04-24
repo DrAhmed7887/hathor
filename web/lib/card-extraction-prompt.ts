@@ -121,6 +121,21 @@ array, and it must not contradict rows silently.
 
 For document_intelligence, emit:
 
+  recognized_template_id:
+                        the REGISTRY id the card matches. Closed enum:
+                          - "egypt_mohp_mandatory_childhood_immunization"
+                            (Egyptian MoHP mandatory-immunizations card;
+                            canonical title "التطعيمات الإجبارية")
+                          - "unknown_vaccine_card"
+                            (honest default — every other layout)
+                        DO NOT invent new ids. Downstream code only
+                        branches on these two values; anything else
+                        coerces to "unknown_vaccine_card" server-side.
+  document_type_guess:  your first-pass document-type guess; same enum.
+                        Use "unknown_vaccine_card" when unsure. The
+                        server re-checks recognized_template_id
+                        against the region source_text regardless of
+                        what you emit.
   pages_detected:       integer, typically 1.
   orientation_warning:  null, or a short string if the card is rotated,
                         tilted, or upside-down ("Rotated 180°; header

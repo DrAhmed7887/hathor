@@ -20,13 +20,35 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  inferRowsFromTemplate,
   mergeEvidenceIntoRows,
   normalizeDocumentIntelligence,
+  parseRawDate,
+  recognizeTemplate,
+  VACCINE_CARD_TEMPLATES,
   type DocumentRegion,
   type EvidenceFragment,
   type LayoutAnalysisResult,
+  type RecognizedTemplateId,
 } from "./document-intelligence.ts";
 import type { ParsedCardRow } from "./types.ts";
+
+function layoutFixture(
+  partial: Partial<LayoutAnalysisResult>,
+): LayoutAnalysisResult {
+  return {
+    pages_detected: 1,
+    orientation_warning: null,
+    crop_warning: null,
+    regions: [],
+    evidence_fragments: [],
+    overall_confidence: 0.9,
+    warnings: [],
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
+    ...partial,
+  };
+}
 
 // ── Fixture helpers ─────────────────────────────────────────────────────────
 
@@ -174,6 +196,8 @@ test("merge: empty layout (no regions/fragments) → fallback", () => {
     evidence_fragments: [],
     overall_confidence: 0,
     warnings: [],
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
   };
   const out = mergeEvidenceIntoRows(layout, rows);
   assert.equal(out.used_fallback, true);
@@ -204,6 +228,8 @@ test("merge: never drops parsed rows even when layout is rich", () => {
     ],
     overall_confidence: 0.9,
     warnings: [],
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
   };
   const out = mergeEvidenceIntoRows(layout, rows);
   assert.equal(out.rows.length, 3);
@@ -238,6 +264,8 @@ test("merge: booster row survives verbatim through the merge", () => {
     ],
     overall_confidence: 0.88,
     warnings: [],
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
   };
   const out = mergeEvidenceIntoRows(layout, [booster]);
   assert.equal(out.rows.length, 1);
@@ -274,6 +302,8 @@ test("merge: conflicting evidence produces a warning, never overwrites", () => {
     ],
     overall_confidence: 0.9,
     warnings: [],
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
   };
   const out = mergeEvidenceIntoRows(layout, rows);
   // Row is untouched — we never rewrite clinician-facing data.
@@ -297,11 +327,269 @@ test("merge: orientation + crop warnings surface in the merge output", () => {
     evidence_fragments: [fragment({})],
     overall_confidence: 0.8,
     warnings: ["Low contrast on date cells"],
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
   };
   const out = mergeEvidenceIntoRows(layout, rows);
   assert.ok(out.warnings.some((w) => /Rotated 180/.test(w)));
   assert.ok(out.warnings.some((w) => /Right edge cut off/.test(w)));
   assert.ok(out.warnings.some((w) => /Low contrast/.test(w)));
+});
+
+// ── Template recognizer + inference ─────────────────────────────────────────
+
+test("recognizer: Egyptian MoHP title in source_text maps to known template", () => {
+  const layout = layoutFixture({
+    regions: [
+      region({
+        region_id: "r-title",
+        kind: "child_info",
+        source_text: "التطعيمات الإجبارية",
+      }),
+    ],
+  });
+  assert.equal(
+    recognizeTemplate(layout),
+    "egypt_mohp_mandatory_childhood_immunization",
+  );
+});
+
+test("recognizer: absence of known title returns unknown_vaccine_card", () => {
+  const layout = layoutFixture({
+    regions: [region({ source_text: "Nigeria NPI card" })],
+  });
+  assert.equal(recognizeTemplate(layout), "unknown_vaccine_card");
+});
+
+test("normalizer: promotes model-supplied template_id when valid", () => {
+  const out = normalizeDocumentIntelligence({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
+    regions: [],
+    evidence_fragments: [],
+  });
+  assert.equal(
+    out.recognized_template_id,
+    "egypt_mohp_mandatory_childhood_immunization",
+  );
+  assert.equal(
+    out.document_type_guess,
+    "egypt_mohp_mandatory_childhood_immunization",
+  );
+});
+
+test("normalizer: rejects unknown template_id, falls back via content recognizer", () => {
+  const out = normalizeDocumentIntelligence({
+    recognized_template_id: "invented_template_id",
+    regions: [
+      {
+        region_id: "r-title",
+        kind: "child_info",
+        source_text: "التطعيمات الإجبارية",
+        confidence: 1,
+      },
+    ],
+    evidence_fragments: [],
+  });
+  // Model's bad id discarded; content fallback fires.
+  assert.equal(
+    out.recognized_template_id,
+    "egypt_mohp_mandatory_childhood_immunization",
+  );
+});
+
+test("normalizer: default template_id when nothing recognised", () => {
+  const out = normalizeDocumentIntelligence({});
+  assert.equal(out.recognized_template_id, "unknown_vaccine_card");
+  assert.equal(out.document_type_guess, "unknown_vaccine_card");
+});
+
+test("parseRawDate: Arabic digits DD/MM/YYYY", () => {
+  assert.equal(parseRawDate("١٠/٠٥/٢٠٢٤"), "2024-05-10");
+});
+test("parseRawDate: Western DD/MM/YYYY and DD-MM-YYYY", () => {
+  assert.equal(parseRawDate("05/05/2023"), "2023-05-05");
+  assert.equal(parseRawDate("05-05-2023"), "2023-05-05");
+});
+test("parseRawDate: ISO already", () => {
+  assert.equal(parseRawDate("2024-05-10"), "2024-05-10");
+});
+test("parseRawDate: rejects ambiguous/unrecognised text", () => {
+  assert.equal(parseRawDate("May 10, 2024"), null);
+  assert.equal(parseRawDate(null), null);
+  assert.equal(parseRawDate(undefined), null);
+});
+
+test("infer: Egyptian template + 9 date cells + 0 labels → 9 AMBER inferred rows", () => {
+  // Acceptance: synthetic Egyptian MoHP fixture with 9 date cells and
+  // 0 row-label evidence should produce 9 AMBER inferred rows, not 0.
+  const dateFragments: EvidenceFragment[] = Array.from({ length: 9 }, (_, i) =>
+    fragment({
+      fragment_id: `f-d${i + 1}`,
+      kind: "date_cell",
+      raw_date_text: `${String(10 + i).padStart(2, "0")}/٠٥/٢٠٢٤`,
+      source_text: `${String(10 + i).padStart(2, "0")}/٠٥/٢٠٢٤`,
+      confidence: 0.7,
+    }),
+  );
+  const layout = layoutFixture({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
+    regions: [region({ kind: "vaccine_table" })],
+    evidence_fragments: dateFragments,
+  });
+  const result = inferRowsFromTemplate(layout, []);
+  assert.equal(result.inferred, true);
+  assert.equal(result.rows.length, 9);
+  for (const r of result.rows) {
+    assert.equal(r.source, "template_inferred");
+    assert.ok(
+      r.confidence < 0.85,
+      `inferred rows must be AMBER; got confidence ${r.confidence}`,
+    );
+    assert.ok(r.reasoningIfUncertain);
+    assert.ok(r.sourceEvidenceFragmentId);
+  }
+  // Primary antigens follow the template spec order.
+  assert.deepEqual(
+    result.rows.map((r) => r.antigen),
+    ["HepB", "OPV", "BCG", "DTP", "DTP", "DTP", "OPV", "MMR", "DTP"],
+  );
+  // Last row is a booster; the rest are birth or primary.
+  assert.equal(result.rows[result.rows.length - 1].doseKind, "booster");
+  // Dates parsed out of Arabic digits.
+  assert.equal(result.rows[0].date, "2024-05-10");
+});
+
+test("infer: unknown_vaccine_card template does NOT infer rows", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
+    evidence_fragments: [
+      fragment({ kind: "date_cell", raw_date_text: "2024-05-10" }),
+    ],
+  });
+  const result = inferRowsFromTemplate(layout, []);
+  assert.equal(result.inferred, false);
+  assert.equal(result.rows.length, 0);
+});
+
+test("infer: fewer date cells than template rows → fewer rows + incomplete warning", () => {
+  // Acceptance: if fewer dates than expected rows, create rows only
+  // for dates found, plus a visible warning.
+  const dateFragments: EvidenceFragment[] = Array.from({ length: 4 }, (_, i) =>
+    fragment({
+      fragment_id: `f-d${i + 1}`,
+      kind: "date_cell",
+      raw_date_text: `0${i + 1}/05/2024`,
+      confidence: 0.7,
+    }),
+  );
+  const layout = layoutFixture({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
+    evidence_fragments: dateFragments,
+  });
+  const result = inferRowsFromTemplate(layout, []);
+  assert.equal(result.inferred, true);
+  assert.equal(result.rows.length, 4);
+  assert.ok(
+    result.warnings.some((w) => /incomplete/i.test(w)),
+    `expected incomplete-template warning; got ${JSON.stringify(result.warnings)}`,
+  );
+});
+
+test("infer: more date cells than template rows → maps first N, extras listed, not fabricated", () => {
+  const N_EXPECTED =
+    VACCINE_CARD_TEMPLATES.egypt_mohp_mandatory_childhood_immunization.row_specs
+      .length;
+  const dateFragments: EvidenceFragment[] = Array.from(
+    { length: N_EXPECTED + 3 },
+    (_, i) =>
+      fragment({
+        fragment_id: `f-d${i + 1}`,
+        kind: "date_cell",
+        raw_date_text: `${String(1 + i).padStart(2, "0")}/05/2024`,
+        confidence: 0.7,
+      }),
+  );
+  const layout = layoutFixture({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
+    evidence_fragments: dateFragments,
+  });
+  const result = inferRowsFromTemplate(layout, []);
+  assert.equal(result.rows.length, N_EXPECTED);
+  assert.equal(result.unmapped_date_texts.length, 3);
+  assert.ok(
+    result.warnings.some((w) => /More date cells/.test(w)),
+    `expected over-mapping warning; got ${JSON.stringify(result.warnings)}`,
+  );
+});
+
+test("infer: existing parsed rows are NEVER overwritten, regardless of template", () => {
+  // Acceptance: existing parsed rows are not overwritten.
+  const existing: ParsedCardRow[] = [
+    row({ antigen: "DTP", doseNumber: 2, source: "vision" }),
+  ];
+  const layout = layoutFixture({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
+    evidence_fragments: Array.from({ length: 9 }, (_, i) =>
+      fragment({
+        fragment_id: `f-d${i + 1}`,
+        kind: "date_cell",
+        raw_date_text: `0${i + 1}/05/2024`,
+        confidence: 0.7,
+      }),
+    ),
+  });
+  const result = inferRowsFromTemplate(layout, existing);
+  assert.equal(result.inferred, false);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].doseNumber, 2);
+  assert.equal(result.rows[0].source, "vision");
+});
+
+test("infer: Egyptian template + zero date evidence → declines safely with reason", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
+    evidence_fragments: [
+      fragment({ kind: "row_label", source_text: "something" }),
+    ],
+  });
+  const result = inferRowsFromTemplate(layout, []);
+  assert.equal(result.inferred, false);
+  assert.equal(result.rows.length, 0);
+  assert.ok(
+    result.warnings.some((w) => /no date-cell/i.test(w)),
+    `expected 'no date-cell' reason; got ${JSON.stringify(result.warnings)}`,
+  );
+});
+
+// Reference the template export so the test hits the registry contract.
+test("registry: Egyptian template ships with 9 row_specs matching the spec", () => {
+  const tpl =
+    VACCINE_CARD_TEMPLATES.egypt_mohp_mandatory_childhood_immunization;
+  assert.equal(tpl.row_specs.length, 9);
+  const ageLabels = tpl.row_specs.map((r) => r.age_label);
+  assert.deepEqual(ageLabels, [
+    "Birth / first 24h",
+    "First week",
+    "First 15 days",
+    "2 months",
+    "4 months",
+    "6 months",
+    "9 months",
+    "12 months",
+    "18 months",
+  ]);
+});
+
+test("registry: unknown_vaccine_card is an empty template", () => {
+  const unk: RecognizedTemplateId = "unknown_vaccine_card";
+  assert.equal(VACCINE_CARD_TEMPLATES[unk].row_specs.length, 0);
 });
 
 test("merge: Arabic ordinal row labels are understood for conflict detection", () => {
@@ -325,6 +613,8 @@ test("merge: Arabic ordinal row labels are understood for conflict detection", (
     ],
     overall_confidence: 0.9,
     warnings: [],
+    recognized_template_id: "unknown_vaccine_card",
+    document_type_guess: "unknown_vaccine_card",
   };
   const out = mergeEvidenceIntoRows(layout, rows);
   assert.ok(

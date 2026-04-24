@@ -18,6 +18,7 @@
  */
 
 import {
+  inferRowsFromTemplate,
   mergeEvidenceIntoRows,
   normalizeDocumentIntelligence,
   type DocumentRegion,
@@ -120,14 +121,20 @@ const healthyRows: ParsedCardRow[] = Array.from({ length: 7 }, (_, i) => ({
 }));
 
 const caseA = mergeEvidenceIntoRows(layout, healthyRows);
-const caseB = mergeEvidenceIntoRows(layout, []); // explicit empty rows
+// Case B: the concerning failure mode — vision pass returned 0 rows
+// but the trace carries 9 date cells against a recognised template.
+// Inference fires BEFORE the merger, producing AMBER rows the clinician
+// reviews. Merger then runs over the inferred rows as usual.
+const inferenceB = inferRowsFromTemplate(layout, []);
+const rowsB = inferenceB.inferred ? inferenceB.rows : [];
+const caseB = mergeEvidenceIntoRows(layout, rowsB);
 
 // ── UI state simulator (mirrors ParsedResults + demo/page.tsx) ─────────────
 
 function simulateUiState(
   rows: ParsedCardRow[],
   layoutUsedFallback: boolean,
-  layoutArg: ReturnType<typeof normalizeDocumentIntelligence> | null,
+  layout: ReturnType<typeof normalizeDocumentIntelligence> | null,
 ): {
   banner: string;
   status_line: string;
@@ -162,7 +169,7 @@ function simulateUiState(
   // Otherwise the empty-state text. When rows exist, the row list.
   let amber_review_surface: "amber_callout" | "empty_state" | "row_list";
   if (rows.length > 0) amber_review_surface = "row_list";
-  else if (layoutArg && layoutArg.evidence_fragments.length > 0)
+  else if (layout && layout.evidence_fragments.length > 0)
     amber_review_surface = "amber_callout";
   else amber_review_surface = "empty_state";
 
@@ -219,19 +226,9 @@ console.log(`evidence_fragments count: ${layout.evidence_fragments.length}`);
 console.log(`  row_label evidence    : ${rowLabelCount}`);
 console.log(`  date_cell evidence    : ${dateCellCount}`);
 
-const titleRegion = layout.regions.find(
-  (r) =>
-    r.source_text &&
-    (r.source_text.includes("التطعيمات الإجبارية") ||
-      r.source_text.includes("Egyptian MoHP")),
-);
-console.log(`\n[Not a first-class schema field yet — derived heuristic:]`);
-console.log(
-  `document_type_guess     : ${titleRegion ? "egyptian_mohp_mandatory_immunizations" : "unknown"}`,
-);
-console.log(
-  `recognized_template_id  : ${titleRegion ? `region:${titleRegion.region_id}:${titleRegion.source_text}` : "(none)"}`,
-);
+// First-class fields now populated by the normaliser.
+console.log(`document_type_guess     : ${layout.document_type_guess}`);
+console.log(`recognized_template_id  : ${layout.recognized_template_id}`);
 
 section("Case A — vision returned 7 parsed rows + trace");
 console.log(`merge.used_fallback     : ${caseA.used_fallback}`);
@@ -248,6 +245,10 @@ console.log(`ui.proceed_enabled      : ${uiA.proceed_enabled}`);
 console.log(`ui.export_before_review : ${uiA.export_allowed_before_review}`);
 
 section("Case B — vision returned 0 rows but trace has 9 date evidence");
+console.log(`inference.inferred      : ${inferenceB.inferred}`);
+console.log(`inference.rows.length   : ${inferenceB.rows.length}`);
+console.log(`inference.template_id   : ${inferenceB.template_id}`);
+for (const w of inferenceB.warnings) console.log(`  ! ${w}`);
 console.log(`merge.used_fallback     : ${caseB.used_fallback}`);
 console.log(`merge.rows.length       : ${caseB.rows.length}`);
 console.log(`merge.warnings          :`);
@@ -298,7 +299,25 @@ check(
 
 // Case B: the concerning failure mode.
 check(
-  "Case B: status_line does NOT say 'All rows confident' when rows are empty",
+  "Case B: inference produced 9 AMBER rows from 9 date cells",
+  inferenceB.inferred && inferenceB.rows.length === 9,
+  `inferred=${inferenceB.inferred}, rows=${inferenceB.rows.length}`,
+);
+check(
+  "Case B: every inferred row is AMBER (confidence < 0.85)",
+  inferenceB.rows.every((r) => r.confidence < 0.85),
+);
+check(
+  "Case B: every inferred row carries source='template_inferred'",
+  inferenceB.rows.every((r) => r.source === "template_inferred"),
+);
+check(
+  "Case B: UI surfaces a row list (not just empty-state callout)",
+  uiB.amber_review_surface === "row_list",
+  `amber_review_surface="${uiB.amber_review_surface}"`,
+);
+check(
+  "Case B: status_line reflects review-required state, not 'All rows confident'",
   uiB.status_line !== "All rows confident",
   `got status_line="${uiB.status_line}"`,
 );
@@ -307,9 +326,8 @@ check(
   uiB.export_allowed_before_review === false,
 );
 check(
-  "Case B: UI surfaces an AMBER review surface (not just empty state)",
-  uiB.amber_review_surface === "amber_callout",
-  `amber_review_surface="${uiB.amber_review_surface}" — EmptyRowsAmberReview should render when trace has evidence`,
+  "Case B: Proceed stays disabled — every row is unresolved AMBER",
+  uiB.proceed_enabled === false,
 );
 
 console.log(`\nResult: ${passCount} passed, ${failCount} failed`);

@@ -688,7 +688,36 @@ export function ParsedResults({
     });
   }, []);
 
+  // Evidence merge runs on every render — it's a pure pass-through on
+  // rows, so the cost is negligible and the warnings stay in sync with
+  // the latest clinician edits. We surface the merge warnings inside
+  // the trace panel, not in the main review flow — safety gates remain
+  // the only path that blocks Proceed.
+  const mergeResult = useMemo(
+    () => mergeEvidenceIntoRows(documentIntelligence ?? null, rows),
+    [documentIntelligence, rows],
+  );
+
   const proceedEnabled = unresolvedCount === 0 && rows.length > 0;
+
+  // Template-inferred banner — shown when ANY row was synthesised from
+  // a recognised template (rather than read by the vision pass). The
+  // clinician needs to know so they don't trust dose numbers or dates
+  // the model never actually confirmed.
+  const templateInferredCount = useMemo(
+    () => rows.filter((r) => r.source === "template_inferred").length,
+    [rows],
+  );
+  const templateDisplayName = useMemo(() => {
+    if (!documentIntelligence) return null;
+    if (
+      documentIntelligence.recognized_template_id ===
+      "egypt_mohp_mandatory_childhood_immunization"
+    ) {
+      return 'Egyptian MoHP mandatory childhood immunization (التطعيمات الإجبارية)';
+    }
+    return null;
+  }, [documentIntelligence]);
 
   // Re-parse guard: if the clinician has corrections in flight, warn
   // before the fresh parse blows them away. edited.size is the
@@ -705,16 +734,6 @@ export function ParsedResults({
     }
     void onReparse();
   }, [onReparse, reparsing, hasCorrections]);
-
-  // Evidence merge runs on every render — it's a pure pass-through on
-  // rows, so the cost is negligible and the warnings stay in sync with
-  // the latest clinician edits. We surface the merge warnings inside
-  // the trace panel, not in the main review flow — safety gates remain
-  // the only path that blocks Proceed.
-  const mergeResult = useMemo(
-    () => mergeEvidenceIntoRows(documentIntelligence ?? null, rows),
-    [documentIntelligence, rows],
-  );
 
   return (
     <section
@@ -844,6 +863,15 @@ export function ParsedResults({
           gap: 12,
         }}
       >
+        {/* Template-inferred rows banner — judges see that the row list
+            below was synthesised from a recognised template, not read
+            directly. Shown above the row list, not in place of it. */}
+        {templateInferredCount > 0 && (
+          <TemplateInferredBanner
+            count={templateInferredCount}
+            templateName={templateDisplayName}
+          />
+        )}
         {rows.length === 0 && documentIntelligence &&
           documentIntelligence.evidence_fragments.length > 0 && (
             <EmptyRowsAmberReview layout={documentIntelligence} />
@@ -961,6 +989,8 @@ function DocumentIntelligenceTrace({
   const dateFragments =
     layout?.evidence_fragments.filter((f) => f.kind === "date_cell") ?? [];
 
+  // Short summary for the collapsed title — judges can read it at a
+  // glance, then expand for the full audit trail.
   const summary = usedFallback
     ? "trace unavailable · direct parse used"
     : `${layout?.pages_detected ?? 1} page · ${regionCount} regions · ` +
@@ -1043,6 +1073,7 @@ function DocumentIntelligenceTrace({
             clinician review.
           </p>
 
+          {/* Page-level banners */}
           {layout?.orientation_warning && (
             <TraceBanner
               label="Orientation"
@@ -1059,6 +1090,7 @@ function DocumentIntelligenceTrace({
             />
           )}
 
+          {/* Stats grid */}
           <div
             style={{
               display: "grid",
@@ -1096,6 +1128,7 @@ function DocumentIntelligenceTrace({
             />
           </div>
 
+          {/* Row-label evidence list */}
           {rowLabelFragments.length > 0 && (
             <TraceFragmentList
               title="Printed row-label evidence"
@@ -1111,6 +1144,7 @@ function DocumentIntelligenceTrace({
             />
           )}
 
+          {/* Date-cell evidence list */}
           {dateFragments.length > 0 && (
             <TraceFragmentList
               title="Date-cell evidence"
@@ -1123,6 +1157,7 @@ function DocumentIntelligenceTrace({
             />
           )}
 
+          {/* Merge + layout warnings */}
           {(mergeWarnings.length > 0 || (layout?.warnings.length ?? 0) > 0) && (
             <div
               style={{
@@ -1223,6 +1258,56 @@ function TraceStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Banner shown above the row list when rows were synthesised from a
+ * recognised template. Judges see the provenance at a glance; the
+ * clinician is reminded each row must still be confirmed before the
+ * engine is allowed to run. This banner does NOT gate Proceed —
+ * the existing AMBER review logic already blocks Proceed because
+ * template-inferred rows are < 0.85 confidence. */
+function TemplateInferredBanner({
+  count,
+  templateName,
+}: {
+  count: number;
+  templateName: string | null;
+}) {
+  return (
+    <div
+      role="status"
+      style={{
+        border: `1px solid ${H.amberLine}`,
+        borderLeft: `3px solid ${H.copper}`,
+        background: H.paper2,
+        padding: "12px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        fontFamily: F.sans,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: H.copperInk,
+        }}
+      >
+        Template inferred · clinician review required
+      </div>
+      <div style={{ fontFamily: F.serif, fontSize: 14, color: H.ink, lineHeight: 1.5 }}>
+        {count} row{count === 1 ? "" : "s"} below{" "}
+        {count === 1 ? "was" : "were"} synthesised from the recognised
+        template{templateName ? ` — ${templateName}` : ""} using date-cell
+        evidence. The vision pass could not confirm the printed row
+        labels, so each row is AMBER and must be confirmed or corrected
+        before proceeding to validation.
+      </div>
+    </div>
+  );
+}
+
 /** When the vision pass returned 0 rows but the trace has evidence,
  * we must NOT silently show "No rows extracted" — the clinician needs
  * to know the pipeline saw SOMETHING. Render an AMBER review table
@@ -1236,6 +1321,8 @@ function EmptyRowsAmberReview({ layout }: { layout: LayoutAnalysisResult }) {
   const rowLabelFragments = layout.evidence_fragments.filter(
     (f) => f.kind === "row_label",
   );
+  // Heuristic document-type guess: the Egyptian MoHP card's mandatory-
+  // immunizations title is a reliable template signal when present.
   const templateRegion = layout.regions.find((r) =>
     r.source_text?.includes("التطعيمات الإجبارية"),
   );
