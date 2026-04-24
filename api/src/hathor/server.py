@@ -53,7 +53,7 @@ from claude_agent_sdk.types import (
 from hathor.agent_prompt import SYSTEM_PROMPT
 from hathor.safety import phase_d
 from hathor.schemas.extraction import CardExtractionOutput, FieldExtraction
-from hathor.server_sessions import SESSIONS, HITLSession
+from hathor.server_sessions import RECONCILE_SESSIONS, SESSIONS, HITLSession
 from hathor.tools import HATHOR_TOOLS
 from hathor.tools.card_extraction import build_stub_output
 
@@ -102,6 +102,18 @@ class HITLCorrection(BaseModel):
 
 class HITLCorrectionsRequest(BaseModel):
     corrections: list[HITLCorrection] = Field(default_factory=list)
+
+
+class OverrideSubmissionRequest(BaseModel):
+    recommendation_id: str
+    rule_id: str
+    # justification_code: required when overriding `override_required`;
+    # omit (null) when overriding `fail` (free-text only).
+    justification_code: str | None = None
+    # clinical_reason_text: required for `fail`; optional for `override_required`.
+    clinical_reason_text: str | None = None
+    # severity tells the server which validation branch applies.
+    severity: Literal["fail", "override_required"]
 
 
 def _sse(event_type: str, data: dict) -> bytes:
@@ -285,6 +297,7 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
 
     tool_index = 0
     tool_id_to_index: dict[str, int] = {}
+    tool_id_to_name: dict[str, str] = {}
     final_plan_text: list[str] = []
     result_message: ResultMessage | None = None
 
@@ -303,6 +316,7 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
                         elif isinstance(block, ToolUseBlock):
                             tool_index += 1
                             tool_id_to_index[block.id] = tool_index
+                            tool_id_to_name[block.id] = block.name
                             yield _sse(
                                 "tool_use",
                                 {
@@ -326,6 +340,7 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
                         for block in content:
                             if isinstance(block, ToolResultBlock):
                                 idx = tool_id_to_index.get(block.tool_use_id, 0)
+                                tool_name = tool_id_to_name.get(block.tool_use_id, "")
                                 result_data = _parse_tool_result_content(block.content)
                                 yield _sse(
                                     "tool_result",
@@ -336,6 +351,32 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
                                         "is_error": bool(block.is_error),
                                     },
                                 )
+                                # When the agent completes Phase E, create a reconcile
+                                # session so the clinician can submit overrides against
+                                # `override_required` / `fail` results.
+                                if (
+                                    tool_name == f"mcp__{MCP_SERVER_NAME}__emit_recommendations"
+                                    and not bool(block.is_error)
+                                    and isinstance(result_data, dict)
+                                    and "active_results" in result_data
+                                ):
+                                    rsession = RECONCILE_SESSIONS.create(
+                                        recommendations=[
+                                            *result_data.get("active_results", []),
+                                            *result_data.get("superseded_results", []),
+                                        ],
+                                    )
+                                    yield _sse(
+                                        "phase_e_complete",
+                                        {
+                                            "session_id": rsession.session_id,
+                                            "has_failures": result_data.get("has_failures", False),
+                                            "has_override_required": result_data.get("has_override_required", False),
+                                            "active_results": result_data.get("active_results", []),
+                                            "override_endpoint": f"/session/{rsession.session_id}/override",
+                                            "expires_at": rsession.expires_at.isoformat(),
+                                        },
+                                    )
 
                 elif isinstance(message, ResultMessage):
                     result_message = message
@@ -508,6 +549,86 @@ async def submit_hitl_corrections(
 
     SESSIONS.resume(session_id, list(req.corrections))
     return {"status": "accepted", "session_id": session_id}
+
+
+@app.post("/session/{session_id}/override")
+async def submit_override(session_id: str, req: OverrideSubmissionRequest) -> dict:
+    """Record a clinician override against a Phase E ValidationResult.
+
+    Writes the override to the reconcile session state and to the FHIR
+    Provenance audit log. Both the justification code (when structured) and
+    the free-text clinical reason are preserved.
+    """
+    from hathor.fhir.provenance import write_override_provenance
+    from hathor.server_sessions import OverrideRecord
+
+    session = RECONCILE_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(404, f"Unknown session_id: {session_id}")
+    if RECONCILE_SESSIONS.is_expired(session):
+        raise HTTPException(410, f"Session expired: {session_id}")
+
+    # Per-severity payload validation.
+    if req.severity == "fail":
+        if not (req.clinical_reason_text and req.clinical_reason_text.strip()):
+            raise HTTPException(
+                400, "severity=fail requires non-empty clinical_reason_text"
+            )
+        if req.justification_code is not None:
+            raise HTTPException(
+                400, "severity=fail must not include justification_code"
+            )
+    else:  # override_required
+        if not req.justification_code:
+            raise HTTPException(
+                400, "severity=override_required requires justification_code"
+            )
+        from hathor.schemas.recommendation import OVERRIDE_JUSTIFICATION_CODES
+        if req.justification_code not in OVERRIDE_JUSTIFICATION_CODES:
+            raise HTTPException(
+                400,
+                f"justification_code must be one of "
+                f"{sorted(OVERRIDE_JUSTIFICATION_CODES)}; got {req.justification_code!r}",
+            )
+
+    # Locate the matching recommendation so Provenance can cite its rule_rationale
+    # and the agent's original proposal.
+    matching = next(
+        (
+            r for r in session.recommendations
+            if r.get("recommendation_id") == req.recommendation_id
+               and r.get("rule_id") == req.rule_id
+        ),
+        None,
+    )
+    if matching is None:
+        raise HTTPException(
+            404,
+            f"No matching recommendation found for recommendation_id={req.recommendation_id!r}"
+            f" rule_id={req.rule_id!r}",
+        )
+
+    now = _dt.datetime.now(_dt.timezone.utc)
+    record = OverrideRecord(
+        recommendation_id=req.recommendation_id,
+        rule_id=req.rule_id,
+        justification_code=req.justification_code,
+        clinical_reason_text=req.clinical_reason_text,
+        timestamp=now,
+        clinician_id=session.clinician_id,
+    )
+    RECONCILE_SESSIONS.append_override(session_id, record)
+
+    provenance_id = write_override_provenance(
+        override=record,
+        validation_result=matching,
+    )
+
+    return {
+        "status": "accepted",
+        "session_id": session_id,
+        "provenance_id": provenance_id,
+    }
 
 
 @app.get("/health")

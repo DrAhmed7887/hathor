@@ -15,7 +15,7 @@ const H = {
   bad:       "#A3453B",
   badSoft:   "#F3E3DF",
   badBorder: "#D4837A",
-  warn:      "#B45309",
+  warn:      "#B8833B",  // unified amber token (Commit 8 palette)
   ok:        "#5F7A52",
 };
 

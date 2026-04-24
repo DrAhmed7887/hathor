@@ -11,6 +11,10 @@ dependencies = [
     "uvicorn[standard]",
     "python-dotenv",
     "anyio",
+    # Phase C seed (Commit 8) — used only by hathor.fhir.provenance to produce
+    # FHIR R4 Provenance resources for clinical overrides. IMMZ-aligned
+    # architecture; not an IMMZ-conformant implementation yet.
+    "fhir.resources>=7.1.0",
 ]
 
 [build-system]

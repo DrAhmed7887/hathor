@@ -14,8 +14,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { streamSSE } from "@/lib/sse-parser";
-import { type HITLRequiredPayload } from "@/lib/api";
+import { type HITLRequiredPayload, type PhaseECompletePayload } from "@/lib/api";
 import { HITLPanel } from "@/components/HITLPanel";
+import { PhaseEPanel } from "@/components/PhaseEPanel";
+import { type Recommendation as PhaseERecommendation } from "@/components/RecommendationCard";
 
 // ── Pharos design system ─────────────────────────────────────────────────────
 
@@ -314,6 +316,8 @@ export default function ReconcileCardPage() {
 
   const [hitlPayload,        setHitlPayload]        = useState<HITLRequiredPayload | null>(null);
   const [reasoningCollapsed, setReasoningCollapsed] = useState(false);
+  const [phaseE,             setPhaseE]             = useState<PhaseECompletePayload | null>(null);
+  const [emittedRecsById,    setEmittedRecsById]    = useState<Record<string, PhaseERecommendation>>({});
 
   const startTimeRef      = useRef<number>(0);
   const currentGroupIdRef = useRef<string | null>(null);
@@ -327,6 +331,8 @@ export default function ReconcileCardPage() {
     setFinalPlan(null);
     setStats(null);
     setHitlPayload(null);
+    setPhaseE(null);
+    setEmittedRecsById({});
     setStatus("Starting up");
     setReasoningCollapsed(false);
     currentGroupIdRef.current = null;
@@ -361,6 +367,34 @@ export default function ReconcileCardPage() {
           setStatus(toolDisplayName(name));
           const ts: ToolState = { index: idx, name, input: (d.input as Record<string, unknown>) ?? {}, status: "pending" };
           setToolMap((p) => ({ ...p, [idx]: ts }));
+
+          // Capture the Recommendation payload the agent passed to
+          // emit_recommendations so we can show the full card later —
+          // the phase_e_complete event only carries the ValidationResult.
+          if (name === "mcp__hathor__emit_recommendations") {
+            const input = (d.input as Record<string, unknown>) ?? {};
+            const recsRaw = (input.recommendations as unknown[]) ?? [];
+            const byId: Record<string, PhaseERecommendation> = {};
+            for (const r of recsRaw) {
+              if (r && typeof r === "object") {
+                const rec = r as Record<string, unknown>;
+                const id = String(rec.recommendation_id ?? "");
+                if (id) {
+                  byId[id] = {
+                    recommendation_id: id,
+                    kind: String(rec.kind ?? ""),
+                    antigen: String(rec.antigen ?? ""),
+                    agent_rationale: String(rec.agent_rationale ?? ""),
+                    reasoning: rec.reasoning as string | undefined,
+                    agent_confidence: rec.agent_confidence as number | undefined,
+                    dose_number: (rec.dose_number as number | null) ?? null,
+                    target_date: (rec.target_date as string | null) ?? null,
+                  };
+                }
+              }
+            }
+            setEmittedRecsById((prev) => ({ ...prev, ...byId }));
+          }
 
           if (lastItemTypeRef.current === "tool_group" && currentGroupIdRef.current) {
             const gid = currentGroupIdRef.current;
@@ -398,6 +432,10 @@ export default function ReconcileCardPage() {
           setHitlPayload(hp);
           setReasoningCollapsed(true);
           // for-await loop remains blocked here until server resumes after corrections
+
+        } else if (sse.type === "phase_e_complete") {
+          setStatus("Phase E verdicts ready");
+          setPhaseE(d as unknown as PhaseECompletePayload);
 
         } else if (sse.type === "hitl_timeout") {
           setStatus("Review timed out");
@@ -600,6 +638,16 @@ export default function ReconcileCardPage() {
               payload={hitlPayload}
               imagePath={imagePath}
               onConfirmed={handleHITLConfirmed}
+            />
+          </section>
+        )}
+
+        {/* ── Phase E panel ── */}
+        {phaseE && (
+          <section style={{ marginBottom: 32, animation: "hathor-fade-in 0.4s ease-out both" }}>
+            <PhaseEPanel
+              payload={phaseE}
+              recommendations={emittedRecsById}
             />
           </section>
         )}

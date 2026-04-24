@@ -35,6 +35,47 @@ changes. Remove or tighten the `# SOVEREIGNTY NOTE` in
 
 ---
 
+## 3. Demo-clinician placeholder — production authentication review
+
+**Trigger:** the commit that introduces real clinician authentication on the
+server (the first endpoint that actually verifies a Practitioner identity,
+likely via OAuth2 / SMART-on-FHIR or an institutional SSO). Before that
+commit lands, the demo uses a hardcoded `"demo-clinician"` string in three
+call sites.
+
+**Why deferred:** the Commit 8 Phase E override surface needed an identity
+to attribute overrides to, but the server has no authentication layer yet.
+Rather than stub out a half-auth system, the identity is a literal
+placeholder flagged at each call site. A real implementation will:
+- Replace the hardcoded string with the authenticated Practitioner's
+  canonical reference (FHIR `Reference(Practitioner/{id})` or
+  `Reference(PractitionerRole/{id})`).
+- Replace `agent[0].who.display` with `agent[0].who.reference` in the
+  Provenance emitter, optionally keeping `display` as a human label.
+- Reject override submissions from unauthenticated sessions at the
+  endpoint level.
+
+**Scope of the doc update:** when the replacement lands, the following
+specific sites must be reviewed and updated in the same commit:
+
+- `api/src/hathor/server_sessions.py` — `ReconcileSession.clinician_id`
+  field and its inline `NOTE:` comment in the dataclass. The
+  `ReconcileSessionStore.create()` default parameter must be removed.
+- `api/src/hathor/fhir/provenance.py` — the `agent[0].who` block in
+  `_build_provenance()` and the inline `DEMO-CLINICIAN PLACEHOLDER` comment
+  above it. Migrate from `{"display": ...}` to
+  `{"reference": "Practitioner/{id}", "display": ...}`.
+- `api/src/hathor/server.py` — the `RECONCILE_SESSIONS.create(...)` call
+  inside `_stream_agent()` where the `clinician_id` is omitted (currently
+  falls back to the store's default). Pass the authenticated identity
+  explicitly.
+- `CLAUDE.md` — if the authentication posture becomes a durable project
+  rule, add a section. Otherwise update only `docs/SAFETY_LOOPS.md` →
+  Phase E → "Clinician final authority" to describe the real identity
+  flow.
+
+---
+
 ## Format for new entries
 
 Each new entry must include:

@@ -235,6 +235,30 @@ wheels = [
 ]
 
 [[package]]
+name = "fhir-core"
+version = "1.1.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8e/66/3a0cd99af86c10e13418ca571fcb969df9c563dedc4493cd02bc9963e7dd/fhir_core-1.1.7.tar.gz", hash = "sha256:5c77aa939bb1c2920f505cda0e4905b38bba1e87ad46351acc383cec7184c4d7", size = 35046, upload-time = "2026-03-22T20:59:17.442Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/8b/c55c2172a91fe094f59052208729ef9f1a7b358c8006aac8a468f5157ce2/fhir_core-1.1.7-py2.py3-none-any.whl", hash = "sha256:7419c5102afd180392114a810707c55401fa96408d16d95df9f037def7ded52c", size = 30216, upload-time = "2026-03-22T20:59:15.845Z" },
+]
+
+[[package]]
+name = "fhir-resources"
+version = "8.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fhir-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a3/99/b82d8a5c96918844ab4a59cf7cae2b269cab46acf902b4f6533f78790287/fhir_resources-8.2.0.tar.gz", hash = "sha256:122a8b336385d504b399df9c5f332a7d913f07bc71a52dc9dde39abb5bf29129", size = 1618120, upload-time = "2026-02-02T20:53:19.088Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/fb/e0a86d85d84be50e5750ca3ed51a96bf2ce091978c695118ea5b0bd75c81/fhir_resources-8.2.0-py2.py3-none-any.whl", hash = "sha256:ce6c9edc2aca867a090415885f1b0c625c510feddc0d843dc54a31d8b32ac091", size = 2287854, upload-time = "2026-02-02T20:53:13.466Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -251,6 +275,7 @@ dependencies = [
     { name = "anyio" },
     { name = "claude-agent-sdk" },
     { name = "fastapi" },
+    { name = "fhir-resources" },
     { name = "python-dotenv" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -265,6 +290,7 @@ requires-dist = [
     { name = "anyio" },
     { name = "claude-agent-sdk", specifier = ">=0.1.63" },
     { name = "fastapi" },
+    { name = "fhir-resources", specifier = ">=7.1.0" },
     { name = "python-dotenv" },
     { name = "uvicorn", extras = ["standard"] },
 ]

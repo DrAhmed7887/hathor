@@ -96,3 +96,93 @@ class SessionStore:
 
 
 SESSIONS = SessionStore()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase E — post-reasoning override session store.
+#
+# Survives past Phase D: created when the agent emits recommendations via
+# emit_recommendations; retained until TTL so clinicians can submit overrides
+# against `override_required` or `fail` verdicts. Shares the same in-memory,
+# per-process SOVEREIGNTY posture as SessionStore above — see docs/DEFERRED_DOC_UPDATES.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+RECONCILE_SESSION_TTL_SECONDS = 3600  # 1 hour — override review window
+
+
+@dataclass
+class OverrideRecord:
+    """One clinician override submitted against a Phase E ValidationResult."""
+
+    recommendation_id: str
+    rule_id: str
+    justification_code: str | None          # None when severity was "fail" (free-text only)
+    clinical_reason_text: str | None        # free text; required for fail, optional for override_required
+    timestamp: datetime
+    clinician_id: str                       # DEMO-CLINICIAN PLACEHOLDER — see ReconcileSession below
+
+
+@dataclass
+class ReconcileSession:
+    session_id: str
+    # NOTE: clinician_id is a placeholder for the hackathon demo. The server has
+    # no authentication today; a durable build will bind this to the authenticated
+    # identity of the physician reviewing the case. See docs/DEFERRED_DOC_UPDATES.md
+    # and the equivalent comment in api/src/hathor/fhir/provenance.py where this
+    # value is written into FHIR Provenance.agent[0].who.display.
+    clinician_id: str
+    recommendations: list[dict]             # active + superseded results snapshot from emit_recommendations
+    overrides: list[OverrideRecord] = field(default_factory=list)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+        + timedelta(seconds=RECONCILE_SESSION_TTL_SECONDS)
+    )
+
+
+class ReconcileSessionStore:
+    """In-memory reconcile-session store. NOT production-grade — see comment above."""
+
+    def __init__(self, ttl_seconds: int = RECONCILE_SESSION_TTL_SECONDS) -> None:
+        self._sessions: dict[str, ReconcileSession] = {}
+        self.ttl_seconds = ttl_seconds
+
+    def create(self, recommendations: list[dict], clinician_id: str = "demo-clinician") -> ReconcileSession:
+        sid = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        session = ReconcileSession(
+            session_id=sid,
+            clinician_id=clinician_id,
+            recommendations=recommendations,
+            created_at=now,
+            expires_at=now + timedelta(seconds=self.ttl_seconds),
+        )
+        self._sessions[sid] = session
+        _log.info(
+            "Reconcile session created session_id=%s recommendations=%d ttl_seconds=%d",
+            sid, len(recommendations), self.ttl_seconds,
+        )
+        return session
+
+    def get(self, session_id: str) -> ReconcileSession | None:
+        return self._sessions.get(session_id)
+
+    def is_expired(self, session: ReconcileSession) -> bool:
+        return datetime.now(timezone.utc) >= session.expires_at
+
+    def append_override(self, session_id: str, record: OverrideRecord) -> ReconcileSession | None:
+        session = self.get(session_id)
+        if session is None:
+            return None
+        session.overrides.append(record)
+        _log.info(
+            "Override recorded session_id=%s recommendation_id=%s rule_id=%s code=%s",
+            session_id, record.recommendation_id, record.rule_id, record.justification_code,
+        )
+        return session
+
+    def drop(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+
+
+RECONCILE_SESSIONS = ReconcileSessionStore()

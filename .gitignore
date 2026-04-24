@@ -45,6 +45,10 @@ Thumbs.db
 *.log
 logs/
 
+# Commit 8 — FHIR Provenance override sink. Per-process append-only JSONL;
+# production migrates to durable storage. Not a source artifact.
+evaluation/provenance_log.jsonl
+
 # Scratch / local experiments
 /scratch/
 
