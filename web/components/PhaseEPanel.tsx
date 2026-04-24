@@ -1,5 +1,29 @@
 "use client";
 
+/**
+ * PRD §5.6 AUDIT — Reasoning Safety Loop (container)
+ * --------------------------------------------------
+ * This is the UI half of the Reasoning Safety Loop: every
+ * recommendation the agent emitted has already been run through the
+ * deterministic Python rules engine (Phase E), and the panel renders
+ * only what the engine validated. The agent reasons freely; the output
+ * layer is gated.
+ *
+ * Mapping:
+ *   - payload.active_results (ValidationResult[])   ← rules-engine verdicts
+ *   - override_endpoint                              ← FHIR Provenance writer
+ *   - has_override_required / has_failures            ← Phase E severity flags
+ *
+ * The new /validate-schedule endpoint from d2cccc7 is a SECOND path into
+ * the same engine, intended for the hackathon demo's card-parse → batch
+ * validate flow (no agent in the loop for the fast path). Both paths
+ * enforce the same gate — engine decides, UI renders. Step 7 will wire
+ * a view that calls /validate-schedule directly; this panel stays on
+ * the agent path.
+ *
+ * No gaps vs. PRD §5.6 at the container level.
+ */
+
 import { type PhaseECompletePayload } from "@/lib/api";
 import { RecommendationCard, type Recommendation } from "./RecommendationCard";
 

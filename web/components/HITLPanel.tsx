@@ -1,5 +1,29 @@
 "use client";
 
+/**
+ * PRD §5.6 AUDIT — Vision Safety Loop (per-field)
+ * ------------------------------------------------
+ * This component is the UI half of the Vision Safety Loop: fields with
+ * confidence < 0.85 extracted by the card-parse pipeline route here instead
+ * of auto-committing. Per field, not per document.
+ *
+ * Mapping:
+ *   - hitl_queue: HITLQueueItem[]         ← server-side phase_d.py gate output
+ *   - per-field Edit / Keep / Skip        ← per-field, not per-document (PRD)
+ *   - postCorrections(...) blocks until resolved → reasoning loop can proceed
+ *
+ * Gaps to fix in later steps (do not refactor here):
+ *   1. Card image is shown as a single pane (left) rather than a per-field
+ *      cropped region next to each extracted value. PRD §5.6 requires
+ *      "cropped source region next to the extracted value next to the
+ *      reasoning for uncertainty." Step 6 (ParsedResults) is where that
+ *      lands — or FieldRow gets extended to accept a crop region.
+ *   2. FieldRow currently uses RED palette for OCR uncertainty; PRD §6
+ *      point 3 reserves RED for clinical-safety violations and requires
+ *      AMBER for extraction uncertainty. Fix at FieldRow layer in a later
+ *      step, not here — HITLPanel would otherwise ship two colors at once.
+ */
+
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import {

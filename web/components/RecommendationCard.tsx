@@ -1,5 +1,34 @@
 "use client";
 
+/**
+ * PRD §5.6 + §6 AUDIT — Reasoning Safety Loop (per-recommendation)
+ * ----------------------------------------------------------------
+ * Renders one engine-validated recommendation + the clinician's override
+ * pathway. This is the terminal node of the Reasoning Safety Loop: nothing
+ * the agent said reaches this card without a corresponding ValidationResult
+ * from the Python rules engine.
+ *
+ * Aligned with PRD:
+ *   - SeverityBadge: pass / warn (amber) / fail (red) / override_required
+ *     (plum). PRD §6 point 3: AMBER = review, RED = clinical-safety
+ *     violation, plus an escalation channel for structured override. The
+ *     three-channel split is clean — do not collapse.
+ *   - Rule citation block: rule_id, rule_slug, rule_rationale rendered
+ *     above the override controls. PRD §6 point 4 requires every
+ *     recommendation to cite the WHO rule; this card delivers it.
+ *   - Override pathway: justification code (override_required) + clinical
+ *     reason text → postOverride → server writes FHIR Provenance with the
+ *     DAK rule ID, original proposal, override reason, and timestamp.
+ *     PRD §5.6 "Clinician final authority" — ✓.
+ *
+ * This component is the palette reference for the two severity channels.
+ * FieldRow's red-for-OCR-uncertainty will migrate to THIS component's
+ * amber (H.amber / H.amberSoft) in the later step that lands the
+ * extraction-uncertainty UI.
+ *
+ * No gaps vs. PRD §5.6 / §6.
+ */
+
 import { useState } from "react";
 import { postOverride, type ValidationResult } from "@/lib/api";
 

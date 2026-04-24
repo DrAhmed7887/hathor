@@ -1,5 +1,34 @@
 "use client";
 
+/**
+ * PRD §5.6 + §6 AUDIT — Vision Safety Loop (per-field row)
+ * --------------------------------------------------------
+ * Renders one flagged field from the HITL queue. Confidence threshold check
+ * is upstream (server-side phase_d.py); this row visualizes the verdict and
+ * collects the clinician's action.
+ *
+ * Aligned with PRD:
+ *   - Confidence tier colors ≥0.85 / ≥0.60 / <0.60 match the PRD 0.85 gate.
+ *   - Edit / Keep / Skip is per-field, not per-document.
+ *   - extracted.ambiguity_reason is rendered inline — "reasoning for
+ *     uncertainty" per PRD §5.6.
+ *
+ * Known gaps (do NOT refactor in step 2):
+ *   1. Severity-channel collision (PRD §6 point 3). RED (H.bad, H.badBorder)
+ *      is used for OCR uncertainty borders + field-path label. PRD reserves
+ *      RED for clinical-safety violations (e.g., interval violations in
+ *      RecommendationCard) and requires AMBER for extraction uncertainty.
+ *      RecommendationCard already has the correct amber token (H.amber /
+ *      H.amberSoft). This row should migrate to amber. Defer to the step
+ *      that introduces ParsedResults / ExplainerParse — same palette
+ *      change lands in one place.
+ *   2. No per-field crop region. PRD §5.6 requires the cropped source
+ *      image next to each extracted value. Currently the full card image
+ *      is in HITLPanel's left pane, not next to the row. When the new
+ *      /api/parse-card schema lands (step 5) it emits image_crop_region;
+ *      this component's props must grow to accept + render it.
+ */
+
 import { type CorrectionAction, type HITLQueueItem } from "@/lib/api";
 
 const H = {
