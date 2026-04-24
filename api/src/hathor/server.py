@@ -265,6 +265,14 @@ def _canonical_demo_antigen(raw: str) -> str:
     key = raw.strip().lower()
     if "pentavalent" in key:
         return "Pentavalent"
+    if "hepb" in key or "hepatitis b" in key:
+        return "HepB"
+    if key.startswith("opv"):
+        return "OPV"
+    if key.startswith("pcv") or "pneumococcal" in key:
+        return "PCV"
+    if "yellow fever" in key:
+        return "YellowFever"
     if key in {"bcg", "opv", "ipv", "rotavirus", "mmr", "measles"}:
         return raw.strip()
     return raw.strip()
@@ -294,6 +302,20 @@ def _confirmed_to_phase_e_context_doses(confirmed: CardExtractionOutput) -> list
     return doses
 
 
+def _dose_records_to_phase_e_context_doses(records: list[DoseRecord]) -> list[dict]:
+    doses: list[dict] = []
+    series_counts: dict[str, int] = {}
+    for record in records:
+        antigen = _canonical_demo_antigen(record.vaccine_trade_name)
+        series_counts[antigen] = series_counts.get(antigen, 0) + 1
+        doses.append({
+            "antigen": antigen,
+            "date_administered": record.date_given,
+            "dose_number": series_counts[antigen],
+        })
+    return doses
+
+
 def _serialize_validation_result(result) -> dict:
     return result.model_dump(mode="json")
 
@@ -313,8 +335,8 @@ def _serialize_recommendation(rec) -> dict:
     }
 
 
-async def _stream_demo_fast_reconciliation(
-    confirmed: CardExtractionOutput,
+async def _stream_demo_fast_phase_e_from_doses(
+    confirmed_doses: list[dict],
     child_dob: str,
     target_country: str,
 ) -> AsyncGenerator[bytes, None]:
@@ -336,8 +358,6 @@ async def _stream_demo_fast_reconciliation(
         "demo_fast": True,
     })
     yield _sse("assistant_text", {"text": "Evidence extracted."})
-
-    confirmed_doses = _confirmed_to_phase_e_context_doses(confirmed)
     recommendations: list[Recommendation] = []
 
     for idx, dose in enumerate(confirmed_doses):
@@ -426,6 +446,20 @@ async def _stream_demo_fast_reconciliation(
         "model": "deterministic-demo-fast",
         "demo_fast": True,
     })
+
+
+async def _stream_demo_fast_reconciliation(
+    confirmed: CardExtractionOutput,
+    child_dob: str,
+    target_country: str,
+) -> AsyncGenerator[bytes, None]:
+    confirmed_doses = _confirmed_to_phase_e_context_doses(confirmed)
+    async for chunk in _stream_demo_fast_phase_e_from_doses(
+        confirmed_doses=confirmed_doses,
+        child_dob=child_dob,
+        target_country=target_country,
+    ):
+        yield chunk
 
 
 def _build_prompt(req: ReconcileRequest) -> str:
@@ -598,8 +632,17 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
 @app.post("/reconcile-stream")
 async def reconcile_stream(req: ReconcileRequest) -> StreamingResponse:
     async def event_generator() -> AsyncGenerator[bytes, None]:
-        async for chunk in _stream_agent(req):
-            yield chunk
+        if _demo_fast_reconcile_enabled():
+            confirmed_doses = _dose_records_to_phase_e_context_doses(req.given_doses)
+            async for chunk in _stream_demo_fast_phase_e_from_doses(
+                confirmed_doses=confirmed_doses,
+                child_dob=req.child_dob,
+                target_country=req.target_country,
+            ):
+                yield chunk
+        else:
+            async for chunk in _stream_agent(req):
+                yield chunk
 
     return StreamingResponse(
         event_generator(),

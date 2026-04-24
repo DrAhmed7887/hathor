@@ -194,7 +194,7 @@ function ReasoningPanel({
 
   const collapsedLabel = pausedForHITL
     ? `Paused for review — ${hitlCount} field${hitlCount !== 1 ? "s" : ""} need input`
-    : "Agent reasoning · click to expand";
+    : "Technical audit log · click to expand";
 
   if (collapsed) {
     return (
@@ -231,7 +231,7 @@ function ReasoningPanel({
             Paused for review — {hitlCount} field{hitlCount !== 1 ? "s" : ""} need input
           </MetaSpan>
         ) : (
-          <MetaSpan>Live reasoning · the agent at work</MetaSpan>
+          <MetaSpan>Technical audit log</MetaSpan>
         )}
         <button
           onClick={onToggle}
