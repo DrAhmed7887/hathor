@@ -40,6 +40,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { DoseKind, ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 import { CARD_EXTRACTION_SYSTEM_PROMPT } from "@/lib/card-extraction-prompt";
+import {
+  normalizeDocumentIntelligence,
+  type LayoutAnalysisResult,
+} from "@/lib/document-intelligence";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -67,6 +71,73 @@ const CARD_EXTRACTION_TOOL: Anthropic.Messages.Tool = {
   input_schema: {
     type: "object",
     properties: {
+      document_intelligence: {
+        type: "object",
+        description:
+          "Layout + evidence trace: decompose the card into regions, then tie row-label and date-cell observations to their regions. Used for judge-facing transparency and conservative evidence merging. Populating this field is encouraged but NOT required — a missing or partial trace must not block the parse.",
+        properties: {
+          pages_detected: { type: "integer", minimum: 1 },
+          orientation_warning: { type: ["string", "null"] },
+          crop_warning: { type: ["string", "null"] },
+          overall_confidence: { type: "number", minimum: 0, maximum: 1 },
+          warnings: { type: "array", items: { type: "string" } },
+          regions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                region_id: { type: "string" },
+                kind: {
+                  type: "string",
+                  enum: [
+                    "child_info",
+                    "vaccine_table",
+                    "vaccine_row",
+                    "dose_label",
+                    "date_cell",
+                    "stamp",
+                    "notes",
+                    "unknown",
+                  ],
+                },
+                page_number: { type: "integer", minimum: 1 },
+                label: { type: ["string", "null"] },
+                source_text: { type: ["string", "null"] },
+                confidence: { type: "number", minimum: 0, maximum: 1 },
+                warnings: { type: "array", items: { type: "string" } },
+              },
+              required: ["region_id", "kind", "page_number", "confidence"],
+            },
+          },
+          evidence_fragments: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                fragment_id: { type: "string" },
+                region_id: { type: ["string", "null"] },
+                kind: {
+                  type: "string",
+                  enum: [
+                    "row_label",
+                    "date_cell",
+                    "vaccine_cell",
+                    "note",
+                    "unknown",
+                  ],
+                },
+                source_text: { type: ["string", "null"] },
+                row_label: { type: ["string", "null"] },
+                raw_date_text: { type: ["string", "null"] },
+                vaccine_text: { type: ["string", "null"] },
+                confidence: { type: "number", minimum: 0, maximum: 1 },
+                warnings: { type: "array", items: { type: "string" } },
+              },
+              required: ["fragment_id", "kind", "confidence"],
+            },
+          },
+        },
+      },
       rows: {
         type: "array",
         description: "One entry per administered dose row visible on the card.",
@@ -314,12 +385,30 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const input = toolUse.input as { rows?: ToolRow[] } | undefined;
+    const input = toolUse.input as
+      | { rows?: ToolRow[]; document_intelligence?: unknown }
+      | undefined;
     const rawRows = input?.rows ?? [];
     const parsedRows = rawRows.map(toParsedRow);
 
+    // Tolerant: the trace is nice-to-have. A missing or malformed
+    // document_intelligence object normalises to an empty trace
+    // rather than failing the parse. The UI reads used_fallback to
+    // decide whether to show the trace panel or the fallback banner.
+    let documentIntelligence: LayoutAnalysisResult | undefined;
+    if (input && "document_intelligence" in input) {
+      try {
+        documentIntelligence = normalizeDocumentIntelligence(
+          input.document_intelligence,
+        );
+      } catch {
+        documentIntelligence = undefined;
+      }
+    }
+
     const body: ParsedCardOutput = {
       rows: parsedRows,
+      ...(documentIntelligence ? { documentIntelligence } : {}),
       model: MODEL,
       parsedAt: new Date().toISOString(),
     };

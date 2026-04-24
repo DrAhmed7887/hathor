@@ -708,6 +708,7 @@ export default function DemoPage() {
             onProceed={() => setPhaseEReady(true)}
             onReparse={redacted ? handleReparse : undefined}
             reparsing={parsing}
+            documentIntelligence={parsed.documentIntelligence}
           />
         )}
 

@@ -39,6 +39,10 @@ import type {
   ParsedCardRow,
 } from "@/lib/types";
 import { displayDoseLabel } from "@/lib/validation";
+import {
+  mergeEvidenceIntoRows,
+  type LayoutAnalysisResult,
+} from "@/lib/document-intelligence";
 
 const H = {
   paper:     "#F6F0E4",
@@ -100,6 +104,11 @@ export interface ParsedResultsProps {
    * the ExplainerParse Remotion composition without this component
    * depending on Remotion itself. */
   headerSlot?: React.ReactNode;
+  /** CrossBeam-inspired staged extraction trace. When present, shows a
+   * collapsible "Document intelligence trace" section — pages, regions,
+   * evidence fragments, orientation/crop warnings. Safety gates (AMBER
+   * review, RED engine verdicts) are unaffected by this field. */
+  documentIntelligence?: LayoutAnalysisResult;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -615,6 +624,7 @@ export function ParsedResults({
   onReparse,
   reparsing,
   headerSlot,
+  documentIntelligence,
 }: ParsedResultsProps) {
   /** Rows the clinician explicitly acknowledged with "Keep as read".
    * Stored as row indices. An edit resolves the row implicitly. */
@@ -696,6 +706,16 @@ export function ParsedResults({
     void onReparse();
   }, [onReparse, reparsing, hasCorrections]);
 
+  // Evidence merge runs on every render — it's a pure pass-through on
+  // rows, so the cost is negligible and the warnings stay in sync with
+  // the latest clinician edits. We surface the merge warnings inside
+  // the trace panel, not in the main review flow — safety gates remain
+  // the only path that blocks Proceed.
+  const mergeResult = useMemo(
+    () => mergeEvidenceIntoRows(documentIntelligence ?? null, rows),
+    [documentIntelligence, rows],
+  );
+
   return (
     <section
       style={{
@@ -758,14 +778,21 @@ export function ParsedResults({
               fontFamily: F.mono,
               fontSize: 11,
               letterSpacing: "0.08em",
-              color: amberCount > 0 ? H.amber : H.meta,
+              color:
+                rows.length === 0
+                  ? H.amber
+                  : amberCount > 0
+                    ? H.amber
+                    : H.meta,
             }}
           >
-            {amberCount === 0
-              ? "All rows confident"
-              : unresolvedCount === 0
-                ? `${amberCount} flagged · all reviewed`
-                : `${unresolvedCount} of ${amberCount} flagged row${amberCount === 1 ? "" : "s"} awaiting review`}
+            {rows.length === 0
+              ? "No rows to review"
+              : amberCount === 0
+                ? "All rows confident"
+                : unresolvedCount === 0
+                  ? `${amberCount} flagged · all reviewed`
+                  : `${unresolvedCount} of ${amberCount} flagged row${amberCount === 1 ? "" : "s"} awaiting review`}
           </div>
           {onReparse && (
             <button
@@ -817,7 +844,12 @@ export function ParsedResults({
           gap: 12,
         }}
       >
-        {rows.length === 0 && (
+        {rows.length === 0 && documentIntelligence &&
+          documentIntelligence.evidence_fragments.length > 0 && (
+            <EmptyRowsAmberReview layout={documentIntelligence} />
+          )}
+        {rows.length === 0 && (!documentIntelligence ||
+          documentIntelligence.evidence_fragments.length === 0) && (
           <div
             style={{
               fontFamily: F.serif,
@@ -842,6 +874,17 @@ export function ParsedResults({
           />
         ))}
       </div>
+
+      {/* CrossBeam-inspired document intelligence trace. Collapsible —
+          judges see the reasoning, clinicians can fold it away. Does
+          NOT gate Proceed: safety gates own that path. */}
+      {(documentIntelligence || mergeResult.warnings.length > 0) && (
+        <DocumentIntelligenceTrace
+          layout={documentIntelligence}
+          mergeWarnings={mergeResult.warnings}
+          usedFallback={mergeResult.used_fallback}
+        />
+      )}
 
       {/* Proceed footer */}
       {onProceed && rows.length > 0 && (
@@ -890,5 +933,521 @@ export function ParsedResults({
         </footer>
       )}
     </section>
+  );
+}
+
+// ── Document intelligence trace ──────────────────────────────────────────────
+
+interface DocumentIntelligenceTraceProps {
+  layout: LayoutAnalysisResult | undefined;
+  mergeWarnings: string[];
+  usedFallback: boolean;
+}
+
+function DocumentIntelligenceTrace({
+  layout,
+  mergeWarnings,
+  usedFallback,
+}: DocumentIntelligenceTraceProps) {
+  const [open, setOpen] = useState(false);
+
+  const regionCount = layout?.regions.length ?? 0;
+  const tableRegions =
+    layout?.regions.filter(
+      (r) => r.kind === "vaccine_table" || r.kind === "vaccine_row",
+    ) ?? [];
+  const rowLabelFragments =
+    layout?.evidence_fragments.filter((f) => f.kind === "row_label") ?? [];
+  const dateFragments =
+    layout?.evidence_fragments.filter((f) => f.kind === "date_cell") ?? [];
+
+  const summary = usedFallback
+    ? "trace unavailable · direct parse used"
+    : `${layout?.pages_detected ?? 1} page · ${regionCount} regions · ` +
+      `${rowLabelFragments.length} row-label + ${dateFragments.length} date evidence`;
+
+  return (
+    <section
+      style={{
+        borderTop: `1px solid ${H.rule}`,
+        background: H.paper2,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{
+          width: "100%",
+          padding: "12px 20px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          background: "transparent",
+          border: "none",
+          borderBottom: open ? `1px solid ${H.rule}` : "none",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 10.5,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: H.copperInk,
+            }}
+          >
+            Document intelligence trace
+          </div>
+          <div
+            style={{
+              fontFamily: F.serif,
+              fontSize: 13,
+              color: H.meta,
+              lineHeight: 1.45,
+            }}
+          >
+            {summary}
+          </div>
+        </div>
+        <span
+          aria-hidden
+          style={{
+            fontFamily: F.mono,
+            fontSize: 11,
+            color: H.copper,
+            letterSpacing: "0.12em",
+          }}
+        >
+          {open ? "HIDE ↑" : "SHOW ↓"}
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: "14px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+          <p
+            style={{
+              fontFamily: F.serif,
+              fontSize: 13,
+              color: H.meta,
+              margin: 0,
+              lineHeight: 1.55,
+            }}
+          >
+            Hathor decomposes the card into layout regions before clinical
+            validation. Low-confidence evidence remains AMBER until
+            clinician review.
+          </p>
+
+          {layout?.orientation_warning && (
+            <TraceBanner
+              label="Orientation"
+              value={layout.orientation_warning}
+            />
+          )}
+          {layout?.crop_warning && (
+            <TraceBanner label="Crop" value={layout.crop_warning} />
+          )}
+          {usedFallback && (
+            <TraceBanner
+              label="Fallback"
+              value="No layout trace returned — direct parse is in effect. Every row still passes both safety gates."
+            />
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: 10,
+            }}
+          >
+            <TraceStat
+              label="Pages"
+              value={String(layout?.pages_detected ?? 1)}
+            />
+            <TraceStat
+              label="Regions"
+              value={String(regionCount)}
+            />
+            <TraceStat
+              label="Table / row regions"
+              value={String(tableRegions.length)}
+            />
+            <TraceStat
+              label="Row-label evidence"
+              value={String(rowLabelFragments.length)}
+            />
+            <TraceStat
+              label="Date-cell evidence"
+              value={String(dateFragments.length)}
+            />
+            <TraceStat
+              label="Overall confidence"
+              value={
+                layout
+                  ? `${Math.round(layout.overall_confidence * 100)}%`
+                  : "—"
+              }
+            />
+          </div>
+
+          {rowLabelFragments.length > 0 && (
+            <TraceFragmentList
+              title="Printed row-label evidence"
+              fragments={rowLabelFragments.map((f) => ({
+                primary: f.row_label ?? f.source_text ?? "(no text)",
+                secondary:
+                  f.source_text && f.source_text !== f.row_label
+                    ? f.source_text
+                    : null,
+                confidence: f.confidence,
+                warnings: f.warnings,
+              }))}
+            />
+          )}
+
+          {dateFragments.length > 0 && (
+            <TraceFragmentList
+              title="Date-cell evidence"
+              fragments={dateFragments.map((f) => ({
+                primary: f.raw_date_text ?? f.source_text ?? "(no text)",
+                secondary: null,
+                confidence: f.confidence,
+                warnings: f.warnings,
+              }))}
+            />
+          )}
+
+          {(mergeWarnings.length > 0 || (layout?.warnings.length ?? 0) > 0) && (
+            <div
+              style={{
+                border: `1px solid ${H.amberLine}`,
+                borderLeft: `3px solid ${H.amber}`,
+                background: H.amberSoft,
+                padding: "10px 14px",
+                fontFamily: F.mono,
+                fontSize: 11.5,
+                color: H.amber,
+                lineHeight: 1.55,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10.5,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  marginBottom: 4,
+                }}
+              >
+                Warnings
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {layout?.warnings.map((w, i) => (
+                  <li key={`lw${i}`}>{w}</li>
+                ))}
+                {mergeWarnings.map((w, i) => (
+                  <li key={`mw${i}`}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TraceBanner({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        border: `1px solid ${H.amberLine}`,
+        borderLeft: `3px solid ${H.amber}`,
+        background: H.amberSoft,
+        padding: "8px 14px",
+        fontFamily: F.serif,
+        fontSize: 13,
+        color: H.ink2,
+        lineHeight: 1.55,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: H.amber,
+          marginRight: 8,
+        }}
+      >
+        {label}
+      </span>
+      {value}
+    </div>
+  );
+}
+
+function TraceStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        background: H.card,
+        border: `1px solid ${H.rule}`,
+        padding: "10px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: H.meta,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontFamily: F.serif, fontSize: 16, color: H.ink }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+/** When the vision pass returned 0 rows but the trace has evidence,
+ * we must NOT silently show "No rows extracted" — the clinician needs
+ * to know the pipeline saw SOMETHING. Render an AMBER review table
+ * listing the date-cell evidence verbatim so they can re-photograph
+ * or enter manually. We do not invent ParsedCardRow values here —
+ * inventing rows would launder uncertainty into the downstream engine. */
+function EmptyRowsAmberReview({ layout }: { layout: LayoutAnalysisResult }) {
+  const dateFragments = layout.evidence_fragments.filter(
+    (f) => f.kind === "date_cell",
+  );
+  const rowLabelFragments = layout.evidence_fragments.filter(
+    (f) => f.kind === "row_label",
+  );
+  const templateRegion = layout.regions.find((r) =>
+    r.source_text?.includes("التطعيمات الإجبارية"),
+  );
+  return (
+    <article
+      role="status"
+      style={{
+        border: `1px solid ${H.amberLine}`,
+        borderLeft: `3px solid ${H.amber}`,
+        background: H.amberSoft,
+        padding: "14px 18px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        fontFamily: F.sans,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: H.amber,
+        }}
+      >
+        AMBER · clinician review required
+      </div>
+      <div style={{ fontFamily: F.serif, fontSize: 15, color: H.ink }}>
+        {templateRegion
+          ? "Egyptian MoHP mandatory-immunizations card recognised, but no vaccine rows were auto-extracted."
+          : "Card layout detected, but no vaccine rows were auto-extracted."}
+      </div>
+      <p
+        style={{
+          margin: 0,
+          fontFamily: F.serif,
+          fontSize: 13,
+          color: H.mute,
+          lineHeight: 1.55,
+        }}
+      >
+        Hathor saw {dateFragments.length} date cell
+        {dateFragments.length === 1 ? "" : "s"} and {rowLabelFragments.length}{" "}
+        row-label entries in the document intelligence trace. No row data is
+        forwarded to the rules engine because no antigen or dose position was
+        confirmed. Please re-photograph the card, re-parse with current rules,
+        or transcribe doses manually before continuing.
+      </p>
+      {dateFragments.length > 0 && (
+        <ul
+          style={{
+            listStyle: "none",
+            margin: 0,
+            padding: "8px 12px",
+            background: H.card,
+            border: `1px solid ${H.rule}`,
+            maxHeight: 220,
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          {dateFragments.map((f, i) => (
+            <li
+              key={f.fragment_id || i}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 10,
+                fontFamily: F.mono,
+                fontSize: 12,
+                color: H.ink2,
+              }}
+            >
+              <span>
+                {i + 1}. {f.raw_date_text ?? f.source_text ?? "(no text)"}
+              </span>
+              <span
+                style={{
+                  color: f.confidence < 0.85 ? H.amber : H.ok,
+                }}
+              >
+                {Math.round(f.confidence * 100)}%
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.1em",
+          color: H.meta,
+        }}
+      >
+        Neither Proceed nor Export is enabled — two-gate safety model in
+        effect.
+      </div>
+    </article>
+  );
+}
+
+function TraceFragmentList({
+  title,
+  fragments,
+}: {
+  title: string;
+  fragments: Array<{
+    primary: string;
+    secondary: string | null;
+    confidence: number;
+    warnings: string[];
+  }>;
+}) {
+  return (
+    <div
+      style={{
+        background: H.card,
+        border: `1px solid ${H.rule}`,
+      }}
+    >
+      <div
+        style={{
+          padding: "8px 12px",
+          borderBottom: `1px solid ${H.rule}`,
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: H.copperInk,
+        }}
+      >
+        {title}
+      </div>
+      <ul
+        style={{
+          listStyle: "none",
+          margin: 0,
+          padding: 0,
+          maxHeight: 260,
+          overflowY: "auto",
+        }}
+      >
+        {fragments.map((f, i) => (
+          <li
+            key={i}
+            style={{
+              padding: "8px 12px",
+              borderTop: i === 0 ? "none" : `1px solid ${H.ruleSoft}`,
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 12.5,
+                  color: H.ink,
+                  wordBreak: "break-word",
+                }}
+              >
+                {f.primary}
+              </div>
+              {f.secondary && (
+                <div
+                  style={{
+                    fontFamily: F.serif,
+                    fontSize: 12,
+                    color: H.faint,
+                    fontStyle: "italic",
+                    marginTop: 2,
+                  }}
+                >
+                  {f.secondary}
+                </div>
+              )}
+              {f.warnings.map((w, j) => (
+                <div
+                  key={j}
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 10.5,
+                    color: H.amber,
+                    marginTop: 2,
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  ⚠ {w}
+                </div>
+              ))}
+            </div>
+            <span
+              style={{
+                fontFamily: F.mono,
+                fontSize: 10.5,
+                color: f.confidence < 0.85 ? H.amber : H.ok,
+                letterSpacing: "0.1em",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {Math.round(f.confidence * 100)}%
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

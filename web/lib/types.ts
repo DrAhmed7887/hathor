@@ -89,6 +89,13 @@ export interface ParsedCardRow {
 
 export interface ParsedCardOutput {
   rows: ParsedCardRow[];
+  /** Lightweight, CrossBeam-inspired layout + evidence trace from the
+   * staged extraction pipeline. Optional — if the model omits it or
+   * returns a malformed object, the route falls back to direct parse
+   * and the UI shows a "trace unavailable" banner. Fields use
+   * snake_case to match the tool-call wire format verbatim; consumers
+   * should import the typed shape from @/lib/document-intelligence. */
+  documentIntelligence?: import("./document-intelligence").LayoutAnalysisResult;
   /** Model-level metadata for the agent-reasoning audit trail. */
   model: string;
   parsedAt: string; // ISO timestamp
