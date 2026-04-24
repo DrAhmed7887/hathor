@@ -1,0 +1,175 @@
+{
+  "$schema_comment": [
+    "Synthetic test fixture for the date parser + visit grouper.",
+    "",
+    "NO REAL-CARD DATA. This file simulates the failure modes seen on",
+    "Egyptian handwritten vaccination cards (mixed digit systems, two-digit",
+    "years, unusual separators, OCR duplication, medically distinct same-date",
+    "rows) without using any real patient image. Real cards stay local — see",
+    "cards/.gitignore.",
+    "",
+    "Both the TypeScript parser tests (web/lib/document-intelligence.test.ts)",
+    "and the Python parity tests (api/tests/test_date_parser.py) read this",
+    "exact file so behaviour stays aligned across the stack."
+  ],
+  "parser_cases": [
+    {
+      "id": "western-iso",
+      "raw_text": "2023-03-18",
+      "expected_iso": "2023-03-18",
+      "kind": "parse",
+      "comment": "Plain ISO baseline — must continue to round-trip."
+    },
+    {
+      "id": "western-dmy-four-digit-year",
+      "raw_text": "18/03/2023",
+      "expected_iso": "2023-03-18",
+      "kind": "parse"
+    },
+    {
+      "id": "eastern-arabic-dmy",
+      "raw_text": "٢١/٠٣/٢٠٢٣",
+      "expected_iso": "2023-03-21",
+      "kind": "parse",
+      "comment": "Eastern Arabic-Indic digits ٠-٩ (U+0660..U+0669)."
+    },
+    {
+      "id": "persian-indic-dmy",
+      "raw_text": "۲۱/۰۵/۲۰۲۳",
+      "expected_iso": "2023-05-21",
+      "kind": "parse",
+      "comment": "Persian / Extended-Arabic-Indic digits ۰-۹ (U+06F0..U+06F9)."
+    },
+    {
+      "id": "two-digit-year-pediatric-window",
+      "raw_text": "20/07/23",
+      "expected_iso": "2023-07-20",
+      "kind": "parse",
+      "comment": "Two-digit year. Pediatric-window rule: 23 → 2023, never 1923."
+    },
+    {
+      "id": "dotted-separator",
+      "raw_text": "21.09.2023",
+      "expected_iso": "2023-09-21",
+      "kind": "parse",
+      "comment": "DD.MM.YYYY with dot separators."
+    },
+    {
+      "id": "single-digit-day-month",
+      "raw_text": "9/3/2024",
+      "expected_iso": "2024-03-09",
+      "kind": "parse",
+      "comment": "Leading zero omitted on day and month."
+    },
+    {
+      "id": "mixed-digit-systems",
+      "raw_text": "١٨/3/۲۰۲۴",
+      "expected_iso": "2024-03-18",
+      "kind": "parse",
+      "comment": "Eastern Arabic day, Western month, Persian-Indic year."
+    },
+    {
+      "id": "implausible-old-year",
+      "raw_text": "18/03/1899",
+      "expected_iso": null,
+      "kind": "reject",
+      "reason": "Year 1899 is outside the pediatric vaccination plausibility window."
+    },
+    {
+      "id": "vague-non-date-digits",
+      "raw_text": "0123456",
+      "expected_iso": null,
+      "kind": "reject",
+      "reason": "Bare digit run is not a date — the parser must not guess."
+    },
+    {
+      "id": "underdetermined-month",
+      "raw_text": "21/?/2023",
+      "expected_iso": null,
+      "kind": "reject",
+      "reason": "Month is unreadable; the parser must not invent it."
+    },
+    {
+      "id": "empty-string",
+      "raw_text": "",
+      "expected_iso": null,
+      "kind": "reject"
+    },
+    {
+      "id": "month-out-of-range",
+      "raw_text": "18/13/2023",
+      "expected_iso": null,
+      "kind": "reject",
+      "reason": "Month 13 is impossible."
+    },
+    {
+      "id": "day-out-of-range",
+      "raw_text": "32/03/2023",
+      "expected_iso": null,
+      "kind": "reject",
+      "reason": "Day 32 is impossible."
+    }
+  ],
+  "grouping_case": {
+    "$comment": [
+      "Inputs to the visit grouper. The grouper must:",
+      "  - preserve same-date rows that come from medically distinct fragments,",
+      "  - collapse only rows that share a sourceEvidenceFragmentId,",
+      "  - leave singletons alone."
+    ],
+    "rows": [
+      {
+        "id": "row-mar-21-fragment-A",
+        "antigen": "DTP",
+        "iso_date": "2023-03-21",
+        "source_evidence_fragment_id": "frag-mar-21-A",
+        "comment": "Distinct row A — preserve."
+      },
+      {
+        "id": "row-mar-21-fragment-B",
+        "antigen": "OPV",
+        "iso_date": "2023-03-21",
+        "source_evidence_fragment_id": "frag-mar-21-B",
+        "comment": "Distinct row B (same date, different fragment) — preserve."
+      },
+      {
+        "id": "row-may-21-detection-1",
+        "antigen": "DTP",
+        "iso_date": "2023-05-21",
+        "source_evidence_fragment_id": "frag-may-21",
+        "comment": "First detection from frag-may-21."
+      },
+      {
+        "id": "row-may-21-detection-2",
+        "antigen": "DTP",
+        "iso_date": "2023-05-21",
+        "source_evidence_fragment_id": "frag-may-21",
+        "comment": "Same fragment id — should collapse with the previous row."
+      },
+      {
+        "id": "row-dec-21-singleton",
+        "antigen": "MMR",
+        "iso_date": "2023-12-21",
+        "source_evidence_fragment_id": "frag-dec-21",
+        "comment": "Singleton — left alone."
+      }
+    ],
+    "expected_groups": [
+      {
+        "iso_date": "2023-03-21",
+        "count": 2,
+        "comment": "Two medically distinct rows (different fragments) on the same date."
+      },
+      {
+        "iso_date": "2023-05-21",
+        "count": 1,
+        "comment": "Two OCR detections from the same fragment collapsed into one."
+      },
+      {
+        "iso_date": "2023-12-21",
+        "count": 1
+      }
+    ],
+    "expected_total_rows_after_dedup": 4
+  }
+}

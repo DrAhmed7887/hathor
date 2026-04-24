@@ -456,40 +456,138 @@ export function recognizeTemplate(
 
 // ── Date parsing for inferred rows ──────────────────────────────────────────
 
+/** Eastern Arabic-Indic digits (U+0660..U+0669) — the digit shapes most
+ * Egyptian MoHP cards use. */
 const EASTERN_ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+/** Persian / Extended-Arabic-Indic digits (U+06F0..U+06F9) — visually
+ * close to Eastern Arabic but a distinct Unicode block. Some cards
+ * mix the two; the parser must understand both. */
+const PERSIAN_INDIC_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
 
-/** Best-effort parse of a raw date string into ISO YYYY-MM-DD.
- * Accepts Eastern Arabic digits, Western digits, DD/MM/YYYY (the
- * Egyptian convention), YYYY-MM-DD, and DD-MM-YYYY. Returns null on
- * any ambiguity — inferred rows with null dates still surface to the
- * clinician via the AMBER gate; they do not silently succeed. */
-export function parseRawDate(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  // Westernise digits.
-  const normalised = String(raw).replace(/[٠-٩]/g, (d) => {
-    const idx = EASTERN_ARABIC_DIGITS.indexOf(d);
-    return idx === -1 ? d : String(idx);
-  });
-  const trimmed = normalised.trim();
+/** Pediatric vaccination plausibility window for two-digit-year
+ * normalisation and impossible-date rejection.
+ *
+ * Why 23 means 2023, not 1923:
+ *   - HATHOR is a pediatric immunization tool. Vaccination cards we
+ *     reconcile are for living children, so the issue dates lie in the
+ *     last ~20 years at most.
+ *   - 1923 is well outside any pediatric record we will ever see.
+ *     Mapping "23" → 1923 would silently corrupt a real visit date,
+ *     which is exactly the failure the Sofia card surfaced.
+ *   - Mapping "23" → 2023 may very rarely be wrong on an adult
+ *     historical record — but those are out of scope for this product.
+ *
+ * Revisit when:
+ *   - HATHOR ever needs to ingest non-pediatric or historical archives
+ *     (occupational immunisation records, traveller cards from older
+ *     adults, medical archaeology).
+ *   - The world rolls past 2099 — the +1 buffer below assumes a
+ *     four-digit year fits comfortably inside this century.
+ */
+const PEDIATRIC_MIN_YEAR = 2000;
+/** Future buffer kept tight so we reject typos like "30/02/2099". */
+const PEDIATRIC_MAX_YEAR = new Date().getUTCFullYear() + 1;
+/** Two-digit years ≤ this map to 20xx; above maps to 19xx. The split
+ * stays well below the current year so a card printed in 2025 reading
+ * "25" lands in 2025, while truly old strings like "98" still go to
+ * 1998 (which then fails the pediatric plausibility check below — the
+ * caller sees null and surfaces the row to the clinician, never
+ * silently keeps a 1998 date). */
+const TWO_DIGIT_PIVOT = (PEDIATRIC_MAX_YEAR % 100);
 
-  // ISO first.
-  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) {
-    const [, y, m, d] = iso;
-    if (Number(m) >= 1 && Number(m) <= 12 && Number(d) >= 1 && Number(d) <= 31) {
-      return `${y}-${m}-${d}`;
+function westerniseDigits(input: string): string {
+  let out = "";
+  for (const ch of input) {
+    const east = EASTERN_ARABIC_DIGITS.indexOf(ch);
+    if (east !== -1) {
+      out += String(east);
+      continue;
     }
+    const persian = PERSIAN_INDIC_DIGITS.indexOf(ch);
+    if (persian !== -1) {
+      out += String(persian);
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function normaliseTwoDigitYear(yy: number): number {
+  // yy is 0..99. Pivot point is the current century's year-of-century.
+  // Years <= pivot land in 20xx; everything else in 19xx.
+  if (yy <= TWO_DIGIT_PIVOT) return 2000 + yy;
+  return 1900 + yy;
+}
+
+function isPlausiblePediatricYear(year: number): boolean {
+  return year >= PEDIATRIC_MIN_YEAR && year <= PEDIATRIC_MAX_YEAR;
+}
+
+function buildIso(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  if (!isPlausiblePediatricYear(year)) return null;
+  // Reject impossible day-of-month combinations (e.g. Feb 30) by
+  // round-tripping through Date in UTC.
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day
+  ) {
     return null;
   }
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
 
-  // DD/MM/YYYY or DD-MM-YYYY.
-  const dmy = trimmed.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+/** Best-effort parse of a raw date string into ISO YYYY-MM-DD.
+ *
+ * Accepts (after digit-system normalisation):
+ *   - ISO `YYYY-MM-DD`
+ *   - `DD/MM/YYYY`, `DD-MM-YYYY`, `DD.MM.YYYY`
+ *   - `DD/MM/YY` (two-digit year — pediatric-window rule)
+ *   - Single-digit day or month (`9/3/2024`)
+ *   - Eastern Arabic-Indic digits, Persian-Indic digits, mixed digit
+ *     systems within the same date string
+ *
+ * Rejects (returns null) on any ambiguity:
+ *   - Empty / whitespace input
+ *   - Bare digit runs that aren't a date (`0123456`)
+ *   - Underdetermined fields (`21/?/2023`)
+ *   - Implausibly old years (< 2000) or far-future years (> current+1)
+ *   - Out-of-range day/month, impossible day-of-month combinations
+ *
+ * Never throws. The original raw string is preserved by the caller —
+ * this function only returns the normalised form (or null).
+ */
+export function parseRawDate(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "string") return null;
+  const trimmed = westerniseDigits(raw).trim();
+  if (!trimmed) return null;
+
+  // ISO first.
+  const iso = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return buildIso(Number(y), Number(m), Number(d));
+  }
+
+  // DD<sep>MM<sep>YYYY or DD<sep>MM<sep>YY where sep ∈ {/, -, .}.
+  // Single-digit day/month allowed; the same separator must repeat.
+  const dmy = trimmed.match(/^(\d{1,2})([\/\-.])(\d{1,2})\2(\d{2}|\d{4})$/);
   if (dmy) {
-    const [, d, m, y] = dmy;
-    const dn = Number(d);
-    const mn = Number(m);
-    if (dn < 1 || dn > 31 || mn < 1 || mn > 12) return null;
-    return `${y}-${String(mn).padStart(2, "0")}-${String(dn).padStart(2, "0")}`;
+    const [, dRaw, , mRaw, yRaw] = dmy;
+    const day = Number(dRaw);
+    const month = Number(mRaw);
+    const yearLiteral = Number(yRaw);
+    const year = yRaw.length === 2
+      ? normaliseTwoDigitYear(yearLiteral)
+      : yearLiteral;
+    return buildIso(year, month, day);
   }
 
   return null;
