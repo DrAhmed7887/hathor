@@ -234,12 +234,48 @@ class ClinicalContext:
     Used by HATHOR-AGE-003 (Friction by Design contextual trigger): when the patient
     arrives from a country in HIGH_BURDEN_COUNTRIES, age-cutoff violations return
     ``override_required`` rather than ``fail``. Empty string = unknown/not applicable.
+
+    ``current_date`` is the reference date for patient-state calculations (e.g., the
+    child's current age in gap-mode rules — see § Gap-mode convention below).
+    Defaults to ``date.today()``. Injectable so tests and deterministic replays can
+    pin the evaluation date without touching system time.
     """
 
     child_dob: date
     target_country: str
     source_country: str = ""               # patient's country of origin (Friction by Design trigger)
     confirmed_doses: list[dict] = field(default_factory=list)
+    current_date: date = field(default_factory=date.today)  # reference date for gap-mode evaluation
+
+
+# ── Gap-mode convention (Recommendation.source_dose_indices == []) ────────────
+#
+# A recommendation may be emitted with ``source_dose_indices = []`` (an explicit
+# empty list, NOT an omitted field) to signal GAP-MODE evaluation: the finding
+# is the *absence* of a dose rather than a verdict on a specific administered
+# dose. The rule should reason from patient state (``ctx.child_dob``,
+# ``ctx.current_date``, ``ctx.source_country``, and the full ``ctx.confirmed_doses``
+# list) rather than indexing into ``confirmed_doses``.
+#
+# Convention for rule authors:
+# 1. A rule that has OPTED IN to gap-mode must detect the empty-list signal and
+#    branch to its gap-mode evaluation path (see ``_rule_rotavirus_age_cutoff``
+#    for the reference implementation).
+# 2. A rule that has NOT opted in must return ``None`` when
+#    ``rec.source_dose_indices == []`` — this matches the existing guard
+#    (``if not rec.source_dose_indices: return None``) and ensures the rule
+#    cannot spuriously fire on a gap-mode recommendation intended for a
+#    different rule.
+# 3. Rule authors SHOULD document their gap-mode support (or lack of it) in the
+#    rule docstring. Silently ignoring a gap-mode signal is safe; silently
+#    firing against empty indices is a bug.
+#
+# This convention lets gap-mode recommendations address findings like "the
+# rotavirus window has closed for this migrant child with no prior doses — emit
+# the high-burden-origin override pathway" (HATHOR-AGE-003, Q6) and "this
+# condition contraindicates the antigen even though no dose has been given"
+# (EG-CONTRA-001 future-dose case) without forcing the agent to invent a fake
+# confirmed dose to satisfy the indexing requirement.
 
 
 # ── Rule type alias ───────────────────────────────────────────────────────────
@@ -874,6 +910,24 @@ def _rule_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> Val
                 evaluated on the 8-month completion cutoff only, per ACIP)
     - Otherwise: pass.
 
+    **Gap mode** — this rule opts into the ``source_dose_indices == []``
+    convention (see § Gap-mode convention above). When the recommendation is
+    emitted with an empty indices list AND no Rotavirus dose exists in
+    ``ctx.confirmed_doses``, the rule reasons from patient state:
+
+      - Current age (``ctx.current_date - ctx.child_dob``) > 105 days AND
+        ``ctx.source_country ∈ HIGH_BURDEN_COUNTRIES``:
+            → override_required with HIGH_BURDEN_ORIGIN / OUTBREAK_CATCHUP /
+              CLINICIAN_DETERMINED justification codes (Friction by Design).
+      - Current age > 105 days AND source country is NOT high-burden:
+            → fail (Q6 policy: past-cutoff, non-high-burden → no catch-up).
+      - Current age ≤ 105 days:
+            → None (window still open; other rules handle in-window gaps).
+
+    Gap mode is skipped if the child already has a confirmed Rotavirus dose —
+    that case is the present-dose path above, evaluated against the dose's
+    administration date.
+
     override_required rules use distinct UI treatment (not standard yellow warning),
     present available justification codes to the clinician, and log both the code and
     free-text to FHIR Provenance. See CLINICAL_DECISIONS.md § Clinical UI Policy.
@@ -889,6 +943,65 @@ def _rule_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> Val
         return None
     if rec.dose_number is None:
         return None
+
+    high_burden = ctx.source_country in HIGH_BURDEN_COUNTRIES
+
+    # ── Gap-mode path (source_dose_indices == []) ───────────────────────────
+    # Evaluate against patient state when no backing dose is indexed. Skipped
+    # when a Rotavirus dose already exists in confirmed_doses — that falls to
+    # the present-dose path below, which remains unchanged.
+    if rec.source_dose_indices == []:
+        has_rotavirus_dose = any(
+            d.get("antigen") == "Rotavirus" for d in ctx.confirmed_doses
+        )
+        if has_rotavirus_dose:
+            return None  # present-dose path applies; gap mode not relevant
+
+        current_age_days = (ctx.current_date - ctx.child_dob).days
+
+        if current_age_days <= ROTAVIRUS_DOSE1_MAX_AGE_DAYS:
+            # Window still open — this rule doesn't fire on in-window gaps;
+            # other rules (or the agent's catch-up planner) handle this case.
+            return None
+
+        if high_burden:
+            return ValidationResult(
+                recommendation_id=rec.recommendation_id,
+                severity="override_required",
+                rule_id="HATHOR-AGE-003",
+                rule_slug="rotavirus_age_cutoff",
+                rule_rationale=(
+                    f"No confirmed Rotavirus dose for a child currently "
+                    f"{current_age_days} days old — past the ACIP dose-1 "
+                    f"initiation cutoff of {ROTAVIRUS_DOSE1_MAX_AGE_DAYS} days "
+                    "(15 weeks 0 days). "
+                    f"Patient origin ({ctx.source_country}) is a high-rotavirus-"
+                    "mortality setting. WHO benefit-risk analyses support a "
+                    "structured override decision (~154 rotavirus deaths "
+                    "prevented per intussusception risk). Clinician must select "
+                    "a justification code and document the clinical rationale — "
+                    "both logged to FHIR Provenance. Distinct visual treatment "
+                    "applies (Friction by Design)."
+                ),
+                override_justification_codes=sorted(OVERRIDE_JUSTIFICATION_CODES),
+            )
+        return ValidationResult(
+            recommendation_id=rec.recommendation_id,
+            severity="fail",
+            rule_id="HATHOR-AGE-003",
+            rule_slug="rotavirus_age_cutoff",
+            rule_rationale=(
+                f"No confirmed Rotavirus dose for a child currently "
+                f"{current_age_days} days old — past the ACIP dose-1 "
+                f"initiation cutoff of {ROTAVIRUS_DOSE1_MAX_AGE_DAYS} days "
+                "(15 weeks 0 days). "
+                f"Source country ({ctx.source_country or 'unknown'}) is not in "
+                "the high-rotavirus-mortality stratum. Q6 policy: rotavirus "
+                "window closed; no catch-up indicated. Standard clinician "
+                "override with documented clinical reason is available."
+            ),
+        )
+
     if not rec.source_dose_indices:
         return None
 
@@ -906,7 +1019,6 @@ def _rule_rotavirus_age_cutoff(rec: Recommendation, ctx: ClinicalContext) -> Val
         return None
 
     age_days = (dose_date - ctx.child_dob).days
-    high_burden = ctx.source_country in HIGH_BURDEN_COUNTRIES
 
     # Dose 1 minimum age: < 6 weeks = fail (independent of source country)
     if rec.dose_number == 1 and age_days < ROTAVIRUS_MIN_AGE_DAYS:

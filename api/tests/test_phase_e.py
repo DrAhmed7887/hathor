@@ -989,6 +989,169 @@ class TestRotavirusAgeCutoff(unittest.TestCase):
         self.assertEqual(ROTAVIRUS_SERIES_MAX_AGE_DAYS, 240)
 
 
+# ── HATHOR-AGE-003 gap-mode (source_dose_indices == []) ──────────────────────
+
+
+class TestRotavirusGapMode(unittest.TestCase):
+    """Gap-mode evaluation: no confirmed Rotavirus dose, emit dose_verdict with
+    ``source_dose_indices = []``. The rule reasons from patient state
+    (``ctx.current_date - ctx.child_dob``) and ``ctx.source_country``.
+
+    See the § Gap-mode convention block in phase_e.py for the general contract.
+    """
+
+    _DOB = date(2024, 1, 1)
+
+    def _gap_rec(self) -> Recommendation:
+        return _rec(
+            antigen="Rotavirus",
+            dose_number=1,
+            kind="dose_verdict",
+            source_dose_indices=[],  # explicit empty list = gap-mode signal
+        )
+
+    def _ctx_at_age(
+        self,
+        age_days: int,
+        source_country: str = "",
+        confirmed_doses: list[dict] | None = None,
+    ) -> ClinicalContext:
+        from datetime import timedelta
+        return ClinicalContext(
+            child_dob=self._DOB,
+            target_country="Egypt",
+            source_country=source_country,
+            confirmed_doses=confirmed_doses or [],
+            current_date=self._DOB + timedelta(days=age_days),
+        )
+
+    # ── Gap mode: past cutoff ────────────────────────────────────────────────
+
+    def test_nigerian_origin_no_rotavirus_past_cutoff_override_required(self):
+        # Nigerian origin, no rotavirus doses, child 120 days old →
+        # override_required with three justification codes (HIGH_BURDEN_ORIGIN,
+        # OUTBREAK_CATCHUP, CLINICIAN_DETERMINED).
+        ctx = self._ctx_at_age(age_days=120, source_country="Nigeria")
+        result = _rule_rotavirus_age_cutoff(self._gap_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "override_required")
+        self.assertEqual(result.rule_id, "HATHOR-AGE-003")
+        self.assertIn("Nigeria", result.rule_rationale)
+        self.assertEqual(
+            set(result.override_justification_codes),
+            {"HIGH_BURDEN_ORIGIN", "OUTBREAK_CATCHUP", "CLINICIAN_DETERMINED"},
+        )
+
+    def test_non_high_burden_no_rotavirus_past_cutoff_fails(self):
+        # Egyptian origin (not in HIGH_BURDEN_COUNTRIES), no rotavirus doses,
+        # child 120 days old → fail (Q6 policy: past-cutoff, non-high-burden).
+        ctx = self._ctx_at_age(age_days=120, source_country="Egypt")
+        result = _rule_rotavirus_age_cutoff(self._gap_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+        self.assertEqual(result.rule_id, "HATHOR-AGE-003")
+        self.assertEqual(result.override_justification_codes, [])
+        self.assertIn("window closed", result.rule_rationale)
+
+    def test_empty_source_country_no_rotavirus_past_cutoff_fails(self):
+        # Unknown source country defaults to non-high-burden → fail.
+        ctx = self._ctx_at_age(age_days=120, source_country="")
+        result = _rule_rotavirus_age_cutoff(self._gap_rec(), ctx)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, "fail")
+
+    # ── Gap mode: in-window ──────────────────────────────────────────────────
+
+    def test_any_origin_no_rotavirus_within_window_returns_none(self):
+        # Child 80 days old, any origin → None (window still open; other rules
+        # handle in-window gaps. HATHOR-AGE-003 intentionally stays silent so
+        # it doesn't double-report against catch-up planner output).
+        for source in ("", "Nigeria", "Egypt", "Ethiopia"):
+            with self.subTest(source_country=source):
+                ctx = self._ctx_at_age(age_days=80, source_country=source)
+                result = _rule_rotavirus_age_cutoff(self._gap_rec(), ctx)
+                self.assertIsNone(result)
+
+    def test_cutoff_boundary_at_exactly_105_days_returns_none(self):
+        # Age exactly equal to the dose-1 cutoff (105 days) is the last day the
+        # window is considered open for gap-mode (strict `>` semantics).
+        ctx = self._ctx_at_age(age_days=105, source_country="Nigeria")
+        self.assertIsNone(_rule_rotavirus_age_cutoff(self._gap_rec(), ctx))
+
+    # ── Regression: gap-mode must NOT interfere with present-dose path ───────
+
+    def test_present_dose_path_still_fires_with_non_empty_indices(self):
+        # Rotavirus dose present at 130 days, non-empty source_dose_indices →
+        # the original present-dose evaluation path must fire exactly as before.
+        # This is a regression check that the new gap-mode branch hasn't
+        # disturbed the existing code.
+        ctx = ClinicalContext(
+            child_dob=self._DOB,
+            target_country="Egypt",
+            source_country="Nigeria",
+            confirmed_doses=[
+                {"antigen": "Rotavirus", "date_administered": "2024-05-11", "dose_number": 1}
+            ],
+        )
+        rec = _rec(
+            antigen="Rotavirus",
+            dose_number=1,
+            kind="dose_verdict",
+            source_dose_indices=[0],
+        )
+        result = _rule_rotavirus_age_cutoff(rec, ctx)
+        self.assertIsNotNone(result)
+        # 131 days from 2024-01-01 to 2024-05-11 → past the dose-1 cutoff,
+        # high-burden origin → override_required (unchanged present-dose path).
+        self.assertEqual(result.severity, "override_required")
+        self.assertIn("131 days", result.rule_rationale)
+
+    def test_gap_mode_skipped_when_rotavirus_dose_exists(self):
+        # Even with source_dose_indices=[], gap mode should NOT fire when a
+        # Rotavirus dose exists in confirmed_doses — the agent would normally
+        # emit with source_dose_indices=[idx], but defensive-skip protects
+        # against a malformed emission where gap-mode is signaled alongside a
+        # real dose. Present-dose path owns this case.
+        ctx = ClinicalContext(
+            child_dob=self._DOB,
+            target_country="Egypt",
+            source_country="Nigeria",
+            confirmed_doses=[
+                {"antigen": "Rotavirus", "date_administered": "2024-05-11", "dose_number": 1}
+            ],
+            current_date=date(2024, 5, 15),
+        )
+        rec = self._gap_rec()  # empty source_dose_indices
+        self.assertIsNone(_rule_rotavirus_age_cutoff(rec, ctx))
+
+    # ── Convention: other rules must NOT spuriously fire on empty indices ────
+
+    def test_other_rules_return_none_on_empty_source_dose_indices(self):
+        # Gap-mode convention: rules that have not opted into gap-mode must
+        # return None when source_dose_indices == []. Verifies HATHOR-EPI-001
+        # (component_antigen_satisfaction) and HATHOR-DOSE-003 (acip_grace_period)
+        # specifically — the two rules named in the Q6 clinical-contradiction
+        # fix spec that did not opt in.
+        ctx = self._ctx_at_age(age_days=120, source_country="Nigeria")
+        # HATHOR-EPI-001 — try a combination antigen to exercise the rule's body
+        epi_rec = _rec(
+            antigen="Hexavalent",
+            dose_number=1,
+            kind="dose_verdict",
+            source_dose_indices=[],
+        )
+        self.assertIsNone(_rule_component_antigen_satisfaction(epi_rec, ctx))
+        # HATHOR-DOSE-003 — dose 2 with empty indices; grace-period rule must
+        # not fire against missing data.
+        grace_rec = _rec(
+            antigen="Hexavalent",
+            dose_number=2,
+            kind="dose_verdict",
+            source_dose_indices=[],
+        )
+        self.assertIsNone(_rule_acip_grace_period(grace_rec, ctx))
+
+
 # ── EG-CONTRA-001 — contraindication_source_conflict ─────────────────────────
 
 
