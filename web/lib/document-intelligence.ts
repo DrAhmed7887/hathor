@@ -596,55 +596,71 @@ export function parseRawDate(raw: string | null | undefined): string | null {
 // ── Template inference ─────────────────────────────────────────────────────
 
 export interface TemplateInferenceResult {
-  /** True only when template-inferred rows were generated and
-   * should replace the caller's empty rows. False when the caller's
-   * rows are kept unchanged OR inference declined (unknown template,
-   * no date evidence). */
+  /** True when the inference emitted at least one template-inferred
+   * row. False when every template slot was already filled by a
+   * parsed vision row (so the output is just parsedRows unchanged),
+   * when the template is unknown, or when there is no template-row
+   * spec to drive inference. */
   inferred: boolean;
-  /** Either the caller's rows (unchanged) or the template-inferred
-   * rows. Always safe to render — inferred rows are pre-tagged AMBER
-   * and carry source="template_inferred". */
+  /** The UNION of the caller's parsed rows and any template-inferred
+   * rows for unfilled template slots. Inferred rows are pre-tagged
+   * AMBER (source="template_inferred", confidence capped below 0.85)
+   * so no downstream consumer can treat them as vision-confident.
+   *
+   * PR 1 SEMANTICS CHANGE: before PR 1 this field was either
+   * parsedRows (unchanged) OR the pure inferred rows; the caller
+   * conditionally replaced parsedRows. Now it is always a union, so
+   * a caller can unconditionally treat `rows` as the complete display
+   * set. Any existing caller that did `finalRows = inference.rows`
+   * keeps working because the union already includes parsedRows. */
   rows: ParsedCardRow[];
   /** Inference-specific warnings the UI should surface. */
   warnings: string[];
   template_id: RecognizedTemplateId;
-  /** When inferrence ran AND more date cells were present than the
-   * template expected, the extra raw_date_text strings go here so the
-   * trace UI can list them without them silently becoming rows. */
+  /** When more date cells were present than the template expected,
+   * the extra raw_date_text strings go here so the trace UI can list
+   * them without them silently becoming rows. */
   unmapped_date_texts: string[];
 }
 
-/** Conservative template inference: only populates rows when the
- * vision pass returned none AND the registry matched a known template.
- * Never runs over vision-produced rows — if the vision pass saw even
- * one row, that is treated as ground truth.
+/** Antigen match key for pairing a parsed row to a template row spec.
+ * Case-insensitive, trimmed. Matching ignores dose_kind and
+ * dose_number because cards routinely mislabel a schedule position
+ * (e.g. a 9-month OPV row is printed as "booster" in some Egyptian
+ * cards and "primary" in the template). The clinician reconciles
+ * those mislabels in the HITL review — the matcher only needs to
+ * answer "does this age-point slot already have a vision row for
+ * this antigen". */
+function antigenKey(antigen: string): string {
+  return antigen.trim().toLowerCase();
+}
+
+/** Conservative template inference with per-unfilled-row surfacing.
  *
- * The output rows are always AMBER (confidence capped at 0.6) and
- * always carry source="template_inferred" so the UI can banner them
- * and the clinician knows they need to confirm each one before the
- * engine sees anything. */
+ * For each template row_spec:
+ *   - If a parsed row already claims the slot (greedy left-to-right
+ *     antigen match), pass through unchanged.
+ *   - Otherwise, emit an AMBER template_inferred row so the unfilled
+ *     age point is visible to the clinician for confirm/edit/skip.
+ *
+ * Inferred rows carry confidence < 0.85 and source="template_inferred"
+ * — they can never pre-pass the confirmation trust gate. Unknown
+ * templates synthesize nothing. */
 export function inferRowsFromTemplate(
   layout: LayoutAnalysisResult | null,
   parsedRows: ParsedCardRow[],
 ): TemplateInferenceResult {
   const templateId = layout?.recognized_template_id ?? "unknown_vaccine_card";
 
-  // Never overwrite existing rows. If the vision pass produced
-  // anything, those are what the clinician should review.
-  if (parsedRows.length > 0) {
-    return {
-      inferred: false,
-      rows: parsedRows,
-      warnings: [],
-      template_id: templateId,
-      unmapped_date_texts: [],
-    };
-  }
+  // Template inference now fires per unfilled template row, not only
+  // when all vision failed. The previous zero-rows guard suppressed
+  // predictions exactly when a card was partially legible, which is
+  // the Egyptian MoHP messy-card failure mode.
 
   if (templateId === "unknown_vaccine_card" || !layout) {
     return {
       inferred: false,
-      rows: [],
+      rows: parsedRows,
       warnings: [],
       template_id: templateId,
       unmapped_date_texts: [],
@@ -655,42 +671,51 @@ export function inferRowsFromTemplate(
   if (!template || template.row_specs.length === 0) {
     return {
       inferred: false,
-      rows: [],
+      rows: parsedRows,
       warnings: [],
       template_id: templateId,
       unmapped_date_texts: [],
     };
   }
 
-  const dateFragments = layout.evidence_fragments.filter(
-    (f) => f.kind === "date_cell",
-  );
-  if (dateFragments.length === 0) {
+  // Greedy left-to-right antigen matching: each parsed row claims
+  // the first unfilled template spec with the same antigen key. A
+  // row that matches nothing (antigen not in this template) stays
+  // in parsedRows but claims no slot.
+  const filledSpecIndices = new Set<number>();
+  for (const row of parsedRows) {
+    const key = antigenKey(row.antigen);
+    for (let i = 0; i < template.row_specs.length; i++) {
+      if (filledSpecIndices.has(i)) continue;
+      if (antigenKey(template.row_specs[i].primary_antigen) !== key) continue;
+      filledSpecIndices.add(i);
+      break;
+    }
+  }
+
+  const unfilledSpecIndices: number[] = [];
+  for (let i = 0; i < template.row_specs.length; i++) {
+    if (!filledSpecIndices.has(i)) unfilledSpecIndices.push(i);
+  }
+
+  if (unfilledSpecIndices.length === 0) {
     return {
       inferred: false,
-      rows: [],
-      warnings: [
-        `Template ${template.display_name} recognised but no date-cell evidence was extracted; nothing to infer.`,
-      ],
+      rows: parsedRows,
+      warnings: [],
       template_id: templateId,
       unmapped_date_texts: [],
     };
   }
 
-  // Conservative mapping: 1:1 by fragment insertion order (which the
-  // prompt specifies is top-to-bottom). We do NOT try to realign by
-  // labels — labels are weak or absent in this branch by definition.
   const warnings: string[] = [];
-  const mapCount = Math.min(dateFragments.length, template.row_specs.length);
+  const dateFragments = layout.evidence_fragments.filter(
+    (f) => f.kind === "date_cell",
+  );
 
-  if (dateFragments.length < template.row_specs.length) {
-    warnings.push(
-      `Template-inferred rows are incomplete: ${dateFragments.length} date-cell ` +
-        `evidence item${dateFragments.length === 1 ? "" : "s"} found, ${template.row_specs.length} expected ` +
-        `for ${template.display_name}. Clinician to add the missing rows manually.`,
-    );
-  }
-
+  // Unmapped date texts: fragments beyond template.row_specs.length
+  // are extra evidence the clinician needs to see but never becomes
+  // a row (unchanged from pre-PR-1 semantics).
   const unmappedDateTexts: string[] = [];
   if (dateFragments.length > template.row_specs.length) {
     for (let i = template.row_specs.length; i < dateFragments.length; i++) {
@@ -704,23 +729,30 @@ export function inferRowsFromTemplate(
     );
   }
 
-  const rows: ParsedCardRow[] = [];
-  for (let i = 0; i < mapCount; i++) {
-    const spec = template.row_specs[i];
-    const frag = dateFragments[i];
-    const parsedDate = parseRawDate(frag.raw_date_text ?? frag.source_text);
+  // Emit an AMBER row for every unfilled spec. Date evidence, when
+  // a date_fragment exists at the same positional index as the spec,
+  // seeds the row's date. Otherwise date=null and the UI surfaces
+  // an explicit "visit needs confirmation" slot.
+  const inferredRows: ParsedCardRow[] = [];
+  let unfilledWithoutDate = 0;
+  for (const specIdx of unfilledSpecIndices) {
+    const spec = template.row_specs[specIdx];
+    const frag = dateFragments[specIdx];
+    const parsedDate = frag ? parseRawDate(frag.raw_date_text ?? frag.source_text) : null;
+    const rawDateLabel =
+      frag?.raw_date_text ?? frag?.source_text ?? "(no date cell evidence)";
+    if (!frag) unfilledWithoutDate++;
     const coAdmin =
       spec.co_administered_antigens.length > 0
         ? ` Co-administered on this row: ${spec.co_administered_antigens.join(", ")}.`
         : "";
-    const rawDateLabel =
-      frag.raw_date_text ?? frag.source_text ?? "(no text)";
-    // Cap confidence well below the 0.85 AMBER threshold so the UI
-    // and downstream code cannot accidentally treat an inferred row
-    // as vision-confident.
-    const cappedConfidence = Math.min(0.6, frag.confidence);
+    // Cap confidence below the 0.85 AMBER threshold so downstream
+    // code cannot treat an inferred row as vision-confident. Falls
+    // to 0.4 when no date evidence exists — the slot still surfaces
+    // for clinician review.
+    const cappedConfidence = frag ? Math.min(0.6, frag.confidence) : 0.4;
 
-    rows.push({
+    inferredRows.push({
       antigen: spec.primary_antigen,
       date: parsedDate,
       doseNumber: spec.dose_number,
@@ -731,23 +763,32 @@ export function inferRowsFromTemplate(
         `Template-inferred (${template.display_name} · ${spec.age_label}). ` +
         `Primary antigen: ${spec.primary_antigen}.${coAdmin} ` +
         `Raw date evidence: "${rawDateLabel}". ` +
-        `This row was synthesised from a recognised template because the ` +
-        `vision pass could not read row labels. Clinician MUST confirm each ` +
-        `antigen, dose number, and date before proceeding to validation.`,
+        `This slot was synthesised because the vision pass did not ` +
+        `produce a matching row for this age point. Clinician MUST ` +
+        `confirm the antigen, dose number, and date before proceeding ` +
+        `to validation.`,
       imageCropRegion: {
         x: 0,
-        y: Math.min(1, i / mapCount),
+        y: Math.min(1, specIdx / template.row_specs.length),
         width: 1,
-        height: Math.min(0.2, 1 / mapCount),
+        height: Math.min(0.2, 1 / template.row_specs.length),
       },
       source: "template_inferred",
-      sourceEvidenceFragmentId: frag.fragment_id,
+      sourceEvidenceFragmentId: frag?.fragment_id ?? null,
     });
   }
 
+  if (unfilledWithoutDate > 0) {
+    warnings.push(
+      `${unfilledWithoutDate} template row${unfilledWithoutDate === 1 ? "" : "s"} ` +
+        `had no date-cell evidence; surfaced as AMBER slots with null dates ` +
+        `for clinician confirmation. (${template.display_name})`,
+    );
+  }
+
   return {
-    inferred: true,
-    rows,
+    inferred: inferredRows.length > 0,
+    rows: [...parsedRows, ...inferredRows],
     warnings,
     template_id: templateId,
     unmapped_date_texts: unmappedDateTexts,

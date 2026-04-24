@@ -240,11 +240,23 @@ def _apply_corrections(
 
 def _confirmed_to_dose_records(confirmed: CardExtractionOutput) -> list[DoseRecord]:
     """Unwrap .value from each FieldExtraction into the legacy DoseRecord shape
-    the existing _stream_agent prompt-builder expects."""
+    the existing _stream_agent prompt-builder expects.
+
+    Runs the trust gate :func:`phase_d.filter_confirmed_doses` first so
+    the agent only ever sees doses that are either vision-confident
+    (confidence >= CONFIDENCE_THRESHOLD) or clinician-confirmed (HITL
+    merge rewrites those to confidence=1.0). Doses the gate drops are
+    silently excluded here — the HITL UI already surfaced them for
+    review; forwarding an unresolved row to the agent would violate
+    the Safety Loops invariant.
+    """
+    gated = phase_d.filter_confirmed_doses(confirmed)
     out: list[DoseRecord] = []
-    for dose in confirmed.extracted_doses:
+    for dose in gated.confirmed:
+        # filter_confirmed_doses guarantees both fields are present and
+        # their .value is non-null, but assert anyway for type narrowing.
         if dose.transcribed_antigen is None or dose.date_administered is None:
-            continue  # clinician skipped or field absent — drop from agent view
+            continue
         if dose.transcribed_antigen.value is None or dose.date_administered.value is None:
             continue
         out.append(DoseRecord(

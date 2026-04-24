@@ -63,6 +63,97 @@ def _partition(
     return field
 
 
+@dataclass
+class DroppedDose:
+    """Record of a dose the trust gate refused to forward to the agent.
+
+    Carries a short, human-readable reason so the UI and logs can
+    surface WHY a row was withheld. Dropped doses still surface in
+    the clinician review; they just do not reach the reasoning loop
+    without an explicit confirmation.
+    """
+
+    dose_index: int
+    reason: str
+
+
+@dataclass
+class ConfirmedDoseFilterResult:
+    """Output of :func:`filter_confirmed_doses` — the trust gate."""
+
+    confirmed: list[ExtractedDose]
+    dropped: list[DroppedDose]
+
+
+def _field_is_confirmed(f: FieldExtraction | None) -> bool:
+    """A field is 'confirmed' when present, confident, and not flagged.
+
+    The HITL merge rewrites clinician-edited and clinician-kept fields
+    with ``confidence=1.0`` and ``needs_review=False`` (see
+    ``_apply_corrections`` in ``hathor.server``), so this predicate
+    uniformly accepts both auto-committed high-confidence fields and
+    clinician-confirmed fields without needing a separate
+    ``clinician_confirmed`` flag on the schema.
+    """
+    if f is None:
+        return False
+    if f.value is None:
+        return False
+    if f.needs_review:
+        return False
+    return f.confidence >= CONFIDENCE_THRESHOLD
+
+
+def filter_confirmed_doses(
+    extraction: CardExtractionOutput,
+) -> ConfirmedDoseFilterResult:
+    """Trust gate before reconciliation.
+
+    Post-Phase-D, post-HITL-merge, each :class:`ExtractedDose` reaching
+    the agent must satisfy the invariant:
+
+        (source = vision AND confidence >= CONFIDENCE_THRESHOLD)
+        OR (clinician_confirmed = True)
+
+    In the Python schema that maps to: ``transcribed_antigen`` and
+    ``date_administered`` are both present, non-flagged, and carry
+    confidence >= :data:`CONFIDENCE_THRESHOLD`. Clinician-confirmed
+    fields meet this automatically because the HITL merge rewrites
+    their confidence to ``1.0``.
+
+    Doses that fail the check are accumulated into ``dropped`` with a
+    reason string. They are never silently forwarded. The caller can
+    surface them for explicit clinician review, but they do NOT drive
+    reconciliation.
+
+    This function is pure and idempotent. It does not mutate the
+    input. Template-inferred rows (a TypeScript-side concept with no
+    Python equivalent in the current schema) never appear here
+    because the Python pipeline only ever sees vision-origin doses.
+    """
+    confirmed: list[ExtractedDose] = []
+    dropped: list[DroppedDose] = []
+    for i, dose in enumerate(extraction.extracted_doses):
+        if not _field_is_confirmed(dose.transcribed_antigen):
+            dropped.append(
+                DroppedDose(
+                    dose_index=i,
+                    reason="antigen field missing or below confidence threshold",
+                )
+            )
+            continue
+        if not _field_is_confirmed(dose.date_administered):
+            dropped.append(
+                DroppedDose(
+                    dose_index=i,
+                    reason="date field missing or below confidence threshold",
+                )
+            )
+            continue
+        confirmed.append(dose)
+    return ConfirmedDoseFilterResult(confirmed=confirmed, dropped=dropped)
+
+
 def gate(extraction: CardExtractionOutput) -> PhaseDResult:
     """Partition every field into auto-commit vs HITL review.
 

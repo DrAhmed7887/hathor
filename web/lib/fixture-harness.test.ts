@@ -78,24 +78,27 @@ for (const fixture of EGYPTIAN_FIXTURES) {
     );
   });
 
-  test(`${fixture.id} · partial_vision · BASELINE-PR0: zero-rows guard suppresses AMBER predictions`, () => {
+  test(`${fixture.id} · partial_vision: inference fires per unfilled template row`, () => {
     const run = runScenario(fixture, "partial_vision");
     const keptCount = Math.ceil(fixture.expected_rows.length / 2);
+    const TEMPLATE_SPECS = 9; // Egyptian MoHP has nine row_specs
+    // PR 1: inference now fires per unfilled template row. For the
+    // Egyptian template with nine specs, antigen-greedy matching
+    // fills up to `keptCount` specs; the remaining (9 - keptCount)
+    // specs surface as AMBER template-inferred slots. Each vision
+    // row with a template antigen match claims exactly one spec, so
+    // no duplicate predictions are emitted.
+    const expectedInferred = Math.max(0, TEMPLATE_SPECS - keptCount);
     assert.equal(run.rows_in, keptCount);
-    // BASELINE-PR0: before lifting the zero-rows guard, template
-    // inference refuses to fire the moment even one vision row
-    // survives. PR 1 changes this to fire per unfilled template row,
-    // at which point template_inferred_rows becomes (template_row_count - keptCount)
-    // for Egyptian fixtures and this assertion must be updated.
-    assert.equal(run.template_inferred_rows, 0);
-    assert.equal(run.inference_fired, false);
-    assert.equal(run.rows_out, keptCount);
-    // The confirmation gate preview: no template_inferred row is ever
-    // admitted, regardless of drop mode. This invariant holds across
-    // PR 0 and PR 1.
-    assert.ok(
-      run.would_pass_confirmation_gate <= run.rows_in_high_confidence,
-      "confirmation gate admitted more rows than high-confidence vision rows",
+    assert.equal(run.template_inferred_rows, expectedInferred);
+    assert.equal(run.inference_fired, expectedInferred > 0);
+    assert.equal(run.rows_out, keptCount + expectedInferred);
+    // Confirmation-gate invariant across PR 0 and PR 1: template-
+    // inferred rows NEVER pre-pass. The gate admits exactly the
+    // high-confidence vision rows.
+    assert.equal(
+      run.would_pass_confirmation_gate,
+      run.rows_in_high_confidence,
     );
   });
 

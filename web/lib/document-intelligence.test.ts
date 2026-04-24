@@ -563,9 +563,11 @@ test("infer: unknown_vaccine_card template does NOT infer rows", () => {
   assert.equal(result.rows.length, 0);
 });
 
-test("infer: fewer date cells than template rows → fewer rows + incomplete warning", () => {
-  // Acceptance: if fewer dates than expected rows, create rows only
-  // for dates found, plus a visible warning.
+test("infer: fewer date cells than template rows → all 9 AMBER slots + null dates for unfilled", () => {
+  // PR 1: every unfilled template slot surfaces an AMBER row. Slots
+  // without date evidence emit date=null so the clinician sees an
+  // explicit "visit needs confirmation" entry rather than a silent
+  // gap. The warning now names the date-less slot count directly.
   const dateFragments: EvidenceFragment[] = Array.from({ length: 4 }, (_, i) =>
     fragment({
       fragment_id: `f-d${i + 1}`,
@@ -581,10 +583,19 @@ test("infer: fewer date cells than template rows → fewer rows + incomplete war
   });
   const result = inferRowsFromTemplate(layout, []);
   assert.equal(result.inferred, true);
-  assert.equal(result.rows.length, 4);
+  assert.equal(result.rows.length, 9);
+  // First 4 slots got date evidence; last 5 did not.
+  const withDate = result.rows.filter((r) => r.date !== null);
+  const withoutDate = result.rows.filter((r) => r.date === null);
+  assert.equal(withDate.length, 4);
+  assert.equal(withoutDate.length, 5);
+  for (const r of result.rows) {
+    assert.equal(r.source, "template_inferred");
+    assert.ok(r.confidence < 0.85);
+  }
   assert.ok(
-    result.warnings.some((w) => /incomplete/i.test(w)),
-    `expected incomplete-template warning; got ${JSON.stringify(result.warnings)}`,
+    result.warnings.some((w) => /had no date-cell evidence/i.test(w)),
+    `expected null-date slot warning; got ${JSON.stringify(result.warnings)}`,
   );
 });
 
@@ -616,10 +627,14 @@ test("infer: more date cells than template rows → maps first N, extras listed,
   );
 });
 
-test("infer: existing parsed rows are NEVER overwritten, regardless of template", () => {
-  // Acceptance: existing parsed rows are not overwritten.
+test("infer: existing parsed rows pass through unchanged; unfilled slots get AMBER predictions", () => {
+  // PR 1: existing vision rows are never overwritten and never
+  // duplicated. Unfilled template slots surface as AMBER predictions
+  // so partial vision no longer produces a silent gap. The Egyptian
+  // template has 4 DTP specs; a single DTP vision row claims one,
+  // leaving 8 other slots to be surfaced as AMBER.
   const existing: ParsedCardRow[] = [
-    row({ antigen: "DTP", doseNumber: 2, source: "vision" }),
+    row({ antigen: "DTP", doseNumber: 2, source: "vision", confidence: 0.95 }),
   ];
   const layout = layoutFixture({
     recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
@@ -634,13 +649,38 @@ test("infer: existing parsed rows are NEVER overwritten, regardless of template"
     ),
   });
   const result = inferRowsFromTemplate(layout, existing);
-  assert.equal(result.inferred, false);
-  assert.equal(result.rows.length, 1);
-  assert.equal(result.rows[0].doseNumber, 2);
-  assert.equal(result.rows[0].source, "vision");
+  assert.equal(result.inferred, true);
+  assert.equal(result.rows.length, 9);
+  // The original vision DTP row is preserved unchanged.
+  const visionRows = result.rows.filter((r) => r.source === "vision");
+  assert.equal(visionRows.length, 1);
+  assert.equal(visionRows[0].doseNumber, 2);
+  // The remaining 8 are AMBER template-inferred predictions.
+  const inferredRows = result.rows.filter(
+    (r) => r.source === "template_inferred",
+  );
+  assert.equal(inferredRows.length, 8);
+  // No duplication: only one DTP spec (the one the vision row
+  // claimed) is missing from the AMBER set.
+  const inferredAntigens = inferredRows.map((r) => r.antigen).sort();
+  assert.deepEqual(inferredAntigens, [
+    "BCG",
+    "DTP",
+    "DTP",
+    "DTP",
+    "HepB",
+    "MMR",
+    "OPV",
+    "OPV",
+  ]);
 });
 
-test("infer: Egyptian template + zero date evidence → declines safely with reason", () => {
+test("infer: Egyptian template + zero date evidence → all 9 AMBER slots with null dates", () => {
+  // PR 1: a recognised template with no date-cell evidence still
+  // surfaces every age point as an AMBER slot so the clinician can
+  // enter the dates manually. The slots carry date=null and a
+  // warning names the count. Pre-PR-1 this returned 0 rows; the
+  // change is intentional and safer — no silent gap.
   const layout = layoutFixture({
     recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
     document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
@@ -649,11 +689,16 @@ test("infer: Egyptian template + zero date evidence → declines safely with rea
     ],
   });
   const result = inferRowsFromTemplate(layout, []);
-  assert.equal(result.inferred, false);
-  assert.equal(result.rows.length, 0);
+  assert.equal(result.inferred, true);
+  assert.equal(result.rows.length, 9);
+  for (const r of result.rows) {
+    assert.equal(r.source, "template_inferred");
+    assert.equal(r.date, null);
+    assert.ok(r.confidence < 0.85);
+  }
   assert.ok(
-    result.warnings.some((w) => /no date-cell/i.test(w)),
-    `expected 'no date-cell' reason; got ${JSON.stringify(result.warnings)}`,
+    result.warnings.some((w) => /had no date-cell evidence/i.test(w)),
+    `expected null-date slot warning; got ${JSON.stringify(result.warnings)}`,
   );
 });
 
