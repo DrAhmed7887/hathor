@@ -1,0 +1,98 @@
+{
+  "description": "Cross-language parity fixture for the trust-gate filter (filter_confirmed_doses in Python, filterConfirmedDoses in TS). The `cases` array is exercised by BOTH implementations and they MUST agree on every entry. The `ts_only_cases` array exercises TS-side-only semantics (the row.source field that has no Python schema analogue) — TS replays it; Python ignores it.",
+  "threshold": 0.85,
+  "cases": [
+    {
+      "id": "all_high_confidence_admitted",
+      "summary": "Both required fields confident; row admitted.",
+      "antigen": { "value": "BCG", "confidence": 0.95, "needs_review": false },
+      "date": { "value": "2024-01-01", "confidence": 0.95, "needs_review": false },
+      "row_confidence": 0.95,
+      "expected": "admit"
+    },
+    {
+      "id": "antigen_below_threshold_dropped",
+      "summary": "Antigen field below threshold drops with an antigen-cited reason.",
+      "antigen": { "value": "Rougeole", "confidence": 0.62, "needs_review": true },
+      "date": { "value": "2023-09-15", "confidence": 0.95, "needs_review": false },
+      "row_confidence": 0.95,
+      "expected": "drop",
+      "expected_reason_substring": "antigen"
+    },
+    {
+      "id": "date_below_threshold_dropped",
+      "summary": "Date field below threshold drops with a date-cited reason.",
+      "antigen": { "value": "Hexyon", "confidence": 0.95, "needs_review": false },
+      "date": { "value": "2024-08-1?", "confidence": 0.55, "needs_review": true },
+      "row_confidence": 0.95,
+      "expected": "drop",
+      "expected_reason_substring": "date"
+    },
+    {
+      "id": "needs_review_drops_via_field_confidence",
+      "summary": "Python: antigen.needs_review=true drops. TS: antigen field confidence is set just below threshold so the TS gate drops on the same antigen-cited reason. Both sides arrive at 'antigen'.",
+      "antigen": { "value": "MMR", "confidence": 0.84, "needs_review": true },
+      "date": { "value": "2025-06-15", "confidence": 0.95, "needs_review": false },
+      "row_confidence": 0.95,
+      "expected": "drop",
+      "expected_reason_substring": "antigen"
+    },
+    {
+      "id": "missing_date_dropped",
+      "summary": "Date absent (null value) drops with a date-cited reason.",
+      "antigen": { "value": "BCG", "confidence": 0.95, "needs_review": false },
+      "date": { "value": null, "confidence": 0.0, "needs_review": false },
+      "row_confidence": 0.95,
+      "expected": "drop",
+      "expected_reason_substring": "date"
+    },
+    {
+      "id": "clinician_corrected_admitted",
+      "summary": "Post-HITL clinician-corrected fields arrive at confidence=1.0 and are admitted.",
+      "antigen": { "value": "Hexyon", "confidence": 1.0, "needs_review": false },
+      "date": { "value": "2024-08-15", "confidence": 1.0, "needs_review": false },
+      "row_confidence": 1.0,
+      "expected": "admit"
+    },
+    {
+      "id": "threshold_inclusivity",
+      "summary": "Confidence exactly at the threshold passes (>= rule, not >).",
+      "antigen": { "value": "Hexyon", "confidence": 0.85, "needs_review": false },
+      "date": { "value": "2024-08-15", "confidence": 0.85, "needs_review": false },
+      "row_confidence": 0.85,
+      "expected": "admit"
+    }
+  ],
+  "ts_only_cases": [
+    {
+      "id": "template_inferred_dropped_by_source",
+      "summary": "Template-inferred predictions never pre-pass the gate, even when fields look fine. TS-only: Python has no source field.",
+      "antigen": { "value": "DTP", "confidence": 0.95, "needs_review": false },
+      "date": { "value": "2024-05-01", "confidence": 0.95, "needs_review": false },
+      "row_source": "template_inferred",
+      "row_confidence": 0.95,
+      "expected": "drop",
+      "expected_reason_substring": "source"
+    },
+    {
+      "id": "predicted_from_schedule_dropped_by_source",
+      "summary": "Schedule-predicted rows (reserved future source) are barred. TS-only.",
+      "antigen": { "value": "MMR", "confidence": 0.95, "needs_review": false },
+      "date": { "value": "2025-01-01", "confidence": 0.95, "needs_review": false },
+      "row_source": "predicted_from_schedule",
+      "row_confidence": 0.95,
+      "expected": "drop",
+      "expected_reason_substring": "source"
+    },
+    {
+      "id": "vision_low_confidence_dropped_by_source",
+      "summary": "vision_low_confidence is the AMBER source; barred. TS-only.",
+      "antigen": { "value": "DTP", "confidence": 0.95, "needs_review": false },
+      "date": { "value": "2024-05-01", "confidence": 0.95, "needs_review": false },
+      "row_source": "vision_low_confidence",
+      "row_confidence": 0.95,
+      "expected": "drop",
+      "expected_reason_substring": "source"
+    }
+  ]
+}

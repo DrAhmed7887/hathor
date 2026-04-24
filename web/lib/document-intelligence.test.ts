@@ -627,6 +627,69 @@ test("infer: more date cells than template rows → maps first N, extras listed,
   );
 });
 
+test("infer: vision-extracted OPV booster survives + remaining OPV specs surface as AMBER (nothing silently lost)", () => {
+  // PR 1 caveat: greedy antigen-only matching means a vision row's
+  // dose_kind is ignored when claiming a template slot. The Egyptian
+  // template has two OPV specs (spec 1 = OPV/birth, spec 6 =
+  // OPV/primary at 9 months). A card row read as OPV/booster has no
+  // matching dose_kind in the template — but the vision row MUST
+  // still survive in the final output, AND the unclaimed OPV spec
+  // MUST still surface as an AMBER prediction.
+  //
+  // Asserting "nothing silently lost" with an actual fixture, not a
+  // claim. If greedy matching ever consumes both OPV specs to the
+  // exclusion of a vision row, this test fails.
+  const opvBooster: ParsedCardRow = row({
+    antigen: "OPV",
+    doseNumber: null,
+    doseKind: "booster",
+    date: "2024-10-01",
+    confidence: 0.95,
+    source: "vision",
+  });
+  const layout = layoutFixture({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    document_type_guess: "egypt_mohp_mandatory_childhood_immunization",
+    evidence_fragments: Array.from({ length: 9 }, (_, i) =>
+      fragment({
+        fragment_id: `f-d${i + 1}`,
+        kind: "date_cell",
+        raw_date_text: `0${i + 1}/05/2024`,
+        confidence: 0.7,
+      }),
+    ),
+  });
+  const result = inferRowsFromTemplate(layout, [opvBooster]);
+
+  // The vision OPV booster passes through unchanged — neither
+  // dropped nor mutated.
+  const visionRows = result.rows.filter((r) => r.source === "vision");
+  assert.equal(visionRows.length, 1);
+  assert.equal(visionRows[0].antigen, "OPV");
+  assert.equal(visionRows[0].doseKind, "booster");
+  assert.equal(visionRows[0].date, "2024-10-01");
+
+  // Of the two OPV specs in the template, the vision row claims
+  // exactly ONE (greedy first-unfilled). The other OPV spec stays
+  // unfilled and emits an AMBER prediction. So the AMBER set
+  // contains exactly ONE OPV row, not zero and not two.
+  const inferredRows = result.rows.filter(
+    (r) => r.source === "template_inferred",
+  );
+  const inferredOpv = inferredRows.filter((r) => r.antigen === "OPV");
+  assert.equal(
+    inferredOpv.length,
+    1,
+    `expected exactly one OPV AMBER prediction; got ${inferredOpv.length}. ` +
+      `Greedy matcher consumed both OPV specs OR consumed neither.`,
+  );
+
+  // Total: 1 vision + 8 inferred = 9. The booster occupies one of
+  // the nine template slots without duplicating a slot.
+  assert.equal(result.rows.length, 9);
+  assert.equal(inferredRows.length, 8);
+});
+
 test("infer: existing parsed rows pass through unchanged; unfilled slots get AMBER predictions", () => {
   // PR 1: existing vision rows are never overwritten and never
   // duplicated. Unfilled template slots surface as AMBER predictions

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/validation.test.ts lib/document-intelligence.test.ts lib/phase-e-summary.test.ts lib/visit-grouping.test.ts lib/fixture-harness.test.ts",
+    "test": "node --experimental-strip-types --test lib/validation.test.ts lib/document-intelligence.test.ts lib/phase-e-summary.test.ts lib/visit-grouping.test.ts lib/fixture-harness.test.ts lib/trust-gate.test.ts",
     "smoke": "node --experimental-strip-types scripts/smoke-egyptian-mohp.ts",
     "debug:synthetic": "node --experimental-strip-types scripts/debug-synthetic-card.ts"
   },

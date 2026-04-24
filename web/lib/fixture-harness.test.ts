@@ -184,6 +184,36 @@ test("invariant: full_vision run count equals manifest expected_rows length", ()
   }
 });
 
+// Regression test against the zero-rows guard. PR 1 lifted the guard
+// in inferRowsFromTemplate so per-unfilled-row predictions surface for
+// partially-legible cards (the Egyptian MoHP messy-card failure mode).
+// If a future change re-introduces the guard "for safety" or "to fix
+// flake X", this test fails immediately. The behaviour the guard
+// suppressed — predictions for unfilled template slots when at least
+// one vision row survived — is the whole point of PR 1.
+test("regression · test_partial_vision_does_not_suppress_template_predictions", () => {
+  for (const fixture of EGYPTIAN_FIXTURES) {
+    const run = runScenario(fixture, "partial_vision");
+    assert.ok(
+      run.rows_out > run.rows_in,
+      `${fixture.id} partial_vision must produce strictly more rows than ` +
+        `it received (rows_out=${run.rows_out}, rows_in=${run.rows_in}). If ` +
+        `someone reintroduced the zero-rows guard in inferRowsFromTemplate, ` +
+        `this is the failing assertion that catches it.`,
+    );
+    assert.ok(
+      run.template_inferred_rows > 0,
+      `${fixture.id} partial_vision must surface at least one ` +
+        `template_inferred prediction for an unfilled slot`,
+    );
+    assert.equal(
+      run.inference_fired,
+      true,
+      `${fixture.id} partial_vision must report inference_fired=true`,
+    );
+  }
+});
+
 // ── Diagnostic report helper ───────────────────────────────────────────────
 // Printed when HATHOR_HARNESS_VERBOSE is set; silent in CI. Useful for
 // Ahmed running the suite locally to see the baseline table.
