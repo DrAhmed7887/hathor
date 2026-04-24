@@ -18,6 +18,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   inferRowsFromTemplate,
@@ -32,6 +34,32 @@ import {
   type RecognizedTemplateId,
 } from "./document-intelligence.ts";
 import type { ParsedCardRow } from "./types.ts";
+
+const SYNTHETIC_FIXTURE_PATH = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "cards",
+  "fixtures",
+  "synthetic_egypt_handwritten.json",
+);
+
+interface ParserCase {
+  id: string;
+  raw_text: string;
+  expected_iso: string | null;
+  kind: "parse" | "reject";
+  reason?: string;
+  comment?: string;
+}
+
+interface SyntheticFixture {
+  parser_cases: ParserCase[];
+}
+
+const syntheticFixture = JSON.parse(
+  readFileSync(SYNTHETIC_FIXTURE_PATH, "utf8"),
+) as SyntheticFixture;
 
 function layoutFixture(
   partial: Partial<LayoutAnalysisResult>,
@@ -418,6 +446,67 @@ test("parseRawDate: rejects ambiguous/unrecognised text", () => {
   assert.equal(parseRawDate("May 10, 2024"), null);
   assert.equal(parseRawDate(null), null);
   assert.equal(parseRawDate(undefined), null);
+});
+
+// Drive every synthetic_egypt_handwritten case through the parser. The
+// Python parity test (api/tests/test_date_parser.py) walks the same
+// JSON, so the two implementations stay aligned by construction.
+for (const c of syntheticFixture.parser_cases) {
+  test(`parseRawDate (synthetic fixture): ${c.id}`, () => {
+    assert.equal(parseRawDate(c.raw_text), c.expected_iso);
+  });
+}
+
+test("parseRawDate (negative): does not throw on hostile inputs", () => {
+  // Anything weird should resolve to null without raising. The parser
+  // is on a hot path during card review — a thrown error would crash
+  // the page.
+  const hostile: unknown[] = [
+    "",
+    "   ",
+    "21/?/2023",                        // underdetermined
+    "abc",                              // bare text
+    "{}",                               // junk
+    "21//2023",                         // missing field
+    "21..2023",                         // missing field with separators
+    "0123456",                          // bare digit run
+    "2023",                             // year-only
+    "2023-13-01",                       // bad month
+    "2023-02-30",                       // impossible day
+    "32/01/2023",                       // bad day
+    "9/3/24/extra",                     // trailing junk
+    "9/3/2024 extra",                   // trailing junk
+    null,
+    undefined,
+    {},
+    [],
+    42,
+  ];
+  for (const h of hostile) {
+    assert.doesNotThrow(() => parseRawDate(h as string | null | undefined));
+    assert.equal(parseRawDate(h as string | null | undefined), null);
+  }
+});
+
+test("parseRawDate (negative): bare digit runs never become dates", () => {
+  // A vision pass might OCR something like "0123456" off a numeric
+  // field that is not a date (lot number, batch id, child ID). The
+  // parser must not coerce that into a date.
+  for (const s of ["0123456", "1234567", "20230318", "230318", "2305"]) {
+    assert.equal(parseRawDate(s), null, `bare digit run ${s} must reject`);
+  }
+});
+
+test("parseRawDate: pediatric two-digit year window — 23 → 2023, not 1923", () => {
+  // Load-bearing rule from the fixture's `two-digit-year-pediatric-window`
+  // case. Asserted directly here so a rationale change is loud.
+  assert.equal(parseRawDate("20/07/23"), "2023-07-20");
+  // A date that COULD plausibly mean 1923 is still reachable in
+  // practice only via two-digit years; the parser maps to 2099 max
+  // (which then fails the plausibility window anyway, returning null).
+  // We assert it does not silently keep an old century.
+  const old = parseRawDate("01/01/30"); // 30 → 2030 today, would later flip
+  assert.notEqual(old, "1930-01-01");
 });
 
 test("infer: Egyptian template + 9 date cells + 0 labels → 9 AMBER inferred rows", () => {

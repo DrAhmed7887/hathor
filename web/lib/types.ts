@@ -85,13 +85,29 @@ export interface ParsedCardRow {
     doseNumber: number;
     lotNumber: number;
   }>;
-  /** Where the row came from. "vision" is the default (the model read
-   * the row off the card). "template_inferred" means the row was
-   * synthesized from a recognized-template row_spec + a date-cell
-   * evidence fragment when the vision pass itself returned no rows.
-   * Template-inferred rows are ALWAYS AMBER — the clinician must
-   * review every one before the engine sees it. */
-  source?: "vision" | "template_inferred";
+  /** Where the row came from. Provenance for the audit trail and the
+   * grouped-visit UI bucket.
+   *
+   *   - "vision" — high-confidence OCR/vision read off the card.
+   *   - "vision_low_confidence" — vision saw the row but confidence
+   *     fell below the AMBER threshold; clinician must confirm.
+   *   - "template_inferred" — vision returned no rows but the card
+   *     matched a known template; the row was synthesised from the
+   *     template's row_spec + a date-cell evidence fragment.
+   *   - "predicted_from_schedule" — RESERVED for a future commit.
+   *     Will tag rows the system suggested from the destination
+   *     country's schedule pattern when OCR missed an expected visit.
+   *     No code in this commit produces these rows. The label exists
+   *     so the UI bucket and audit pipeline can be built ahead of the
+   *     generator.
+   *
+   * Anything that is not "vision" must NEVER reach the engine without
+   * an explicit clinician confirmation. */
+  source?:
+    | "vision"
+    | "vision_low_confidence"
+    | "template_inferred"
+    | "predicted_from_schedule";
   /** The EvidenceFragment.fragment_id that seeded a template-inferred
    * row. Null for vision rows. Lets the trace UI correlate inferred
    * rows back to their source evidence. */

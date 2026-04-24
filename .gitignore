@@ -56,11 +56,17 @@ evaluation/provenance_log.jsonl
 /internal/
 
 # Vaccination card images — dev-only test fixtures. Many are under
-# copyright (WHO reports, published papers, MoH materials) and should not
-# be redistributed through the repo. Keep locally for card_extraction testing.
+# copyright (WHO reports, published papers, MoH materials, real patient
+# cards) and should not be redistributed through the repo. Real-card
+# binaries and any ground-truth derived from them stay local only.
 /cards/*
 !/cards/.gitkeep
 !/cards/README.md
 !/cards/demo.jpg
 !/cards/phase_d_demo.jpg
-
+!/cards/fixtures/
+/cards/fixtures/*
+!/cards/fixtures/synthetic_*.json
+!/cards/fixtures/README.md
+!/cards/fixtures/synthetic_vaccination_cards/
+!/cards/fixtures/synthetic_vaccination_cards/**

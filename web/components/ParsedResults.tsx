@@ -43,6 +43,7 @@ import {
   mergeEvidenceIntoRows,
   type LayoutAnalysisResult,
 } from "@/lib/document-intelligence";
+import { formatVisitDate, groupVisits } from "@/lib/visit-grouping";
 
 const H = {
   paper:     "#F6F0E4",
@@ -854,6 +855,11 @@ export function ParsedResults({
         </div>
       )}
 
+      {/* Visit summary — grouped view above the row detail list. */}
+      {rows.length > 0 && (
+        <VisitSummary rows={rows} />
+      )}
+
       {/* Row list */}
       <div
         style={{
@@ -1536,5 +1542,113 @@ function TraceFragmentList({
         ))}
       </ul>
     </div>
+  );
+}
+
+// ── Visit summary (grouped view) ─────────────────────────────────────────────
+
+function VisitSummary({ rows }: { rows: ParsedCardRow[] }) {
+  const grouped = useMemo(() => groupVisits(rows), [rows]);
+  if (grouped.groups.length === 0) return null;
+
+  return (
+    <section
+      data-testid="visit-summary"
+      style={{
+        padding: "16px 20px",
+        borderBottom: `1px solid ${H.rule}`,
+        background: H.card,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: H.copperInk,
+          marginBottom: 8,
+        }}
+      >
+        Visits read from card
+      </div>
+      <ul
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+        }}
+      >
+        {grouped.groups.map((group, i) => {
+          const review = group.needsReview;
+          const colour = review ? H.amber : H.ok;
+          return (
+            <li
+              key={`${group.isoDate ?? "null"}-${i}`}
+              data-testid={`visit-group-${group.isoDate ?? "no-date"}`}
+              data-visit-count={group.count}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) auto auto",
+                gap: 12,
+                alignItems: "baseline",
+                padding: "6px 10px",
+                background: review ? H.amberSoft : H.paper2,
+                borderLeft: `2px solid ${colour}`,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: F.serif,
+                  fontSize: 14.5,
+                  color: H.ink,
+                }}
+              >
+                {formatVisitDate(group)}
+              </span>
+              <span
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 11,
+                  color: H.meta,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                {group.count} dose{group.count === 1 ? "" : "s"} recorded
+              </span>
+              <span
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  color: colour,
+                }}
+              >
+                {review ? "Needs review" : "Confirmed"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {grouped.collapsedFragmentDuplicates > 0 && (
+        <div
+          style={{
+            fontFamily: F.mono,
+            fontSize: 10.5,
+            color: H.faint,
+            letterSpacing: "0.04em",
+            marginTop: 6,
+          }}
+        >
+          {grouped.collapsedFragmentDuplicates} duplicate OCR detection
+          {grouped.collapsedFragmentDuplicates === 1 ? "" : "s"} collapsed
+          from the same evidence fragment.
+        </div>
+      )}
+    </section>
   );
 }
