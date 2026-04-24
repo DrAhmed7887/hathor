@@ -72,6 +72,11 @@ INTERVAL_RULES: dict[str, dict] = {
         "note": "Minimum 4 weeks between OPV doses.",
         "source": "WHO / ACIP",
     },
+    "BCG": {
+        "standard_min_days": 0,
+        "note": "Single-dose antigen — no inter-dose interval requirement.",
+        "source": "WHO position paper",
+    },
 }
 
 

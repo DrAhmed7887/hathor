@@ -34,13 +34,17 @@ MAX_AGE_DAYS: dict[str, int] = {
 
 @tool(
     "validate_dose",
-    "Validate a single vaccination dose against the target country's schedule. Checks minimum age at time of dose, dose position appropriateness, and minimum interval from the prior dose (if provided). Returns valid/invalid with specific reasons and flags for the agent to reason about.",
+    "Validate a single vaccination dose against the target country's schedule. Checks minimum age at time of dose, dose position appropriateness, and minimum interval from the prior dose (if provided). Returns valid/invalid with specific reasons and flags for the agent to reason about. prior_dose_age_days: age in days of the prior dose in this series, or omitted/None for dose 1 or any dose without a prior reference.",
     {
-        "antigen": str,
-        "dose_number": int,
-        "age_at_dose_days": int,
-        "target_country": str,
-        "prior_dose_age_days": int,
+        "type": "object",
+        "properties": {
+            "antigen": {"type": "string"},
+            "dose_number": {"type": "integer"},
+            "age_at_dose_days": {"type": "integer"},
+            "target_country": {"type": "string"},
+            "prior_dose_age_days": {"type": "integer"},
+        },
+        "required": ["antigen", "dose_number", "age_at_dose_days", "target_country"],
     },
 )
 async def validate_dose(args: dict) -> dict:
