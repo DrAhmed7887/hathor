@@ -5,6 +5,8 @@ Run with: `python -m unittest api.tests.test_phase_d` from the project root,
 or `uv run python -m unittest tests.test_phase_d` from `api/`.
 """
 
+import json
+import pathlib
 import unittest
 
 from hathor.safety.phase_d import (
@@ -17,6 +19,14 @@ from hathor.schemas.extraction import (
     CardMetadata,
     ExtractedDose,
     FieldExtraction,
+)
+
+
+PARITY_FIXTURE_PATH = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "cards"
+    / "fixtures"
+    / "synthetic_trust_gate_parity.json"
 )
 
 
@@ -318,6 +328,98 @@ class TestFilterConfirmedDoses(unittest.TestCase):
         filter_confirmed_doses(e)
         after = e.model_dump()
         self.assertEqual(before, after)
+
+
+class TestParityFixture(unittest.TestCase):
+    """Cross-language parity for filter_confirmed_doses.
+
+    Replays every case in cards/fixtures/synthetic_trust_gate_parity.json
+    against the Python implementation. The TS side runs the same
+    fixture in web/lib/trust-gate.test.ts. Both implementations are
+    required to admit/drop identically — if either side diverges, this
+    test (or its TS twin) fails first.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = json.loads(PARITY_FIXTURE_PATH.read_text())
+
+    def test_threshold_matches_python_constant(self):
+        self.assertEqual(
+            self.fixture["threshold"],
+            CONFIDENCE_THRESHOLD,
+            "fixture threshold drifted from the Python CONFIDENCE_THRESHOLD",
+        )
+
+    def test_every_case_admits_or_drops_as_expected(self):
+        for case in self.fixture["cases"]:
+            with self.subTest(case=case["id"]):
+                # Translate the neutral parity case into the Python
+                # ExtractedDose schema. Python encodes the
+                # admission decision via per-field confidence +
+                # needs_review; the row-level "source" value is
+                # only consulted by the TS side and is irrelevant
+                # here because the Python schema has no source field.
+                # The fixture authors guarantee that every case
+                # whose row_source is non-vision also has a
+                # corresponding per-field signal (confidence below
+                # threshold or needs_review=True) so the Python
+                # decision matches.
+                antigen_field = (
+                    None
+                    if case["antigen"]["value"] is None
+                    else FieldExtraction(
+                        value=case["antigen"]["value"],
+                        confidence=case["antigen"]["confidence"],
+                        needs_review=case["antigen"]["needs_review"],
+                    )
+                )
+                date_field = (
+                    None
+                    if case["date"]["value"] is None
+                    else FieldExtraction(
+                        value=case["date"]["value"],
+                        confidence=case["date"]["confidence"],
+                        needs_review=case["date"]["needs_review"],
+                    )
+                )
+                extraction = CardExtractionOutput(
+                    card_metadata=CardMetadata(),
+                    extracted_doses=[
+                        ExtractedDose(
+                            transcribed_antigen=antigen_field,
+                            date_administered=date_field,
+                        )
+                    ],
+                    extraction_method=f"parity-fixture::{case['id']}",
+                )
+                result = filter_confirmed_doses(extraction)
+
+                if case["expected"] == "admit":
+                    self.assertEqual(
+                        len(result.confirmed),
+                        1,
+                        f"case '{case['id']}' expected admit but Python "
+                        f"dropped: "
+                        f"{result.dropped[0].reason if result.dropped else '?'}",
+                    )
+                    self.assertEqual(len(result.dropped), 0)
+                else:
+                    self.assertEqual(
+                        len(result.confirmed),
+                        0,
+                        f"case '{case['id']}' expected drop but Python admitted",
+                    )
+                    self.assertEqual(len(result.dropped), 1)
+                    expected_substr = case.get("expected_reason_substring")
+                    if expected_substr:
+                        self.assertIn(
+                            expected_substr.lower(),
+                            result.dropped[0].reason.lower(),
+                            f"case '{case['id']}' drop reason "
+                            f"'{result.dropped[0].reason}' did not contain "
+                            f"'{expected_substr}'",
+                        )
 
 
 if __name__ == "__main__":

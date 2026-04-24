@@ -15,6 +15,7 @@ import type {
   ParsedCardRow,
   ValidateScheduleRecord,
 } from "./types";
+import { filterConfirmedDoses } from "./trust-gate.ts";
 
 /** Antigens the engine carries valid INTERVAL_RULES for today (PRD §8.2).
  * Rows outside this set are shown in parse + letter but not sent to
@@ -75,13 +76,26 @@ export function wireDoseKind(kind: DoseKind): DoseKind {
 }
 
 /** For each engine-eligible row, compute prior_dose_age_days against
- * the previous dose of the same antigen in chronological order. */
+ * the previous dose of the same antigen in chronological order.
+ *
+ * TRUST GATE: this function runs `filterConfirmedDoses` (web/lib/
+ * trust-gate.ts) FIRST. Only rows that are vision-confident or
+ * clinician-confirmed reach the engine wire. Template-inferred and
+ * ambiguous rows are dropped here — they remain visible in the UI
+ * for clinician review but never silently drive reconciliation. The
+ * gate is enforced; the test
+ * `trust-gate.test.ts::"buildValidationRecords runs the trust gate"`
+ * asserts this can never be bypassed at the funnel.
+ *
+ * Returned `indices` reference the ORIGINAL input array, so callers
+ * can correlate engine output back to the displayed rows. */
 export function buildValidationRecords(
   rows: ParsedCardRow[],
   childDob: string,
 ): { records: ValidateScheduleRecord[]; indices: number[] } {
-  const eligibleIndices = rows
-    .map((r, i) => ({ r, i }))
+  const gated = filterConfirmedDoses(rows);
+  const eligibleIndices = gated.confirmed
+    .map((r, idx) => ({ r, i: gated.confirmedIndices[idx] }))
     .filter((x) => isEngineEligible(x.r));
 
   // Group by antigen, sort by date ascending.
