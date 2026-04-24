@@ -46,6 +46,7 @@ import {
 import { ParsedResults } from "@/components/ParsedResults";
 import { ScheduleView } from "@/components/ScheduleView";
 import { ExportPanel } from "@/components/ExportPanel";
+import { ExplainerParsePlayer } from "@/components/ExplainerParsePlayer";
 
 import { COUNTRIES, SELECTABLE_COUNTRIES } from "@/lib/countries";
 import type {
@@ -721,6 +722,7 @@ export default function DemoPage() {
             rows={rows}
             imageUrl={redacted?.dataUrl ?? null}
             onRowsChanged={setRows}
+            headerSlot={<ExplainerParsePlayer maxWidth={1040} autoPlay loop={false} />}
             onProceed={() => {
               // No-op here — validation auto-runs via ScheduleView mount
               // below once rows are frozen by presence of validation box.
