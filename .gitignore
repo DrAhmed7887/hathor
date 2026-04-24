@@ -70,3 +70,11 @@ evaluation/provenance_log.jsonl
 !/cards/fixtures/README.md
 !/cards/fixtures/synthetic_vaccination_cards/
 !/cards/fixtures/synthetic_vaccination_cards/**
+
+# Defence in depth: the blanket /cards/* rule above already excludes
+# cards/private/, but making this explicit keeps future whitelist
+# edits from accidentally admitting a real-card path. Private cards
+# (e.g. local developer validation against real patient images) never
+# belong in git, and their derived ground truth does not either.
+/cards/private/
+/cards/private/**
