@@ -85,6 +85,17 @@ export interface ParsedCardRow {
     doseNumber: number;
     lotNumber: number;
   }>;
+  /** Where the row came from. "vision" is the default (the model read
+   * the row off the card). "template_inferred" means the row was
+   * synthesized from a recognized-template row_spec + a date-cell
+   * evidence fragment when the vision pass itself returned no rows.
+   * Template-inferred rows are ALWAYS AMBER — the clinician must
+   * review every one before the engine sees it. */
+  source?: "vision" | "template_inferred";
+  /** The EvidenceFragment.fragment_id that seeded a template-inferred
+   * row. Null for vision rows. Lets the trace UI correlate inferred
+   * rows back to their source evidence. */
+  sourceEvidenceFragmentId?: string | null;
 }
 
 export interface ParsedCardOutput {

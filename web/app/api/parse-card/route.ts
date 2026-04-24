@@ -41,6 +41,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { DoseKind, ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 import { CARD_EXTRACTION_SYSTEM_PROMPT } from "@/lib/card-extraction-prompt";
 import {
+  inferRowsFromTemplate,
   normalizeDocumentIntelligence,
   type LayoutAnalysisResult,
 } from "@/lib/document-intelligence";
@@ -81,6 +82,24 @@ const CARD_EXTRACTION_TOOL: Anthropic.Messages.Tool = {
           crop_warning: { type: ["string", "null"] },
           overall_confidence: { type: "number", minimum: 0, maximum: 1 },
           warnings: { type: "array", items: { type: "string" } },
+          recognized_template_id: {
+            type: "string",
+            enum: [
+              "egypt_mohp_mandatory_childhood_immunization",
+              "unknown_vaccine_card",
+            ],
+            description:
+              "Which registry template the card matches. 'egypt_mohp_mandatory_childhood_immunization' for the Egyptian MoHP mandatory-immunizations card (التطعيمات الإجبارية); 'unknown_vaccine_card' when unsure. The server re-checks this against the region source_text — do NOT invent a template match.",
+          },
+          document_type_guess: {
+            type: "string",
+            enum: [
+              "egypt_mohp_mandatory_childhood_immunization",
+              "unknown_vaccine_card",
+            ],
+            description:
+              "Your first-pass document-type guess. Use the same enum as recognized_template_id. 'unknown_vaccine_card' is the honest default when the card does not clearly match a known template.",
+          },
           regions: {
             type: "array",
             items: {
@@ -406,8 +425,46 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    // Narrow, safe template inference. Runs only when (a) the vision
+    // pass returned zero rows AND (b) the normaliser recognised a
+    // known template AND (c) there is date-cell evidence to map.
+    // Produces AMBER-tagged rows the clinician must review before the
+    // engine sees anything. Existing vision rows are NEVER overwritten.
+    let finalRows = parsedRows;
+    if (documentIntelligence) {
+      const inference = inferRowsFromTemplate(
+        documentIntelligence,
+        parsedRows,
+      );
+      if (inference.inferred) {
+        finalRows = inference.rows;
+      }
+      // Fold inference warnings into the trace's warnings array so the
+      // UI's existing trace panel surfaces them in one place.
+      if (inference.warnings.length > 0) {
+        documentIntelligence = {
+          ...documentIntelligence,
+          warnings: [...documentIntelligence.warnings, ...inference.warnings],
+        };
+      }
+      // Emit any unmapped date texts into the trace warnings as well —
+      // the user asked for them to be "listed in the trace", not made
+      // into rows.
+      if (inference.unmapped_date_texts.length > 0) {
+        documentIntelligence = {
+          ...documentIntelligence,
+          warnings: [
+            ...documentIntelligence.warnings,
+            `Unmapped date-cell text: ${inference.unmapped_date_texts
+              .map((t) => `"${t}"`)
+              .join(", ")}.`,
+          ],
+        };
+      }
+    }
+
     const body: ParsedCardOutput = {
-      rows: parsedRows,
+      rows: finalRows,
       ...(documentIntelligence ? { documentIntelligence } : {}),
       model: MODEL,
       parsedAt: new Date().toISOString(),
