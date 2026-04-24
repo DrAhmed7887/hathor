@@ -83,7 +83,15 @@ class DoseRecord(BaseModel):
 class ValidateScheduleRecord(BaseModel):
     antigen: str
     date: str
-    dose_number: int
+    # Nullable so booster rows the card does not number can still reach
+    # the engine. Primary-series rows carry an integer; boosters without
+    # a numbered position arrive as None. The engine validates boosters
+    # by antigen + age + interval rather than by a dose position it does
+    # not encode — see validate_dose's dose_kind handling.
+    dose_number: int | None = None
+    # Clinical class of the row. Defaults to "primary" for backward
+    # compatibility with payloads predating the booster fix.
+    dose_kind: Literal["primary", "booster", "birth", "unknown"] = "primary"
     prior_dose_age_days: int | None = None
 
 
@@ -667,6 +675,7 @@ async def validate_schedule(req: ValidateScheduleRequest) -> list[dict]:
         args = {
             "antigen": record.antigen,
             "dose_number": record.dose_number,
+            "dose_kind": record.dose_kind,
             "age_at_dose_days": (given - dob).days,
             "target_country": "Egypt",
             "prior_dose_age_days": record.prior_dose_age_days,

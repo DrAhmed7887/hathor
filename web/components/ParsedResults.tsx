@@ -38,6 +38,7 @@ import type {
   ImageCropRegion,
   ParsedCardRow,
 } from "@/lib/types";
+import { displayDoseLabel } from "@/lib/validation";
 
 const H = {
   paper:     "#F6F0E4",
@@ -88,6 +89,13 @@ export interface ParsedResultsProps {
   /** Called when every row is resolved and the clinician presses
    * Proceed. Optional — callers that only need review may omit. */
   onProceed?: () => void;
+  /** Called when the clinician asks to re-parse the original image
+   * with the current prompt/rules. Provided by the parent only when a
+   * blob is still in memory — if undefined, the button is hidden. */
+  onReparse?: () => void | Promise<void>;
+  /** True while a re-parse is in flight. Disables the button and shows
+   * a loading label so the clinician does not double-fire the call. */
+  reparsing?: boolean;
   /** Optional slot above the row list. Reserved for step 10 to inject
    * the ExplainerParse Remotion composition without this component
    * depending on Remotion itself. */
@@ -276,20 +284,25 @@ function RowCard({
             flexWrap: "wrap",
           }}
         >
-          <div>
-            <Label>Antigen</Label>
-            <EditableValue
-              value={cellValue(row, "antigen")}
-              editing={editing === "antigen"}
-              draft={draft}
-              setDraft={setDraft}
-              onEditStart={() => beginEdit("antigen")}
-              onCommit={commit}
-              onCancel={cancel}
-              placeholder="—"
-              mono
-              size="lg"
-            />
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <Label>Antigen</Label>
+              <EditableValue
+                value={cellValue(row, "antigen")}
+                editing={editing === "antigen"}
+                draft={draft}
+                setDraft={setDraft}
+                onEditStart={() => beginEdit("antigen")}
+                onCommit={commit}
+                onCancel={cancel}
+                placeholder="—"
+                mono
+                size="lg"
+              />
+            </div>
+            {(row.doseKind === "booster" || row.doseKind === "birth") && (
+              <KindPill kind={row.doseKind} />
+            )}
           </div>
 
           <ConfidenceBadge confidence={row.confidence} />
@@ -328,10 +341,23 @@ function RowCard({
               onEditStart={() => beginEdit("doseNumber")}
               onCommit={commit}
               onCancel={cancel}
-              placeholder="—"
+              placeholder={row.doseKind === "booster" ? "Booster" : "—"}
               mono
               inputType="number"
             />
+            {row.doseKind === "booster" && row.doseNumber === null && (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  letterSpacing: "0.08em",
+                  color: H.meta,
+                }}
+              >
+                {displayDoseLabel(row)}
+              </div>
+            )}
           </div>
           <div>
             <Label>Lot</Label>
@@ -534,6 +560,29 @@ function EditableValue({
   );
 }
 
+function KindPill({ kind }: { kind: "booster" | "birth" }) {
+  const label = kind === "booster" ? "Booster" : "Birth dose";
+  return (
+    <span
+      aria-label={`Dose class: ${label}`}
+      style={{
+        fontFamily: F.mono,
+        fontSize: 9.5,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: H.copperInk,
+        padding: "3px 8px",
+        background: H.paper2,
+        border: `1px solid ${H.copper}`,
+        borderRadius: 0,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 function ConfidenceBadge({ confidence }: { confidence: number }) {
   const amber = confidence < CONFIDENCE_THRESHOLD;
   const color = amber ? H.amber : H.ok;
@@ -563,6 +612,8 @@ export function ParsedResults({
   imageUrl,
   onRowsChanged,
   onProceed,
+  onReparse,
+  reparsing,
   headerSlot,
 }: ParsedResultsProps) {
   /** Rows the clinician explicitly acknowledged with "Keep as read".
@@ -629,6 +680,22 @@ export function ParsedResults({
 
   const proceedEnabled = unresolvedCount === 0 && rows.length > 0;
 
+  // Re-parse guard: if the clinician has corrections in flight, warn
+  // before the fresh parse blows them away. edited.size is the
+  // authoritative "has unsaved corrections" signal — acknowledgement
+  // does not count (no value changed).
+  const hasCorrections = edited.size > 0;
+  const handleReparseClick = useCallback(() => {
+    if (!onReparse || reparsing) return;
+    if (hasCorrections) {
+      const ok = window.confirm(
+        "Re-parsing will replace current extracted rows. Continue?",
+      );
+      if (!ok) return;
+    }
+    void onReparse();
+  }, [onReparse, reparsing, hasCorrections]);
+
   return (
     <section
       style={{
@@ -679,17 +746,52 @@ export function ParsedResults({
         </div>
         <div
           style={{
-            fontFamily: F.mono,
-            fontSize: 11,
-            letterSpacing: "0.08em",
-            color: amberCount > 0 ? H.amber : H.meta,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
           }}
         >
-          {amberCount === 0
-            ? "All rows confident"
-            : unresolvedCount === 0
-              ? `${amberCount} flagged · all reviewed`
-              : `${unresolvedCount} of ${amberCount} flagged row${amberCount === 1 ? "" : "s"} awaiting review`}
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11,
+              letterSpacing: "0.08em",
+              color: amberCount > 0 ? H.amber : H.meta,
+            }}
+          >
+            {amberCount === 0
+              ? "All rows confident"
+              : unresolvedCount === 0
+                ? `${amberCount} flagged · all reviewed`
+                : `${unresolvedCount} of ${amberCount} flagged row${amberCount === 1 ? "" : "s"} awaiting review`}
+          </div>
+          {onReparse && (
+            <button
+              type="button"
+              onClick={handleReparseClick}
+              disabled={reparsing}
+              title={
+                hasCorrections
+                  ? "Re-run the vision pass with the current rules. Your edits will be replaced after confirmation."
+                  : "Re-run the vision pass with the current rules."
+              }
+              style={{
+                padding: "6px 12px",
+                fontFamily: F.mono,
+                fontSize: 10.5,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: reparsing ? H.faint : H.copperInk,
+                background: "transparent",
+                border: `1px solid ${reparsing ? H.stone : H.copper}`,
+                cursor: reparsing ? "not-allowed" : "pointer",
+              }}
+            >
+              {reparsing ? "Re-parsing…" : "Re-parse with current rules"}
+            </button>
+          )}
         </div>
       </header>
 

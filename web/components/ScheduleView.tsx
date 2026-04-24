@@ -341,8 +341,20 @@ export function ScheduleView({
 
 function VerdictRow({ result }: { result: ValidateScheduleResult }) {
   const valid = result.valid;
+  // Booster rows (and any row the engine cannot safely validate) surface
+  // as AMBER even when valid=true. The engine's honest answer is "I did
+  // not find a violation but I do not carry a schedule rule for this" —
+  // the clinician still has to confirm. This preserves the two-gate
+  // posture: RED = engine rejects, AMBER = engine defers to clinician.
+  const amberReview = Boolean(result.needs_clinician_confirmation);
 
-  const shell: React.CSSProperties = valid
+  const shell: React.CSSProperties = amberReview
+    ? {
+        background: H.card,
+        border: `1px solid ${H.amber}`,
+        borderLeft: `3px solid ${H.amber}`,
+      }
+    : valid
     ? {
         background: H.card,
         border: `1px solid ${H.rule}`,
@@ -383,7 +395,14 @@ function VerdictRow({ result }: { result: ValidateScheduleResult }) {
               color: H.meta,
             }}
           >
-            {result.antigen} · dose {result.dose_number}
+            {result.antigen}
+            {result.dose_kind === "booster"
+              ? result.dose_number !== null
+                ? ` · booster (dose ${result.dose_number})`
+                : " · booster"
+              : result.dose_number !== null
+              ? ` · dose ${result.dose_number}`
+              : ""}
           </div>
           <div
             style={{
@@ -411,7 +430,7 @@ function VerdictRow({ result }: { result: ValidateScheduleResult }) {
           </div>
         </div>
 
-        <VerdictBadge valid={valid} />
+        <VerdictBadge valid={valid} amberReview={amberReview} />
       </div>
 
       {/* Reasons — engine-authored, rendered verbatim. Already carry
@@ -479,9 +498,29 @@ function VerdictRow({ result }: { result: ValidateScheduleResult }) {
   );
 }
 
-function VerdictBadge({ valid }: { valid: boolean }) {
-  const color = valid ? H.ok : H.bad;
-  const bg = valid ? H.okSoft : H.badSoft;
+function VerdictBadge({
+  valid,
+  amberReview,
+}: {
+  valid: boolean;
+  amberReview: boolean;
+}) {
+  let color: string;
+  let bg: string;
+  let label: string;
+  if (amberReview) {
+    color = H.amber;
+    bg = H.amberSoft;
+    label = "Clinician review";
+  } else if (valid) {
+    color = H.ok;
+    bg = H.okSoft;
+    label = "Valid";
+  } else {
+    color = H.bad;
+    bg = H.badSoft;
+    label = "Interval violation";
+  }
   return (
     <span
       style={{
@@ -496,7 +535,7 @@ function VerdictBadge({ valid }: { valid: boolean }) {
         whiteSpace: "nowrap",
       }}
     >
-      {valid ? "Valid" : "Interval violation"}
+      {label}
     </span>
   );
 }

@@ -55,9 +55,12 @@ import type {
   ParsedCardOutput,
   ParsedCardRow,
   ReconciledDose,
-  ValidateScheduleRecord,
   ValidateScheduleResult,
 } from "@/lib/types";
+import {
+  buildValidationRecords,
+  rowsSignature as computeRowsSignature,
+} from "@/lib/validation";
 
 // Pharos tokens — match existing convention.
 const H = {
@@ -83,79 +86,10 @@ const F = {
   mono:  "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
 };
 
-// Antigens the engine carries valid INTERVAL_RULES for today (PRD §8.2).
-// Rows outside this set are SHOWN in parse + letter but NOT sent to
-// /validate-schedule — the engine's fallback interval would mislead.
-const ENGINE_COVERED_ANTIGENS = new Set([
-  "BCG", "HepB", "OPV", "bOPV", "IPV", "DTP", "DTaP", "DPT",
-  "Hib", "PCV", "Rotavirus", "MMR", "Measles",
-]);
-
 type Phase = "intake" | "upload" | "redact" | "parse" | "validate" | "export";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function daysBetween(a: string, b: string): number | null {
-  const da = Date.parse(a);
-  const db = Date.parse(b);
-  if (Number.isNaN(da) || Number.isNaN(db)) return null;
-  return Math.round((da - db) / 86_400_000);
-}
-
-/** For each engine-eligible row, compute prior_dose_age_days against
- * the previous dose of the same antigen in chronological order. */
-function buildValidationRecords(
-  rows: ParsedCardRow[],
-  childDob: string,
-): { records: ValidateScheduleRecord[]; indices: number[] } {
-  const eligibleIndices = rows
-    .map((r, i) => ({ r, i }))
-    .filter(
-      (x) =>
-        ENGINE_COVERED_ANTIGENS.has(x.r.antigen) &&
-        x.r.date !== null &&
-        x.r.date !== "" &&
-        x.r.doseNumber !== null,
-    );
-
-  // Group by antigen, sort by date ascending.
-  const byAntigen = new Map<string, { r: ParsedCardRow; i: number }[]>();
-  for (const x of eligibleIndices) {
-    const key = x.r.antigen;
-    const list = byAntigen.get(key) ?? [];
-    list.push(x);
-    byAntigen.set(key, list);
-  }
-  for (const list of byAntigen.values()) {
-    list.sort((a, b) => (a.r.date! < b.r.date! ? -1 : 1));
-  }
-
-  // Walk each group; compute prior_dose_age_days from the previous
-  // same-antigen dose. Preserves original row indices for re-joining.
-  const records: ValidateScheduleRecord[] = [];
-  const indices: number[] = [];
-  const priorByOriginalIndex = new Map<number, number | null>();
-  for (const list of byAntigen.values()) {
-    let priorAge: number | null = null;
-    for (const { r, i } of list) {
-      const age = daysBetween(r.date!, childDob);
-      priorByOriginalIndex.set(i, priorAge);
-      priorAge = age;
-    }
-  }
-
-  for (const { r, i } of eligibleIndices) {
-    records.push({
-      antigen: r.antigen,
-      date: r.date!,
-      dose_number: r.doseNumber!,
-      prior_dose_age_days: priorByOriginalIndex.get(i) ?? null,
-    });
-    indices.push(i);
-  }
-
-  return { records, indices };
-}
+// Pure helpers (buildValidationRecords, rowsSignature, ENGINE_COVERED_ANTIGENS)
+// live in @/lib/validation so booster handling stays testable.
 
 // ── Progress rail ────────────────────────────────────────────────────────────
 
@@ -512,6 +446,15 @@ export default function DemoPage() {
     async (payload: RedactionApplyPayload) => {
       setParsing(true);
       setParseError(null);
+      // A re-parse after the clinician has already cross-checked once
+      // MUST reset the downstream validation state; otherwise the old
+      // engine verdicts render against fresh (potentially different)
+      // rows. phaseEReady gates ScheduleView, so we also toggle it off
+      // — the clinician re-confirms Proceed after reviewing the new
+      // extraction. No double-fire: ScheduleView does not mount until
+      // phaseEReady flips back to true.
+      setPhaseEReady(false);
+      setValidationResults(null);
       try {
         const form = new FormData();
         form.append("file", payload.blob, "card.jpg");
@@ -546,6 +489,22 @@ export default function DemoPage() {
     [meta.sourceCountry, meta.childDob],
   );
 
+  // "Re-parse with current rules" — re-run the vision pass against the
+  // same redacted payload without asking the clinician to re-upload.
+  // The blob lives in `redacted` for the session. When it is gone (the
+  // user cleared the upload), we surface that to the clinician rather
+  // than silently doing nothing. ParsedResults owns the "warn before
+  // overwriting corrections" confirm dialog.
+  const handleReparse = useCallback(async () => {
+    if (!redacted) {
+      setParseError(
+        "Original card file is no longer available. Please upload again.",
+      );
+      return;
+    }
+    await runParse(redacted);
+  }, [redacted, runParse]);
+
   // Build validation payload from current (possibly clinician-edited) rows.
   const { records: validationRecords, indices: validationIndices } = useMemo(
     () => buildValidationRecords(rows, meta.childDob),
@@ -556,9 +515,7 @@ export default function DemoPage() {
   // re-key ScheduleView so it remounts and re-auto-runs the engine
   // call when the clinician edits a row and re-submits.
   const rowsSignature = useMemo(
-    () => validationRecords.map(r =>
-      `${r.antigen}|${r.date}|${r.dose_number}|${r.prior_dose_age_days ?? 'n'}`,
-    ).join('·') + '|' + meta.childDob,
+    () => computeRowsSignature(validationRecords, meta.childDob),
     [validationRecords, meta.childDob],
   );
 
@@ -749,6 +706,8 @@ export default function DemoPage() {
             onRowsChanged={handleRowsChanged}
             headerSlot={<ExplainerParsePlayer maxWidth={1040} autoPlay loop={false} />}
             onProceed={() => setPhaseEReady(true)}
+            onReparse={redacted ? handleReparse : undefined}
+            reparsing={parsing}
           />
         )}
 
