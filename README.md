@@ -20,6 +20,61 @@ The frontend is Next.js with SSE streaming, so the agent's reasoning is visible 
 
 ---
 
+## Clinical safety architecture
+
+Hathor does not autonomously decide vaccination. It reads, it reconciles, and
+it asks a licensed clinician to confirm. Two deterministic gates bracket the
+agent's reasoning; the clinician has final authority over both.
+
+- **AMBER gate — Vision Safety Loop (per field).** Every value extracted
+  from a vaccination card carries a confidence score. Anything below 0.85 —
+  including whole rows flagged amber by the vision pass, Arabic-digit
+  ambiguity (for example ٣ vs ١ on handwritten years), or rows on a card
+  detected to be rotated 90°/180° — routes to the clinician for review
+  before any downstream step sees the value.
+- **RED gate — Reasoning Safety Loop (per recommendation).** Every
+  clinical recommendation passes through a deterministic rules engine
+  derived from the WHO DAK. Biologically impossible records (a dose date
+  earlier than the child's DOB), minimum-age violations, and interval
+  violations are rejected; the row stays in the review surface with a
+  specific engine-authored reason string. The clinician can override a
+  RED verdict; overrides are logged with rule ID and reason to the FHIR
+  Provenance resource.
+
+Agents read → rules reconcile → clinician confirms. A public-health nurse or
+physician is always the party who authorises administration. Code paths that
+bypass either gate are a bug.
+
+**Booster-dose handling.** Egyptian MoHP cards print an explicit booster row
+("جرعة منشطة") alongside the numbered primary series. The vision pass
+classifies every row with a `dose_kind` of `primary`, `booster`, `birth`, or
+`unknown`; booster rows travel through the rules engine with
+`dose_number=null` and are validated by antigen + age + interval instead of
+a dose position the engine does not encode. When the engine cannot safely
+prove a booster valid or invalid, it returns `needs_clinician_confirmation`
+so the row surfaces as amber rather than either auto-approving or silently
+disappearing.
+
+**Arabic / Egyptian card support.** Eastern Arabic digits (٠–٩) are
+recognised alongside Western numerals; known handwriting confusions (٣/١,
+٢/٧) drop the relevant cell's field confidence and surface an explicit
+reason string that the clinician can audit in one second. Clinician edits
+use native `<input type="date">` so Egyptian DD/MM/YYYY order cannot
+silently corrupt the wire format.
+
+**Rotation / orientation flagging.** The vision pass reads the printed
+header and flags 90°/180° rotations in `reasoning_if_uncertain` for every
+row on that card, so the clinician can re-photograph instead of guessing.
+
+**Outputs.** Only engine-validated rows enter the FHIR R4 Immunization
+bundle (IMMZ-aligned, not IMMZ-conformant — Phase 1.0 demo scope). Booster
+rows are preserved through `Immunization.protocolApplied.series = "booster"`.
+The printable clinical letter shows every reviewed row — valid, awaiting
+clinician review, or RED — so the physician has complete visibility even
+when the data bundle does not.
+
+---
+
 ## Demo
 
 The flagship case: a 22-month-old child born in Lagos, relocating to Cairo. Her Nigerian NPI card shows the full 6/10/14-week primary series (Pentavalent, OPV, PCV13, Rotavirus, IPV at 14 weeks), plus Measles monovalent and Yellow Fever at 9 months. Target schedule: Egypt's EPI.

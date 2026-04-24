@@ -60,6 +60,10 @@ export interface FhirImmunization {
   lotNumber?: string;
   protocolApplied?: Array<{
     doseNumberPositiveInt?: number;
+    /** FHIR R4 string — HATHOR uses it to preserve booster / birth
+     * classification from the source card so the letter and downstream
+     * clinician can tell a primary dose from a booster. */
+    series?: string;
     targetDisease?: FhirCodeableConcept[];
   }>;
   extension?: FhirExtension[];
@@ -110,12 +114,22 @@ export function buildPatient(args: BuildPatientArgs): FhirPatient {
   };
 }
 
+/** protocolApplied[].series is a plain FHIR R4 string. We use it to
+ * preserve whether a row was a primary, booster, birth, or unknown
+ * dose class — the engine needs that to validate boosters, and the
+ * letter reads it to label rows. No IMMZ slot change. */
+export interface FhirProtocolApplied {
+  doseNumberPositiveInt?: number;
+  series?: string;
+  targetDisease?: FhirCodeableConcept[];
+}
+
 /** Build a single Immunization resource from an engine-validated dose.
  *
- * Only called for doses where verdict.valid === true. PRD §5.6
- * Reasoning Safety Loop: we do not emit Immunization resources for
- * invalid doses — those stay in the review UI until the clinician
- * resolves them. */
+ * Only called for doses where verdict.valid === true AND the engine
+ * does not need clinician confirmation. PRD §5.6 Reasoning Safety
+ * Loop: rows that are invalid OR that the engine deferred on stay in
+ * the review UI / letter but are NOT written to the data bundle. */
 export function buildImmunization(
   patient: FhirPatient,
   dose: ReconciledDose,
@@ -125,6 +139,14 @@ export function buildImmunization(
       `buildImmunization: refusing to emit resource for invalid dose ` +
         `(antigen=${dose.parsed.antigen}, dose_number=${dose.parsed.doseNumber}). ` +
         `PRD §5.6 — only engine-validated doses reach the FHIR bundle.`,
+    );
+  }
+
+  if (dose.verdict.needs_clinician_confirmation) {
+    throw new Error(
+      `buildImmunization: refusing to emit resource for a dose the engine ` +
+        `deferred on (antigen=${dose.parsed.antigen}, dose_kind=${dose.parsed.doseKind}). ` +
+        `These rows stay in the clinician review surface until resolved.`,
     );
   }
 
@@ -149,6 +171,20 @@ export function buildImmunization(
     });
   }
 
+  // Only emit protocolApplied when we have SOMETHING meaningful to put
+  // in it — a numbered dose, a booster/birth class, or both. Empty
+  // protocolApplied entries are valid FHIR but carry no information.
+  const proto: FhirProtocolApplied = {};
+  if (dose.parsed.doseNumber !== null) {
+    proto.doseNumberPositiveInt = dose.parsed.doseNumber;
+  }
+  if (dose.parsed.doseKind === "booster" || dose.parsed.doseKind === "birth") {
+    proto.series = dose.parsed.doseKind;
+  }
+  const hasProto =
+    proto.doseNumberPositiveInt !== undefined ||
+    proto.series !== undefined;
+
   return {
     resourceType: "Immunization",
     id: id("imm"),
@@ -157,27 +193,27 @@ export function buildImmunization(
     patient: { reference: `Patient/${patient.id}` },
     occurrenceDateTime: dose.parsed.date,
     ...(dose.parsed.lotNumber ? { lotNumber: dose.parsed.lotNumber } : {}),
-    ...(dose.parsed.doseNumber !== null
-      ? {
-          protocolApplied: [
-            { doseNumberPositiveInt: dose.parsed.doseNumber },
-          ],
-        }
-      : {}),
+    ...(hasProto ? { protocolApplied: [proto] } : {}),
     extension: ext,
   };
 }
 
 /** Build a collection Bundle with one Patient + one Immunization per
- * engine-valid dose. Invalid doses are filtered out silently — see
- * buildImmunization for the PRD §5.6 rationale. */
+ * engine-valid dose. Invalid doses and clinician-review-needed rows
+ * are filtered out silently — see buildImmunization for the PRD §5.6
+ * rationale. */
 export function buildImmunizationBundle(
   patientArgs: BuildPatientArgs,
   doses: ReconciledDose[],
 ): FhirBundle {
   const patient = buildPatient(patientArgs);
   const immunizations = doses
-    .filter((d) => d.verdict.valid && d.parsed.date)
+    .filter(
+      (d) =>
+        d.verdict.valid &&
+        !d.verdict.needs_clinician_confirmation &&
+        d.parsed.date,
+    )
     .map((d) => buildImmunization(patient, d));
 
   return {

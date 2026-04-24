@@ -86,11 +86,13 @@ export function ExportPanel({
   const counts = useMemo(() => {
     let valid = 0;
     let invalid = 0;
+    let review = 0;
     for (const d of doses) {
-      if (d.verdict.valid) valid++;
+      if (d.verdict.needs_clinician_confirmation) review++;
+      else if (d.verdict.valid) valid++;
       else invalid++;
     }
-    return { valid, invalid, total: doses.length };
+    return { valid, invalid, review, total: doses.length };
   }, [doses]);
 
   const canDownloadBundle = counts.valid > 0;
@@ -317,13 +319,19 @@ export function ExportPanel({
           >
             Includes all {counts.total} reviewed dose
             {counts.total === 1 ? "" : "s"}
+            {counts.review > 0 && (
+              <>
+                , <strong style={{ color: "#B8833B" }}>{counts.review}
+                awaiting clinician review</strong>
+              </>
+            )}
             {counts.invalid > 0 && (
               <>
                 , <strong style={{ color: H.bad }}>{counts.invalid} with
                 interval violations</strong>
               </>
             )}
-            . Use your browser's print dialog to save as PDF.
+            . Use your browser&apos;s print dialog to save as PDF.
           </p>
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <button
@@ -400,7 +408,7 @@ interface LetterArgs {
   sourceCountry?: CountryCode;
   destinationCountry?: CountryCode;
   intake?: IntakeContext;
-  counts: { valid: number; invalid: number; total: number };
+  counts: { valid: number; invalid: number; review: number; total: number };
 }
 
 function renderLetterHtml({
@@ -419,9 +427,33 @@ function renderLetterHtml({
 
   const rowsHtml = doses
     .map((d, i) => {
-      const verdict = d.verdict.valid
-        ? `<span class="verdict ok">Valid</span>`
-        : `<span class="verdict bad">Interval violation</span>`;
+      const amberReview = Boolean(d.verdict.needs_clinician_confirmation);
+      const shellClass = amberReview
+        ? "review"
+        : d.verdict.valid
+          ? "valid"
+          : "invalid";
+      const verdict = amberReview
+        ? `<span class="verdict amber">Clinician review</span>`
+        : d.verdict.valid
+          ? `<span class="verdict ok">Valid</span>`
+          : `<span class="verdict bad">Interval violation</span>`;
+      // Header label: "DTP · booster" / "DTP · booster (dose 4)" /
+      // "DTP · dose 3" depending on what the card actually said.
+      const kind = d.parsed.doseKind;
+      const doseNum = d.verdict.dose_number;
+      const headerDose =
+        kind === "booster"
+          ? doseNum !== null
+            ? `booster (dose ${doseNum})`
+            : "booster"
+          : kind === "birth"
+            ? doseNum !== null
+              ? `birth dose ${doseNum}`
+              : "birth dose"
+            : doseNum !== null
+              ? `dose ${doseNum}`
+              : "dose n/a";
       const reasons = d.verdict.reasons
         .map((r) => `<li>${escapeHtml(r)}</li>`)
         .join("");
@@ -429,11 +461,11 @@ function renderLetterHtml({
         .map((f) => `<li>${escapeHtml(f)}</li>`)
         .join("");
       return `
-        <article class="dose ${d.verdict.valid ? "valid" : "invalid"}">
+        <article class="dose ${shellClass}">
           <header class="dose-head">
             <div>
               <div class="label">Dose ${i + 1}</div>
-              <div class="antigen">${escapeHtml(d.parsed.antigen)} · dose ${d.verdict.dose_number}</div>
+              <div class="antigen">${escapeHtml(d.parsed.antigen)} · ${headerDose}</div>
             </div>
             ${verdict}
           </header>
@@ -561,8 +593,9 @@ function renderLetterHtml({
     letter-spacing: 0.06em;
     color: #44403C;
   }
-  .summary .stat.bad { color: #A3453B; }
-  .summary .stat.ok  { color: #5F7A52; }
+  .summary .stat.bad   { color: #A3453B; }
+  .summary .stat.ok    { color: #5F7A52; }
+  .summary .stat.amber { color: #B8833B; }
 
   .dose {
     border: 1px solid #E7E2DA;
@@ -573,6 +606,7 @@ function renderLetterHtml({
   }
   .dose.invalid { border-left: 3px solid #A3453B; }
   .dose.valid   { border-left: 3px solid #5F7A52; }
+  .dose.review  { border-left: 3px solid #B8833B; }
   .dose-head {
     display: flex;
     justify-content: space-between;
@@ -615,8 +649,9 @@ function renderLetterHtml({
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
-  .verdict.ok  { color: #5F7A52; border: 1px solid #5F7A52; background: #E8EEE1; }
-  .verdict.bad { color: #A3453B; border: 1px solid #A3453B; background: #F3E3DF; }
+  .verdict.ok    { color: #5F7A52; border: 1px solid #5F7A52; background: #E8EEE1; }
+  .verdict.bad   { color: #A3453B; border: 1px solid #A3453B; background: #F3E3DF; }
+  .verdict.amber { color: #B8833B; border: 1px solid #B8833B; background: #F4E9D1; }
 
   .block { margin-top: 6px; }
   .block ul { margin: 4px 0 0 0; padding-left: 16px; }
@@ -662,6 +697,7 @@ function renderLetterHtml({
   <div class="summary">
     <div class="stat">Total reviewed · ${counts.total}</div>
     <div class="stat ok">Engine-valid · ${counts.valid}</div>
+    ${counts.review > 0 ? `<div class="stat amber">Clinician review · ${counts.review}</div>` : ""}
     ${counts.invalid > 0 ? `<div class="stat bad">Interval violations · ${counts.invalid}</div>` : ""}
   </div>
 

@@ -52,6 +52,15 @@ export interface ImageCropRegion {
   height: number;
 }
 
+/** Clinical class of a vaccination card row. The primary/booster split
+ * is load-bearing: Egyptian MoHP cards print booster (منشطة) rows
+ * alongside the numbered primary series, and the schedule engine
+ * validates booster doses by antigen + age + interval rather than by a
+ * dose position it does not carry. "birth" flags BCG / HepB rows the
+ * card explicitly marks as birth doses. "unknown" is the honest answer
+ * when the card does not say. */
+export type DoseKind = "primary" | "booster" | "birth" | "unknown";
+
 /** One row extracted from a vaccination card by the single /api/parse-card
  * vision call. Confidence is per-row in aggregate; individual fields
  * (date vs. antigen vs. dose_number) can carry their own reasoning strings
@@ -59,7 +68,11 @@ export interface ImageCropRegion {
 export interface ParsedCardRow {
   antigen: string;                        // canonical antigen code, e.g. "BCG", "DTP"
   date: string | null;                    // ISO YYYY-MM-DD, or null if unreadable
-  doseNumber: number | null;              // 1, 2, 3, …; null if not on card
+  doseNumber: number | null;              // 1, 2, 3, …; null if not on card (e.g. booster rows)
+  /** Clinical class of the row. See DoseKind. Booster rows are not
+   * forced into numbered primary slots — they carry doseKind="booster"
+   * and doseNumber=null unless the card itself numbers them. */
+  doseKind: DoseKind;
   lotNumber?: string | null;
   confidence: number;                     // 0..1, aggregate for the row
   reasoningIfUncertain?: string | null;   // plain-language reason — rendered verbatim per PRD §5.6
@@ -103,7 +116,14 @@ export interface RedactionRect {
 export interface ValidateScheduleRecord {
   antigen: string;
   date: string;                    // ISO YYYY-MM-DD
-  dose_number: number;
+  /** Dose position within the primary series. Null for booster rows
+   * where the card does not number the booster — the engine validates
+   * those by antigen + age + interval via dose_kind. */
+  dose_number: number | null;
+  /** Clinical class of the row (mirrors ParsedCardRow.doseKind over the
+   * engine wire in snake_case). Defaults to "primary" server-side when
+   * omitted, preserving backward compatibility with earlier payloads. */
+  dose_kind?: DoseKind;
   prior_dose_age_days: number | null;
 }
 
@@ -117,11 +137,19 @@ export interface ValidateScheduleRequest {
  * NOT reshaped — the server hands back exactly what validate_dose emits. */
 export interface ValidateScheduleResult {
   antigen: string;
-  dose_number: number;
+  /** Null when the row was a booster with no numbered position on the
+   * card — the engine preserves what it received. */
+  dose_number: number | null;
+  dose_kind?: DoseKind;
   age_at_dose_days: number;
   target_country: string;
   prior_dose_age_days: number | null;
   valid: boolean;
+  /** True when the engine cannot safely prove the dose valid or invalid
+   * on its own (e.g., a booster against an antigen whose schedule rule
+   * it does not encode). UI treats this as AMBER review-needed — the
+   * row is NOT silently dropped, but it is NOT auto-approved either. */
+  needs_clinician_confirmation?: boolean;
   reasons: string[];
   flags: string[];
 }
