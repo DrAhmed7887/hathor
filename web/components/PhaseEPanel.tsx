@@ -91,25 +91,48 @@ export function PhaseEPanel({ payload, recommendations, onOverrideSubmitted }: P
         </div>
       )}
 
-      {/* Recommendation list */}
+      {/* Recommendation list — deduped by recommendation_id.
+          The Phase-E stream can emit multiple ValidationResults for
+          the same recommendation_id across iterative agent passes
+          (each new emit_recommendations tool call re-validates and
+          appends). The UI contract is "the latest verdict supersedes
+          earlier ones" — matches Phase-E semantics where
+          result.supersedes points backward, not forward. Rendering
+          the raw array produced duplicate React keys (rec-025,
+          rec-026, etc.) flooding the console. Dedupe here, keep
+          insertion order of the FIRST time each id was seen so the
+          list doesn't visually jitter when a later iteration lands. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {active_results.map((result) => {
-          const rec = recommendations[result.recommendation_id] ?? {
-            recommendation_id: result.recommendation_id,
-            kind: "dose_verdict",
-            antigen: "",
-            agent_rationale: result.rule_slug ?? result.recommendation_id,
-          };
-          return (
-            <RecommendationCard
-              key={result.recommendation_id}
-              recommendation={rec}
-              result={result}
-              overrideEndpoint={override_endpoint}
-              onOverrideSubmitted={onOverrideSubmitted}
-            />
-          );
-        })}
+        {(() => {
+          const lastByRecId = new Map<string, typeof active_results[number]>();
+          for (const r of active_results) lastByRecId.set(r.recommendation_id, r);
+          const firstOrderIds: string[] = [];
+          const seen = new Set<string>();
+          for (const r of active_results) {
+            if (!seen.has(r.recommendation_id)) {
+              seen.add(r.recommendation_id);
+              firstOrderIds.push(r.recommendation_id);
+            }
+          }
+          return firstOrderIds.map((id) => {
+            const result = lastByRecId.get(id)!;
+            const rec = recommendations[id] ?? {
+              recommendation_id: id,
+              kind: "dose_verdict",
+              antigen: "",
+              agent_rationale: result.rule_slug ?? id,
+            };
+            return (
+              <RecommendationCard
+                key={id}
+                recommendation={rec}
+                result={result}
+                overrideEndpoint={override_endpoint}
+                onOverrideSubmitted={onOverrideSubmitted}
+              />
+            );
+          });
+        })()}
       </div>
 
       {/* Footer summary */}
