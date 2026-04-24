@@ -1414,7 +1414,35 @@ class TestEmitRecommendationsIntegration(unittest.TestCase):
     dose-aware rule to silently return None, which bypasses the Friction by Design
     override_required pathway. This is the exact failure mode the smoke test
     surfaced; this test pins the contract so it cannot regress.
+
+    Completeness fixture: these tests exercise the full emit_recommendations
+    boundary, which now runs ``_check_emission_completeness`` before ``gate()``.
+    The fixture confirmed_doses list below carries enough antigens — a Nigerian
+    NPI-complete record — to satisfy every entry in
+    ``REQUIRED_COMPONENT_ANTIGENS``. Tests that want to probe completeness
+    violations should build their own minimal fixtures.
     """
+
+    # A Nigerian NPI-complete dose list — covers every REQUIRED_COMPONENT_ANTIGEN
+    # via Pentavalent (Diphtheria, Tetanus, Pertussis, HepB, Hib), OPV (Polio),
+    # BCG, Measles monovalent, and Rotavirus. Mumps + Rubella are not routinely
+    # given in Nigeria NPI — tests that rely on this fixture include an explicit
+    # Measles dose as the antigen and treat the Mumps/Rubella requirement as
+    # satisfied via the Measles token only if MMR is also present. The fixture
+    # below includes MMR to close that gap for completeness-compliant tests.
+    _NPI_COMPLETE_DOSES: list[dict] = [
+        {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+        {"antigen": "HepB",        "date_administered": "2024-01-02", "dose_number": 1},
+        {"antigen": "OPV",         "date_administered": "2024-01-02", "dose_number": 1},
+        {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+        {"antigen": "OPV",         "date_administered": "2024-02-12", "dose_number": 2},
+        {"antigen": "Pentavalent", "date_administered": "2024-03-11", "dose_number": 2},
+        {"antigen": "OPV",         "date_administered": "2024-03-11", "dose_number": 3},
+        {"antigen": "Pentavalent", "date_administered": "2024-04-08", "dose_number": 3},
+        {"antigen": "IPV",         "date_administered": "2024-04-08", "dose_number": 1},
+        {"antigen": "Measles",     "date_administered": "2024-10-01", "dose_number": 1},
+        {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+    ]
 
     def _invoke(self, payload: dict) -> dict:
         """Invoke the emit_recommendations tool handler synchronously and parse the
@@ -1430,7 +1458,14 @@ class TestEmitRecommendationsIntegration(unittest.TestCase):
         """Child DOB 2024-01-01, rotavirus dose 1 at 2024-05-01 (121 days = past the
         15-week ACIP cutoff), source_country Nigeria (high-burden). Agent emits a
         dose_verdict with source_dose_indices=[0]. Phase E must return
-        override_required with HIGH_BURDEN_ORIGIN among the justification codes."""
+        override_required with HIGH_BURDEN_ORIGIN among the justification codes.
+
+        Uses the NPI-complete fixture so the completeness check passes.
+        """
+        confirmed_doses = [
+            {"antigen": "Rotavirus", "date_administered": "2024-05-01", "dose_number": 1},
+            *self._NPI_COMPLETE_DOSES,
+        ]
         payload = {
             "recommendations": [
                 {
@@ -1448,14 +1483,13 @@ class TestEmitRecommendationsIntegration(unittest.TestCase):
                 "child_dob": "2024-01-01",
                 "target_country": "Egypt",
                 "source_country": "Nigeria",
-                "confirmed_doses": [
-                    {"antigen": "Rotavirus", "date_administered": "2024-05-01", "dose_number": 1},
-                ],
+                "confirmed_doses": confirmed_doses,
             },
         }
 
         body = self._invoke(payload)
 
+        self.assertNotIn("error", body, f"completeness should pass; got: {body}")
         self.assertTrue(body["has_override_required"], body)
         # HATHOR-AGE-003 must surface in active results with override_required severity
         age003 = [r for r in body["active_results"] if r["rule_id"] == "HATHOR-AGE-003"]
@@ -1471,6 +1505,10 @@ class TestEmitRecommendationsIntegration(unittest.TestCase):
 
         This test pins that behavior so if we ever "fix" the guard to also fire on
         malformed input, the contract change is explicit."""
+        confirmed_doses = [
+            {"antigen": "Rotavirus", "date_administered": "2024-05-01", "dose_number": 1},
+            *self._NPI_COMPLETE_DOSES,
+        ]
         payload = {
             "recommendations": [
                 {
@@ -1488,16 +1526,385 @@ class TestEmitRecommendationsIntegration(unittest.TestCase):
                 "child_dob": "2024-01-01",
                 "target_country": "Egypt",
                 "source_country": "Nigeria",
-                "confirmed_doses": [
-                    {"antigen": "Rotavirus", "date_administered": "2024-05-01", "dose_number": 1},
-                ],
+                "confirmed_doses": confirmed_doses,
             },
         }
 
         body = self._invoke(payload)
+        self.assertNotIn("error", body, f"completeness should pass; got: {body}")
         # HATHOR-AGE-003 should be silent (no active result) when indices are missing
         age003 = [r for r in body["active_results"] if r["rule_id"] == "HATHOR-AGE-003"]
         self.assertEqual(len(age003), 0, "HATHOR-AGE-003 must not fire without source_dose_indices")
+
+
+# ── Server-side emission completeness + ID namespace ownership ────────────────
+
+
+class TestEmissionCompletenessAndIdNamespace(unittest.TestCase):
+    """Exercises the two server-side enforcements added at the
+    emit_recommendations boundary:
+
+    1. **Emission completeness** — every disease in
+       ``REQUIRED_COMPONENT_ANTIGENS`` must be covered by an emitted
+       recommendation OR a confirmed dose (combination products expand to
+       their components via COMBINATION_COMPONENTS + ANTIGEN_DISEASE_COVERAGE).
+    2. **ID namespace ownership** — the server assigns a fresh UUID4 to each
+       recommendation and preserves the agent-supplied id under ``agent_id``.
+    """
+
+    def _invoke(self, payload: dict) -> dict:
+        import asyncio
+        import json
+        from hathor.tools.emit_recommendations import emit_recommendations
+
+        response = asyncio.run(emit_recommendations.handler(payload))
+        return json.loads(response["content"][0]["text"])
+
+    def _full_payload(
+        self,
+        *,
+        recommendations: list[dict],
+        confirmed_doses: list[dict],
+        source_country: str = "Nigeria",
+    ) -> dict:
+        return {
+            "recommendations": recommendations,
+            "clinical_context": {
+                "child_dob": "2024-01-01",
+                "target_country": "Egypt",
+                "source_country": source_country,
+                "confirmed_doses": confirmed_doses,
+            },
+        }
+
+    # ── 1. Complete coverage via Nigerian-NPI-style combinations ─────────────
+
+    def test_pentavalent_satisfies_diphtheria_tetanus_pertussis_hepb_hib(self):
+        """Patient with Pentavalent x3, OPV, BCG, Measles, MMR, Rotavirus →
+        DPT-components (Diphtheria/Tetanus/Pertussis), HepB, and Hib are
+        satisfied by Pentavalent alone. Agent emits only Rotavirus. Completeness
+        passes (no incomplete_emission error); Phase E runs normally."""
+        doses = [
+            {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-03-11", "dose_number": 2},
+            {"antigen": "Pentavalent", "date_administered": "2024-04-08", "dose_number": 3},
+            {"antigen": "OPV",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Rotavirus",   "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Measles",     "date_administered": "2024-10-01", "dose_number": 1},
+            {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        payload = self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-cover-check",
+                    "kind": "due",
+                    "antigen": "Rotavirus",
+                    "dose_number": 2,
+                    "agent_rationale": "Rotavirus dose 2 due soon.",
+                    "reasoning": "Within schedule.",
+                    "agent_confidence": 0.9,
+                },
+            ],
+            confirmed_doses=doses,
+        )
+        body = self._invoke(payload)
+        self.assertNotIn("error", body, body)
+        self.assertIn("active_results", body)
+
+    # ── 2. Missing Rotavirus (no confirmed dose) → incomplete_emission ──────
+
+    def test_missing_rotavirus_without_dose_returns_incomplete_emission(self):
+        """Pentavalent + OPV + BCG + MMR satisfy everything except Rotavirus.
+        Agent omits Rotavirus. Server returns incomplete_emission with
+        ``missing_antigens == ['Rotavirus']``."""
+        doses = [
+            {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "OPV",         "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Measles",     "date_administered": "2024-10-01", "dose_number": 1},
+            {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        payload = self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-penta",
+                    "kind": "dose_verdict",
+                    "antigen": "Pentavalent",
+                    "dose_number": 1,
+                    "agent_rationale": "Pentavalent dose 1 valid.",
+                    "reasoning": "Given at 42 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [1],
+                },
+            ],
+            confirmed_doses=doses,
+        )
+        body = self._invoke(payload)
+        self.assertEqual(body.get("error"), "incomplete_emission", body)
+        self.assertEqual(body["missing_antigens"], ["Rotavirus"])
+        self.assertIn("source_dose_indices=[]", body["message"])
+
+    # ── 3. Missing Rotavirus emission but Rotavirus dose IS confirmed ──────
+
+    def test_missing_rotavirus_emission_but_dose_present_passes(self):
+        """Patient has a confirmed Rotavirus dose. Agent doesn't emit for
+        Rotavirus. Completeness still passes — confirmed dose covers the
+        requirement."""
+        doses = [
+            {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "OPV",         "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Rotavirus",   "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Measles",     "date_administered": "2024-10-01", "dose_number": 1},
+            {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        payload = self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-penta",
+                    "kind": "dose_verdict",
+                    "antigen": "Pentavalent",
+                    "dose_number": 1,
+                    "agent_rationale": "Pentavalent dose 1 valid.",
+                    "reasoning": "Given at 42 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [1],
+                },
+            ],
+            confirmed_doses=doses,
+        )
+        body = self._invoke(payload)
+        self.assertNotIn("error", body, body)
+
+    # ── 4. Duplicate agent IDs → reassigned to unique server ids ────────────
+
+    def test_duplicate_agent_recommendation_ids_get_unique_server_ids(self):
+        """Agent emits two recs with the same recommendation_id; server assigns
+        distinct UUID4s and preserves the agent id under agent_id on each
+        result."""
+        doses = [
+            {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "OPV",         "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Rotavirus",   "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Measles",     "date_administered": "2024-10-01", "dose_number": 1},
+            {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        payload = self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-dup",  # intentional duplicate
+                    "kind": "dose_verdict",
+                    "antigen": "Pentavalent",
+                    "dose_number": 1,
+                    "agent_rationale": "Pentavalent dose 1 valid.",
+                    "reasoning": "Given at 42 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [1],
+                },
+                {
+                    "recommendation_id": "rec-dup",  # same id — defect 2
+                    "kind": "dose_verdict",
+                    "antigen": "Rotavirus",
+                    "dose_number": 1,
+                    "agent_rationale": "Rotavirus dose 1 valid.",
+                    "reasoning": "Given at 42 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [3],
+                },
+            ],
+            confirmed_doses=doses,
+        )
+        body = self._invoke(payload)
+        self.assertNotIn("error", body, body)
+
+        # active_results contains one ValidationResult per (recommendation × rule)
+        # that fired. Two input recs with the same agent id must resolve to TWO
+        # distinct server-assigned recommendation_ids — the underlying defect
+        # (React key collisions from duplicated ids) goes away as soon as the
+        # set of distinct server ids equals the number of input recs.
+        unique_server_ids = {r["recommendation_id"] for r in body["active_results"]}
+        self.assertEqual(len(unique_server_ids), 2,
+                         f"expected 2 distinct server ids; got: {unique_server_ids}")
+        for r in body["active_results"]:
+            self.assertIn("agent_id", r)
+            self.assertEqual(r["agent_id"], "rec-dup")
+        # Server ids must be UUID-shaped, not the agent-supplied "rec-dup"
+        import re
+        uuid_re = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        for sid in unique_server_ids:
+            self.assertIsNotNone(uuid_re.match(sid), f"not a UUID: {sid}")
+            self.assertNotEqual(sid, "rec-dup")
+
+    # ── 5. End-to-end retry loop simulation ──────────────────────────────────
+
+    def test_agent_retry_loop_recovers_from_incomplete_emission(self):
+        """First call omits Rotavirus → incomplete_emission. Simulated retry
+        adds the missing Rotavirus recommendation. Second call succeeds and
+        Phase E fires HATHOR-AGE-003 override_required for the gap-mode
+        Rotavirus verdict."""
+        doses = [
+            {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "OPV",         "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Measles",     "date_administered": "2024-10-01", "dose_number": 1},
+            {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        # First call — missing Rotavirus emission.
+        first = self._invoke(self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-penta",
+                    "kind": "dose_verdict",
+                    "antigen": "Pentavalent",
+                    "dose_number": 1,
+                    "agent_rationale": "Pentavalent dose 1 valid.",
+                    "reasoning": "Given at 42 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [1],
+                },
+            ],
+            confirmed_doses=doses,
+        ))
+        self.assertEqual(first.get("error"), "incomplete_emission")
+        self.assertIn("Rotavirus", first["missing_antigens"])
+
+        # Simulated retry — agent adds the missing Rotavirus gap-mode
+        # dose_verdict per the error guidance.
+        second = self._invoke(self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-penta",
+                    "kind": "dose_verdict",
+                    "antigen": "Pentavalent",
+                    "dose_number": 1,
+                    "agent_rationale": "Pentavalent dose 1 valid.",
+                    "reasoning": "Given at 42 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [1],
+                },
+                {
+                    "recommendation_id": "rec-rota-gap",
+                    "kind": "dose_verdict",
+                    "antigen": "Rotavirus",
+                    "dose_number": 1,
+                    "agent_rationale": "No rotavirus dose on card; child past 15-week cutoff.",
+                    "reasoning": "Nigerian origin migrant; high-burden pathway applies.",
+                    "agent_confidence": 0.92,
+                    "source_dose_indices": [],
+                },
+            ],
+            confirmed_doses=doses,
+        ))
+        self.assertNotIn("error", second, second)
+        self.assertTrue(second["has_override_required"], second)
+        # The AGE-003 rule should fire on the gap-mode Rotavirus rec
+        age003 = [r for r in second["active_results"] if r["rule_id"] == "HATHOR-AGE-003"]
+        self.assertEqual(len(age003), 1)
+        self.assertEqual(age003[0]["severity"], "override_required")
+
+    # ── 6. Component satisfaction: Pentavalent covers 5, explicit Rotavirus/BCG/Polio/MMR emitted ──
+
+    def test_component_satisfaction_pentavalent_covers_five_diseases(self):
+        """Patient with Pentavalent x3 — no monovalent DPT/HepB/Hib emissions
+        needed. Agent emits for Rotavirus only. Completeness passes because
+        Pentavalent expands to DPT + HepB + Hib which covers Diphtheria,
+        Tetanus, Pertussis, HepB, Hib at the disease level."""
+        doses = [
+            {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-03-11", "dose_number": 2},
+            {"antigen": "Pentavalent", "date_administered": "2024-04-08", "dose_number": 3},
+            {"antigen": "OPV",         "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Rotavirus",   "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Measles",     "date_administered": "2024-10-01", "dose_number": 1},
+            {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        payload = self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-rota",
+                    "kind": "due",
+                    "antigen": "Rotavirus",
+                    "dose_number": 2,
+                    "agent_rationale": "Rotavirus dose 2 due.",
+                    "reasoning": "Within schedule.",
+                    "agent_confidence": 0.9,
+                },
+            ],
+            confirmed_doses=doses,
+        )
+        body = self._invoke(payload)
+        self.assertNotIn("error", body, body)
+
+    # ── 7. No DTP coverage — fails with DTP-related diseases in missing ─────
+
+    def test_missing_dtp_reported_as_three_diseases(self):
+        """Patient with no DTP/Pentavalent/Hexavalent. Completeness reports
+        Diphtheria, Tetanus, and Pertussis (three diseases) as missing — the
+        disease-level resolution visible to the agent."""
+        doses = [
+            {"antigen": "BCG",       "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "OPV",       "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Rotavirus", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "HepB",      "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Hib",       "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "MMR",       "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        payload = self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-bcg",
+                    "kind": "dose_verdict",
+                    "antigen": "BCG",
+                    "dose_number": 1,
+                    "agent_rationale": "BCG dose 1 valid.",
+                    "reasoning": "Given within 30 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [0],
+                },
+            ],
+            confirmed_doses=doses,
+        )
+        body = self._invoke(payload)
+        self.assertEqual(body.get("error"), "incomplete_emission", body)
+        self.assertEqual(
+            set(body["missing_antigens"]),
+            {"Diphtheria", "Tetanus", "Pertussis"},
+            body,
+        )
+
+    # ── 8. MMR covers Measles / Mumps / Rubella ──────────────────────────────
+
+    def test_mmr_covers_measles_mumps_rubella(self):
+        """Patient with MMR confirmed. Agent emits no separate Measles/Mumps/
+        Rubella recommendations. Completeness passes — MMR expansion covers
+        all three disease-level requirements."""
+        doses = [
+            {"antigen": "BCG",         "date_administered": "2024-01-02", "dose_number": 1},
+            {"antigen": "Pentavalent", "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "OPV",         "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "Rotavirus",   "date_administered": "2024-02-12", "dose_number": 1},
+            {"antigen": "MMR",         "date_administered": "2025-01-08", "dose_number": 1},
+        ]
+        payload = self._full_payload(
+            recommendations=[
+                {
+                    "recommendation_id": "rec-bcg",
+                    "kind": "dose_verdict",
+                    "antigen": "BCG",
+                    "dose_number": 1,
+                    "agent_rationale": "BCG dose 1 valid.",
+                    "reasoning": "Given within 30 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [0],
+                },
+            ],
+            confirmed_doses=doses,
+        )
+        body = self._invoke(payload)
+        self.assertNotIn("error", body, body)
 
 
 if __name__ == "__main__":

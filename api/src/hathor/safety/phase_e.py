@@ -219,6 +219,85 @@ PHASE1_ANTIGENS: frozenset[str] = frozenset({
     "Rotavirus", "HepA", "MenACWY", "MenC",
 })
 
+# ── Emission completeness scope (Q7 — clinical-coverage subset) ───────────────
+
+#: Diseases for which the agent MUST take a structured position during
+#: ``emit_recommendations``. Narrower than ``PHASE1_ANTIGENS``: that set is a
+#: product/antigen RECOGNITION list (what HATHOR-AGE-002 accepts as in-scope);
+#: this set is the CLINICAL-COVERAGE expectation. The two have different
+#: semantics — requiring emission for every entry in PHASE1_ANTIGENS would
+#: force the agent to emit for combination product names (Hexavalent,
+#: Pentavalent, MMR, MR, MMRV), which is clinically incoherent since
+#: combinations are products, not clinical gaps.
+#:
+#: Entries are disease names (not vaccine/product tokens) to decouple the
+#: clinical coverage target from the specific antigen naming used by doses
+#: and emissions. ``ANTIGEN_DISEASE_COVERAGE`` maps the antigen-side tokens
+#: (DPT, HepB, Hib, OPV, IPV, BCG, Measles, Mumps, Rubella, Rotavirus) to the
+#: diseases they satisfy, so the completeness check can resolve whether a
+#: Pentavalent dose covers the disease-level Diphtheria/Tetanus/Pertussis
+#: requirement.
+#:
+#: Narrower than Egyptian EPI: PCV and Varicella are Egyptian EPI compulsory
+#: but are not included here because the Nigeria/Egypt Phase 1 intersection
+#: treats them as route-specific rather than universal. Expand the list when
+#: Phase 1 scope grows. See docs/CLINICAL_DECISIONS.md Q7.
+REQUIRED_COMPONENT_ANTIGENS: frozenset[str] = frozenset({
+    "Diphtheria",
+    "Tetanus",
+    "Pertussis",
+    "HepB",
+    "Hib",
+    "Polio",
+    "BCG",
+    "Measles",
+    "Mumps",
+    "Rubella",
+    "Rotavirus",
+})
+
+#: Antigen/product token → diseases that token provides coverage for.
+#: Bridges ``REQUIRED_COMPONENT_ANTIGENS`` (disease names) against the
+#: antigen tokens that actually appear in ``rec.antigen`` and
+#: ``ctx.confirmed_doses[*].antigen``. Not a replacement for
+#: ``COMBINATION_COMPONENTS`` — that map keeps serving HATHOR-EPI-001 for
+#: age/interval lookups. This is a separate alias map used only by the
+#: emission completeness check. Combination products (Hexavalent, Pentavalent,
+#: MMR, MR, MMRV) are resolved via ``COMBINATION_COMPONENTS`` before this
+#: lookup, so they do not need entries here.
+ANTIGEN_DISEASE_COVERAGE: dict[str, frozenset[str]] = {
+    "DPT":       frozenset({"Diphtheria", "Tetanus", "Pertussis"}),  # DTaP/DTwP/DT normalize to DPT
+    "HepB":      frozenset({"HepB"}),
+    "Hib":       frozenset({"Hib"}),
+    "OPV":       frozenset({"Polio"}),                               # either polio vaccine satisfies
+    "IPV":       frozenset({"Polio"}),
+    "BCG":       frozenset({"BCG"}),
+    "Measles":   frozenset({"Measles"}),
+    "Mumps":     frozenset({"Mumps"}),
+    "Rubella":   frozenset({"Rubella"}),
+    "Rotavirus": frozenset({"Rotavirus"}),
+}
+
+
+def expand_antigen_coverage(antigen: str) -> set[str]:
+    """Return the set of diseases that a given antigen token (monovalent or
+    combination product) provides coverage for.
+
+    Used by the server-side emission completeness check in
+    ``tools/emit_recommendations.py``. Combination products expand via
+    ``COMBINATION_COMPONENTS``; pertussis spelling variants normalize to DPT.
+    Unknown antigens return an empty set (no coverage). Exported so the
+    tool boundary can import it without depending on private helpers.
+    """
+    if not antigen:
+        return set()
+    normalized = _normalize_pertussis(antigen)
+    coverage: set[str] = set(ANTIGEN_DISEASE_COVERAGE.get(normalized, frozenset()))
+    for component in COMBINATION_COMPONENTS.get(antigen, []):
+        coverage |= expand_antigen_coverage(component)
+    return coverage
+
+
 # ── Clinical context ──────────────────────────────────────────────────────────
 
 

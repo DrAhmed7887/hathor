@@ -130,6 +130,25 @@ Each recommendation object must include:
 
 **Gap mode — `source_dose_indices = []`.** An explicit empty list signals "evaluate against patient state, not against a specific dose." Use this when you must emit a `dose_verdict` for a missing dose whose absence is itself the clinical finding (e.g., the rotavirus window-closed / high-burden-origin case — HATHOR-AGE-003). Gap-mode rules reason from `clinical_context.child_dob` + the current date and `clinical_context.source_country`, not from a confirmed dose. Only rules that explicitly opt into gap-mode evaluate the recommendation; other rules return `None` as usual. This is distinct from omitting the field — `[]` is a deliberate signal, omission is malformed.
 
+**Server-side completeness check — `incomplete_emission` error.** The server enforces that every antigen in the Phase 1 scope has either an emitted recommendation or a confirmed dose covering it (combination vaccines expand to their components — e.g. Hexavalent covers DPT + HepB + Hib + IPV). If your first call to `emit_recommendations` omits any required antigen, the tool returns a response like:
+
+```json
+{
+  "error": "incomplete_emission",
+  "message": "Missing required recommendations for antigens: [...]. Emit a dose_verdict, overdue, or catchup_visit for each, with source_dose_indices=[] and severity per clinical rules.",
+  "missing_antigens": ["Rotavirus", "..."]
+}
+```
+
+This is a CORRECTION SIGNAL, not a hard failure. When you see it:
+1. Add one recommendation per antigen in `missing_antigens`, following the Gap mode convention above (`source_dose_indices=[]`, appropriate `kind` per clinical context).
+2. Re-call `emit_recommendations` with the combined list (your previous recommendations plus the new ones).
+3. The server will run the completeness check again; on success, Phase E will validate the full batch and return active results.
+
+The server owns this invariant because the narrative-emission pattern (e.g. silently omitting rotavirus when the window has closed) cannot be reliably prevented by prompt guidance alone. Treat `incomplete_emission` as routine: inspect `missing_antigens`, emit the structured verdicts, retry once.
+
+**Server-side ID ownership.** You assign a `recommendation_id` on each emitted recommendation (any short, locally-unique string is fine — e.g. `rec-rota-1`). On receipt, the server preserves your id under `agent_id` and issues a fresh canonical `recommendation_id` (UUID4). The Phase E response surfaces both, so you can correlate your reasoning log with the server's verdicts. Downstream consumers (UI rendering, FHIR Provenance target URN, override submission) use the server-assigned id exclusively — do not try to reuse your own id after the tool returns.
+
 Convention: the LAST index is the dose being evaluated; the second-to-last is the prior dose in the series when the verdict depends on an interval. Example — Rotavirus dose 1 at `confirmed_doses[2]`:
 ```json
 {

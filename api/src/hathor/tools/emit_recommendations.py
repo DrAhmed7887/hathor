@@ -5,11 +5,26 @@ validation and catch-up planning is complete. Phase E validates every recommenda
 against deterministic clinical rules before the output reaches the clinician UI or
 the FHIR bundle.
 
+**Server-side enforcement (owned here, not in the agent prompt):**
+
+1. **ID namespace ownership.** The server assigns a fresh UUID4 to each incoming
+   recommendation and preserves the agent's original id under ``agent_id``. This
+   guarantees UI row uniqueness regardless of what the agent emitted — prompt
+   tuning cannot make it correct on its own.
+2. **Emission completeness check.** Before ``gate()`` runs, the tool verifies
+   that every antigen in ``PHASE1_ANTIGENS`` either (a) has at least one
+   recommendation emitted for it or (b) has a confirmed dose in
+   ``ctx.confirmed_doses`` that covers it (including components of combination
+   vaccines like Hexavalent → {DPT, HepB, Hib, IPV}). If neither holds, the
+   tool returns an ``incomplete_emission`` error response so the agent can
+   retry with the missing recommendations included.
+
 See docs/SAFETY_LOOPS.md — Phase E for the gate design.
 See docs/schema-proposal.md §4 for the approved tool interface.
 """
 
 import json
+import uuid
 from datetime import date
 
 from claude_agent_sdk import tool
@@ -21,9 +36,16 @@ from claude_agent_sdk import tool
 from hathor.schemas.recommendation import Recommendation, ValidationResult
 
 
-def _serialize_result(r: ValidationResult) -> dict:
+def _serialize_result(r: ValidationResult, agent_id: str | None = None) -> dict:
+    """Serialize a ValidationResult for the agent response.
+
+    ``agent_id`` is the id the agent originally supplied for this
+    recommendation (before server-side reassignment). Included so the agent
+    can correlate Phase E verdicts with its own reasoning log.
+    """
     return {
         "recommendation_id": r.recommendation_id,
+        "agent_id": agent_id,
         "severity": r.severity,
         "rule_id": r.rule_id,
         "rule_slug": r.rule_slug,
@@ -33,6 +55,47 @@ def _serialize_result(r: ValidationResult) -> dict:
         "supersedes": r.supersedes,
         "override_justification_codes": r.override_justification_codes,
     }
+
+
+def _check_emission_completeness(
+    recommendations: list[Recommendation],
+    confirmed_doses: list[dict],
+) -> list[str]:
+    """Return sorted list of required diseases that have neither an emitted
+    recommendation nor a confirmed dose covering them. Empty list = emission
+    is complete.
+
+    Required set: ``REQUIRED_COMPONENT_ANTIGENS`` (disease-level; narrower
+    than PHASE1_ANTIGENS which is a product-recognition list).
+
+    Coverage resolution uses ``expand_antigen_coverage`` so that:
+    - A Pentavalent dose satisfies Diphtheria, Tetanus, Pertussis, HepB, Hib
+      (via COMBINATION_COMPONENTS → "DPT"/"HepB"/"Hib", then DPT →
+      Diphtheria/Tetanus/Pertussis via ANTIGEN_DISEASE_COVERAGE).
+    - A Hexavalent dose additionally satisfies Polio (via IPV).
+    - MMR/MR/MMRV expand to Measles/Mumps/Rubella (+ Varicella for MMRV,
+      which is not in the required set but doesn't hurt).
+    - Pertussis spelling variants (DTaP, DT, DTP, DTwP) normalize to DPT.
+
+    Rationale: server-side enforcement of "take a position on every in-scope
+    clinical target." Generalizes the Rotavirus window-closed case — a
+    specific clinical fix identified in docs/CLINICAL_DECISIONS.md Q6 that
+    the agent otherwise sometimes omits in live runs.
+    """
+    # Deferred import — matches the tool body pattern for the same reason.
+    from hathor.safety.phase_e import (
+        REQUIRED_COMPONENT_ANTIGENS,
+        expand_antigen_coverage,
+    )
+
+    coverage: set[str] = set()
+    for rec in recommendations:
+        coverage |= expand_antigen_coverage(rec.antigen)
+    for dose in confirmed_doses:
+        ag = dose.get("antigen", "") if isinstance(dose, dict) else ""
+        coverage |= expand_antigen_coverage(ag)
+
+    return sorted(REQUIRED_COMPONENT_ANTIGENS - coverage)
 
 
 @tool(
@@ -123,6 +186,46 @@ async def emit_recommendations(args: dict) -> dict:
             }]
         }
 
+    # ── Server-side ID namespace ownership ──────────────────────────────────
+    # Reassign a fresh UUID4 to each recommendation's canonical id; preserve
+    # the agent-provided id under agent_id so the agent can correlate its
+    # reasoning log with the Phase E verdicts returned below. This guarantees
+    # uniqueness even when the agent emits duplicate ids (observed in live
+    # runs; caused React-key collisions + doubled rows in the Phase E panel).
+    id_mapping: dict[str, str] = {}          # server_id → agent_id
+    for rec in recommendations:
+        rec.agent_id = rec.recommendation_id
+        rec.recommendation_id = str(uuid.uuid4())
+        id_mapping[rec.recommendation_id] = rec.agent_id or ""
+
+    # ── Server-side emission completeness check ─────────────────────────────
+    # Enforces: every antigen in PHASE1_ANTIGENS must have either an emitted
+    # recommendation or a confirmed dose (direct or via combination-vaccine
+    # components). Prevents silent omission of clinically-required verdicts
+    # like the Rotavirus window-closed case for high-burden-origin migrants
+    # (docs/CLINICAL_DECISIONS.md Q6) — a failure mode the agent exhibited
+    # non-deterministically under prompt-only enforcement.
+    missing_antigens = _check_emission_completeness(recommendations, ctx.confirmed_doses)
+    if missing_antigens:
+        return {
+            "content": [{
+                "type": "text",
+                "text": json.dumps({
+                    "error": "incomplete_emission",
+                    "message": (
+                        f"Missing required recommendations for antigens: "
+                        f"{missing_antigens}. Patient has no confirmed doses "
+                        "for these antigens. Emit a dose_verdict, overdue, or "
+                        "catchup_visit for each, with source_dose_indices=[] "
+                        "and severity per clinical rules. Re-call "
+                        "emit_recommendations with the missing recommendations "
+                        "added to your previous emission."
+                    ),
+                    "missing_antigens": missing_antigens,
+                }),
+            }]
+        }
+
     # Run Phase E gate
     output = gate(recommendations, ctx)
 
@@ -130,8 +233,19 @@ async def emit_recommendations(args: dict) -> dict:
         "total_recommendations": len(recommendations),
         "has_failures": output.has_failures,
         "has_override_required": output.has_override_required,
-        "active_results": [_serialize_result(r) for r in output.active],
-        "superseded_results": [_serialize_result(r) for r in output.superseded],
+        "active_results": [
+            _serialize_result(r, id_mapping.get(r.recommendation_id))
+            for r in output.active
+        ],
+        "superseded_results": [
+            _serialize_result(r, id_mapping.get(r.recommendation_id))
+            for r in output.superseded
+        ],
+        "id_mapping_note": (
+            "recommendation_id is server-assigned (UUID4). Each result "
+            "includes the agent_id you originally supplied so you can "
+            "correlate with your reasoning log."
+        ),
         "provenance_note": (
             "superseded_results are preserved for FHIR Provenance logging "
             "even though they are not presented to the clinician."

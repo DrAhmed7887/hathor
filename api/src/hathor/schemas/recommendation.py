@@ -91,7 +91,8 @@ class Recommendation(BaseModel):
     changed, and why. Empty when no HITL corrections fired for those doses.
     """
 
-    recommendation_id: str                        # unique within this emit call; agent-assigned
+    recommendation_id: str                        # canonical id; server-assigned at emit_recommendations boundary
+    agent_id: str | None = None                   # id the agent supplied; preserved for debugging / correlation
     kind: RecommendationKind
     antigen: str                                  # canonical Hathor antigen name
     dose_number: int | None = None                # 1-indexed; None for catchup_visit / contra
