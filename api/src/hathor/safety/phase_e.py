@@ -183,14 +183,25 @@ COMBINATION_COMPONENTS: dict[str, list[str]] = {
 
 
 def _normalize_pertussis(antigen: str) -> str:
-    """Normalize wP (DPT) and aP (DTaP, DT) variants to a single token.
+    """Normalize pertussis-containing antigen spellings to a single canonical token.
 
     Per Q2 decision: wP and aP are interchangeable for primary series completion.
     The engine uses "DPT" as the canonical pertussis token for age/interval lookups
     because Egypt's EPI uses DTPw whole-cell — the normalized token matches the
     Egypt schedule keys.
+
+    Variants handled:
+      - wP acronym-order:  "DTP", "DTwP"  → "DPT"
+      - aP:                "DTaP", "DT"   → "DPT"
+
+    Agents have been observed to emit "DTP" (clinically equivalent to "DPT", only
+    the acronym letter order differs) non-deterministically across runs. Collapsing
+    these variants here stabilises downstream set-membership checks (notably
+    HATHOR-AGE-002 antigen_in_scope) against that naming variance.
     """
-    return "DPT" if antigen in ("DTaP", "DT") else antigen
+    if antigen in ("DTaP", "DT", "DTP", "DTwP"):
+        return "DPT"
+    return antigen
 
 
 # ── Phase 1 antigen scope (Q7 — resolved) ─────────────────────────────────────
@@ -429,8 +440,15 @@ def _rule_antigen_in_scope(rec: Recommendation, ctx: ClinicalContext) -> Validat
 
     Phase 1 scope: antigens present in the Nigerian + Egyptian EPI schedules
     (Q7 — resolved). Defined as PHASE1_ANTIGENS in this module.
+
+    Antigen names are normalised via _normalize_pertussis before the set-membership
+    check so pertussis acronym-order variants ("DTP" vs "DPT", "DTwP") and aP variants
+    ("DTaP", "DT") all resolve to the same canonical scope verdict. This stabilises
+    HATHOR-AGE-002 against agent-side naming variance — scope is a rule-layer
+    responsibility, not the agent's.
     """
-    if rec.antigen in PHASE1_ANTIGENS:
+    normalized = _normalize_pertussis(rec.antigen)
+    if normalized in PHASE1_ANTIGENS:
         return ValidationResult(
             recommendation_id=rec.recommendation_id,
             severity="pass",

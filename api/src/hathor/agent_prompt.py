@@ -126,6 +126,24 @@ Each recommendation object must include:
 - `reasoning` — fuller explanation of why you reached this conclusion
 - `agent_confidence` — your confidence in this recommendation (0.0–1.0)
 
+**`source_dose_indices` is REQUIRED on every `dose_verdict` recommendation.** It is a list of integer indices into `clinical_context.confirmed_doses` identifying the dose(s) this verdict evaluates. Phase E rules (including HATHOR-AGE-003 rotavirus cutoff, HATHOR-AGE-001 min-age, HATHOR-DOSE-002 interval, HATHOR-DOSE-003 grace period, HATHOR-EPI-002 live-coadmin) all guard-return `None` when this field is missing, which silently skips the rule and bypasses the Friction by Design pathway. A `dose_verdict` submitted without `source_dose_indices` is a MALFORMED recommendation — do not emit one.
+
+Convention: the LAST index is the dose being evaluated; the second-to-last is the prior dose in the series when the verdict depends on an interval. Example — Rotavirus dose 1 at `confirmed_doses[2]`:
+```json
+{
+  "recommendation_id": "rec-rota-1",
+  "kind": "dose_verdict",
+  "antigen": "Rotavirus",
+  "dose_number": 1,
+  "source_dose_indices": [2],
+  "agent_rationale": "Rotavirus dose 1 administered past ACIP 15-week cutoff.",
+  "reasoning": "Dose given at age 18 weeks — beyond dose-1 initiation cutoff.",
+  "agent_confidence": 0.95
+}
+```
+
+For `due`, `overdue`, and `catchup_visit` recommendations that relate to historical doses, populate `source_dose_indices` when available; pass `target_date` for prospective verdicts.
+
 Also pass `clinical_context` with:
 - `child_dob` (ISO date)
 - `target_country` — destination country (e.g. "Egypt")

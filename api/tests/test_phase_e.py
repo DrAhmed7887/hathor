@@ -333,6 +333,18 @@ class TestAntigenInScope(unittest.TestCase):
         self.assertIn("Hexavalent", PHASE1_ANTIGENS)
         self.assertIn("Pentavalent", PHASE1_ANTIGENS)
 
+    def test_dtp_acronym_variant_normalised_to_in_scope(self):
+        # "DTP" is clinically equivalent to "DPT" — only the acronym letter order differs.
+        # Phase 1 scope includes DPT; normalisation must keep both spellings in scope so
+        # the same clinical scenario does not flip between pass/fail across agent runs.
+        ctx = _ctx()
+        for variant in ("DTP", "DTwP", "DTaP", "DT", "DPT"):
+            with self.subTest(variant=variant):
+                rec = _rec(antigen=variant, kind="dose_verdict")
+                result = _rule_antigen_in_scope(rec, ctx)
+                self.assertIsNotNone(result)
+                self.assertEqual(result.severity, "pass", f"{variant} must resolve in-scope")
+
 
 # ── Stub rules return None ────────────────────────────────────────────────────
 
@@ -1225,6 +1237,104 @@ class TestGate(unittest.TestCase):
 
         self.assertTrue(output.has_override_required)
         self.assertFalse(output.has_failures)
+
+
+# ── Integration — end-to-end emit_recommendations → Phase E ──────────────────
+
+
+class TestEmitRecommendationsIntegration(unittest.TestCase):
+    """Simulate a realistic agent emission flow for dose_verdict and confirm that
+    Phase E routes the HATHOR-AGE-003 rotavirus-cutoff case to override_required
+    when the agent populates source_dose_indices per the tool contract.
+
+    Regression guard: an emission that omits source_dose_indices causes every
+    dose-aware rule to silently return None, which bypasses the Friction by Design
+    override_required pathway. This is the exact failure mode the smoke test
+    surfaced; this test pins the contract so it cannot regress.
+    """
+
+    def _invoke(self, payload: dict) -> dict:
+        """Invoke the emit_recommendations tool handler synchronously and parse the
+        JSON body out of the MCP-style wrapper."""
+        import asyncio
+        import json
+        from hathor.tools.emit_recommendations import emit_recommendations
+
+        response = asyncio.run(emit_recommendations.handler(payload))
+        return json.loads(response["content"][0]["text"])
+
+    def test_nigerian_rotavirus_past_cutoff_reaches_override_required(self):
+        """Child DOB 2024-01-01, rotavirus dose 1 at 2024-05-01 (121 days = past the
+        15-week ACIP cutoff), source_country Nigeria (high-burden). Agent emits a
+        dose_verdict with source_dose_indices=[0]. Phase E must return
+        override_required with HIGH_BURDEN_ORIGIN among the justification codes."""
+        payload = {
+            "recommendations": [
+                {
+                    "recommendation_id": "rec-rota-1",
+                    "kind": "dose_verdict",
+                    "antigen": "Rotavirus",
+                    "dose_number": 1,
+                    "agent_rationale": "Rotavirus dose 1 given past the ACIP 15-week cutoff.",
+                    "reasoning": "Administered at 121 days; ACIP cutoff is 105 days.",
+                    "agent_confidence": 0.95,
+                    "source_dose_indices": [0],
+                },
+            ],
+            "clinical_context": {
+                "child_dob": "2024-01-01",
+                "target_country": "Egypt",
+                "source_country": "Nigeria",
+                "confirmed_doses": [
+                    {"antigen": "Rotavirus", "date_administered": "2024-05-01", "dose_number": 1},
+                ],
+            },
+        }
+
+        body = self._invoke(payload)
+
+        self.assertTrue(body["has_override_required"], body)
+        # HATHOR-AGE-003 must surface in active results with override_required severity
+        age003 = [r for r in body["active_results"] if r["rule_id"] == "HATHOR-AGE-003"]
+        self.assertEqual(len(age003), 1, f"expected one HATHOR-AGE-003 result; got: {body}")
+        self.assertEqual(age003[0]["severity"], "override_required")
+        self.assertIn("HIGH_BURDEN_ORIGIN", age003[0]["override_justification_codes"])
+
+    def test_missing_source_dose_indices_leaves_rule_silent(self):
+        """Contract regression: if a dose_verdict is submitted WITHOUT source_dose_indices,
+        HATHOR-AGE-003's guard clause returns None and the override_required pathway is
+        NOT reached. This is by design (defensive early-exit on malformed input) and
+        is precisely why the agent prompt + tool description must require the field.
+
+        This test pins that behavior so if we ever "fix" the guard to also fire on
+        malformed input, the contract change is explicit."""
+        payload = {
+            "recommendations": [
+                {
+                    "recommendation_id": "rec-rota-malformed",
+                    "kind": "dose_verdict",
+                    "antigen": "Rotavirus",
+                    "dose_number": 1,
+                    "agent_rationale": "Rotavirus dose 1 past cutoff (MISSING indices).",
+                    "reasoning": "This emission omits source_dose_indices.",
+                    "agent_confidence": 0.95,
+                    # NOTE: source_dose_indices intentionally omitted
+                },
+            ],
+            "clinical_context": {
+                "child_dob": "2024-01-01",
+                "target_country": "Egypt",
+                "source_country": "Nigeria",
+                "confirmed_doses": [
+                    {"antigen": "Rotavirus", "date_administered": "2024-05-01", "dose_number": 1},
+                ],
+            },
+        }
+
+        body = self._invoke(payload)
+        # HATHOR-AGE-003 should be silent (no active result) when indices are missing
+        age003 = [r for r in body["active_results"] if r["rule_id"] == "HATHOR-AGE-003"]
+        self.assertEqual(len(age003), 0, "HATHOR-AGE-003 must not fire without source_dose_indices")
 
 
 if __name__ == "__main__":

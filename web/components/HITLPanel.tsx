@@ -228,8 +228,6 @@ export function HITLPanel({ payload, imagePath, onConfirmed }: Props) {
             }}
           >
             {imagePath}
-            {" · "}
-            Extraction stubbed — real vision pending
           </p>
         </div>
 
