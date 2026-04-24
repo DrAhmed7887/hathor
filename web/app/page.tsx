@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import Link from "next/link";
 import { streamSSE } from "@/lib/sse-parser";
+import { HeroIntroPlayer } from "@/components/HeroIntroPlayer";
 
 // ── Pharos design system ────────────────────────────────────────────────────
 
@@ -930,6 +931,11 @@ export default function HathorPage() {
       </header>
 
       <main style={{ maxWidth: 900, margin: "0 auto", padding: "40px 48px" }}>
+
+        {/* ── HeroIntro Remotion (step 11) ── */}
+        <section style={{ marginBottom: 32 }}>
+          <HeroIntroPlayer maxWidth={900} autoPlay loop={false} />
+        </section>
 
         {/* ── Form ── */}
         <section style={{ marginBottom: started ? 40 : 0 }}>
