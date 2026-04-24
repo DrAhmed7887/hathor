@@ -98,80 +98,131 @@ Override is logged via FHIR Provenance with the stated clinical reason.
 
 ---
 
-## Q4. ACIP 4-day grace — HATHOR-DOSE-003
+## HATHOR-DOSE-003 — acip_grace_period (Q4)
 
-**Status:** RESOLVED 2026-04-23. Unblocks `_rule_acip_grace_period` in
-`api/src/hathor/safety/phase_e.py`.
+**Clinical question:** Should a dose administered slightly before the
+minimum age or minimum interval be considered valid?
 
-### Decision
+**Decision:** I, Dr. [Name], MD, authorize a 4-day grace period for
+all vaccines in Phase 1 scope, with one clinically significant
+exception. A dose administered ≤4 days before the minimum age or
+interval is marked Valid. A dose administered ≥5 days early is
+Invalid and must be repeated.
 
-Hathor adopts the ACIP 4-day grace period. A dose administered up to 4 days before
-the minimum age or minimum interval required by the destination schedule is counted as
-valid. Doses administered 5 or more days early must be repeated.
+**Exception — live parenteral vaccines administered sequentially:**
+The 4-day grace does not apply to the 28-day minimum interval
+between different live parenteral vaccines given on different days.
+This exclusion is enforced by HATHOR-EPI-002 (live_vaccine_coadmin)
+as a hard floor; HATHOR-DOSE-003 does not override it.
 
-This grace applies uniformly to all antigens in the Phase 1 scope. Exceptions are
-documented below.
+**Rationale:** The 4-day window accounts for real-world logistical
+variation — weekend clinic closures, appointment reschedules,
+scheduling noise in busy clinics — without meaningful impact on
+immune response. The clinical literature supports this threshold:
+in a study of 8,293 children in a low-income community, adopting the
+4-day grace reduced unnecessary revaccination by 30% without
+compromising series efficacy.
 
-When the grace period applies, HATHOR-DOSE-003 returns a pass verdict that supersedes
-HATHOR-DOSE-002's (min_interval_met) fail verdict for the same dose. Both events are
-preserved in the validation log and logged via FHIR Provenance: the original interval
-violation and the grace-period acceptance.
+The live-parenteral exclusion exists because viral interference is a
+distinct mechanism: the first live vaccine's immune response can
+prevent the second live vaccine from "taking" if given within the
+28-day window. This is not a schedule-variability concern and is
+not resolved by a 4-day grace. Oral live vaccines (rotavirus, OPV,
+Ty21a, oral cholera) do not produce sufficient systemic interferon
+to cause this interference and are not subject to the exclusion.
+Inactivated vaccines are not subject to viral interference at all.
 
-### Rationale
+**Operative scope (retrospective review only):** The grace period
+applies only to retrospective validity assessment of doses already
+administered — which is exactly Hathor's workflow when reading a
+Yellow Card from a source country. Prospective catch-up plan
+generation uses true minimum ages and intervals, never
+grace-adjusted minimums. ACIP explicitly prohibits using the grace
+period to schedule future doses.
 
-Clinical scheduling variability is a real-world constraint, particularly in migrant and
-displaced populations where appointment timing is frequently disrupted. The ACIP 4-day
-rule draws a clinically sound line: short enough that vaccine immunogenicity is preserved
-based on available evidence, long enough that realistic scheduling variation does not
-trigger unnecessary revaccination. Applying strict minimum intervals without grace
-produces more false-positive catch-up recommendations than it prevents inadequate
-immunity, which is a net harm for the population Hathor serves.
+**Chained grace:** Grace-period acceptance does not compound across
+doses. When dose N is accepted under the grace period, subsequent
+doses in the series reference dose N's actual administration date
+for their own interval calculations — not a notional "intended
+date." This prevents repeated short-by-4-days acceptances from
+accumulating into a clinically compressed series.
 
-WHO does not formally adopt the 4-day grace but does not prohibit it; this decision is
-compatible with both WHO and ACIP guidance.
+**Rule composition:** When HATHOR-DOSE-003 accepts a dose under the
+grace period, it returns a pass verdict that supersedes
+HATHOR-DOSE-002's fail verdict. Both events are preserved in the
+validation log and logged via FHIR Provenance: the original
+minimum-interval violation and the grace-period acceptance with the
+specific gap shortfall in days. The live-parenteral exclusion is
+enforced by HATHOR-EPI-002 returning an unrecoverable fail that
+HATHOR-DOSE-003 does not attempt to supersede.
 
-### Sources
+**Sources consulted:**
+- CDC General Best Practices for Immunization: Timing and Spacing of
+  Immunobiologics (ACIP), including Table 1-1 restrictions on the
+  4-day grace
+- Immunize.org Ask the Experts: Scheduling Vaccines (June 2023)
+- Children's Hospital of Philadelphia: Minimum Ages and Intervals
+  Between Doses (2024)
+- Stokley et al., "Impact of the ACIP 4-day grace period in a
+  low-income community," PubMed ID 14507532
+- Albers et al., "Invalid Vaccine Doses Among Children Aged 0 to 35
+  Months: 2011 to 2020," Pediatrics 2025
+- WHO Immunization Standards for "Early Doses"
+- WHO EMRO Expanded Programme on Immunization (Egypt country page)
+- Egyptian Ministry of Health and Population EPI schedule
+  (2024/2025 update)
 
-- CDC General Best Practices for Immunization, Timing and Spacing of Immunobiologics (ACIP)
-- WHO Immunization Handbook, Minimum Intervals and Ages
-- Egyptian Ministry of Health EPI Schedule (2024/2025 update) — grace-period policy not
-  formally published; local clinical practice accepts short variances.
+**Known limitations / edge cases:**
+- **Rabies and accelerated Twinrix:** ACIP explicitly excludes these
+  from the 4-day grace. Both are outside Phase 1 scope; flagged for
+  future coverage.
+- **Jurisdictional MMR strict enforcement:** Some regulatory bodies
+  (notably US state school/childcare authorities) enforce MMR's
+  12-month minimum strictly regardless of ACIP grace. Hathor adopts
+  ACIP grace for clinical validity; users in jurisdictions with
+  stricter regulatory requirements should override via the
+  clinician-reason path.
+- **Egyptian MoH silence:** Egyptian MoH does not publish a formal
+  grace-period policy for retrospective dose validity review. This
+  decision adopts ACIP's 4-day grace as the operative policy in the
+  absence of published local guidance. A future Egyptian MoH
+  directive would supersede this choice.
 
-### Known limitations / edge cases
+**Override conditions:** A clinician may override a fail verdict
+from this rule in either direction:
 
-- **Rabies vaccine:** ACIP explicitly excludes rabies from the 4-day grace due to
-  post-exposure prophylaxis requiring strict adherence. Rabies is outside the Phase 1
-  antigen scope and this exception does not affect current rule behavior, but will apply
-  when scope expands.
-- **Doses administered in the first 28 days of life:** The grace period does not apply
-  to doses where the minimum age is ≤28 days (birth-dose Hepatitis B, BCG). For these
-  doses, strict minimums apply due to immunological immaturity considerations.
-- **Chained grace:** If a dose is accepted under the grace period, subsequent doses in
-  the series still reference that dose's actual administration date for their own interval
-  calculations — not a notional "minimum date." Grace does not compound across doses.
-- **Dual violation:** When both minimum age and minimum interval are simultaneously
-  violated within the grace window, the engine fires interval grace (superseding
-  HATHOR-DOSE-002). The age fail (HATHOR-AGE-001) remains active in that case — a known
-  limitation of the single-supersedes design; clinician override is the resolution path.
+Accepting a dose beyond the 4-day window:
+- **Outbreak response:** A dose given 5–7 days early during an active
+  local outbreak, where immediate (albeit slightly suboptimal)
+  coverage outweighs the marginal immunogenicity concern.
+- **Travel urgency:** Patient departing to a high-risk area without
+  access to the repeat dose within a clinically adequate window.
 
-### Override conditions
+Requiring revaccination despite grace acceptance:
+- Clinical concern about immunogenicity for the specific patient
+  (e.g., documented immunosuppression at the time of the
+  originally-administered dose).
 
-A clinician may override the grace-period acceptance and require revaccination if:
-- The dose was administered more than 4 days early (outside the grace).
-- There is clinical concern about immunogenicity for a specific patient (e.g., documented
-  immunosuppression at time of dose).
-- Local Egyptian MoH guidance for a specific antigen explicitly requires strict interval
-  adherence.
+*UI surfacing note:* The "require revaccination despite grace
+acceptance" override direction is a clinically legitimate pathway
+not yet surfaced in Commit 8's UI, which supports fail→pass
+overrides. Clinicians needing this direction contact the care team
+directly; tracked as a production-deferred item.
 
-Override is logged via FHIR Provenance with the stated clinical reason.
+Override is logged via FHIR Provenance with the stated clinical
+reason. Override of the live-parenteral 28-day exclusion is handled
+by HATHOR-EPI-002's own override path, not this rule's.
 
-### Revision trigger
-
-- ACIP updates to grace-period scope or duration.
-- Emergence of clinical evidence that specific antigens require stricter intervals than
-  the 4-day grace accommodates.
-- Egyptian MoH publication of a formal grace-period policy that differs from ACIP.
-- WHO DAK 2026 release updates.
+**Revision trigger:**
+- Egyptian MoH issuing a "No Grace Period" mandate for specific
+  high-value antigens (e.g., Polio).
+- ACIP updates to grace-period scope, duration, or excluded
+  antigens.
+- Emergence of clinical evidence that specific Phase 1 antigens
+  require stricter intervals than the 4-day grace accommodates.
+- WHO DAK 2026 release providing formal WHO grace-period guidance.
+- Phase 1 scope expansion to include rabies or Twinrix, requiring
+  per-antigen grace-exemption configuration.
 
 ---
 
