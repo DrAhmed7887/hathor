@@ -27,12 +27,182 @@ except ImportError:  # pragma: no cover - local generation still works without s
 
 
 OUT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = OUT_DIR.parent.parent.parent
+CANONICAL_TEMPLATE_PATH = REPO_ROOT / "data" / "templates" / "egypt_mohp_child_card.json"
 WIDTH = 1600
 HEIGHT = 1050
 SEED = 20260424
 
 WESTERN_TO_ARABIC_INDIC = str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
-WESTERN_TO_PERSIAN_INDIC = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+WESTERN_TO_PERSIAN_INDIC = str.maketrans(
+    "0123456789",
+    "۰۱۲۳۴۵۶۷۸۹",
+)
+
+# ── Canonical Egyptian MoHP single-page template geometry ────────────────────
+# These constants describe where draw_table() puts the visit, vaccine, dose,
+# date, and lot columns for the standard 9-row Egyptian MoHP card. They are
+# the SOLE source of truth for ROI boxes in both:
+#   - manifest.json's per-fixture template_roi_boxes (computed below), and
+#   - data/templates/egypt_mohp_child_card.json (validated below).
+# Changing draw_table()'s table coordinates means changing these constants
+# AND regenerating data/templates/egypt_mohp_child_card.json deliberately.
+
+TEMPLATE_TABLE_X0 = 75
+TEMPLATE_TABLE_Y0 = 310
+TEMPLATE_COL_WIDTHS = [365, 285, 180, 270, 260]  # Visit, Vaccine, Dose, Date, Lot
+TEMPLATE_ROW_H_9_ROW = 62  # row_h when len(rows) == 9 (canonical Egyptian)
+
+# Column indices match cell_idx in draw_table()'s inner loop.
+COL_VISIT = 0
+COL_VACCINE = 1
+COL_DOSE = 2
+COL_DATE = 3
+COL_LOT = 4
+
+# Canonical row_specs — must agree with the EGYPT_MOHP_TEMPLATE in
+# web/lib/document-intelligence.ts. Order matches base_doses() and the
+# nine printed age points on the Egyptian MoHP card.
+EGYPT_MOHP_ROW_SPECS: list[dict] = [
+    {"row_index": 0, "age_label": "Birth / first 24h", "primary_antigen": "HepB",
+     "co_administered_antigens": [], "dose_kind": "birth", "dose_number": 1},
+    {"row_index": 1, "age_label": "First week", "primary_antigen": "OPV",
+     "co_administered_antigens": [], "dose_kind": "birth", "dose_number": None},
+    {"row_index": 2, "age_label": "First 15 days", "primary_antigen": "BCG",
+     "co_administered_antigens": [], "dose_kind": "birth", "dose_number": 1},
+    {"row_index": 3, "age_label": "2 months", "primary_antigen": "DTP",
+     "co_administered_antigens": ["OPV", "IPV", "PCV", "Rotavirus"],
+     "dose_kind": "primary", "dose_number": 1},
+    {"row_index": 4, "age_label": "4 months", "primary_antigen": "DTP",
+     "co_administered_antigens": ["OPV", "PCV", "Rotavirus"],
+     "dose_kind": "primary", "dose_number": 2},
+    {"row_index": 5, "age_label": "6 months", "primary_antigen": "DTP",
+     "co_administered_antigens": ["OPV", "PCV", "Rotavirus"],
+     "dose_kind": "primary", "dose_number": 3},
+    {"row_index": 6, "age_label": "9 months", "primary_antigen": "OPV",
+     "co_administered_antigens": ["Vitamin A"],
+     "dose_kind": "primary", "dose_number": None},
+    {"row_index": 7, "age_label": "12 months", "primary_antigen": "MMR",
+     "co_administered_antigens": ["OPV"],
+     "dose_kind": "primary", "dose_number": 1},
+    {"row_index": 8, "age_label": "18 months", "primary_antigen": "DTP",
+     "co_administered_antigens": ["OPV", "Vitamin A", "MMR"],
+     "dose_kind": "booster", "dose_number": None},
+]
+
+
+def _column_x_range(col_idx: int) -> tuple[int, int]:
+    left = TEMPLATE_TABLE_X0 + sum(TEMPLATE_COL_WIDTHS[:col_idx])
+    right = left + TEMPLATE_COL_WIDTHS[col_idx]
+    return left, right
+
+
+def _row_y_range(row_index: int, row_h: int = TEMPLATE_ROW_H_9_ROW) -> tuple[int, int]:
+    # draw_table() reserves index (idx + 1) for the data row; index 0 is the
+    # header. For row_index 0 the cell is therefore [y0 + row_h, y0 + 2*row_h).
+    top = TEMPLATE_TABLE_Y0 + row_h * (row_index + 1)
+    return top, top + row_h
+
+
+def _normalized_box(x_left: int, y_top: int, x_right: int, y_bot: int) -> dict:
+    return {
+        "x": x_left / WIDTH,
+        "y": y_top / HEIGHT,
+        "width": (x_right - x_left) / WIDTH,
+        "height": (y_bot - y_top) / HEIGHT,
+    }
+
+
+def compute_canonical_template_roi_boxes() -> list[dict]:
+    """ROI boxes for each of the nine Egyptian MoHP age points.
+
+    Coordinates are derived from draw_table()'s table layout, NOT
+    measured by hand. Normalized to [0, 1] against WIDTH/HEIGHT.
+
+    Returns a list of nine dicts, each carrying row_index, age_label,
+    primary_antigen, date_roi, and antigen_roi. Consumers can crop by
+    multiplying the normalized box back into pixel space.
+    """
+    date_left, date_right = _column_x_range(COL_DATE)
+    antigen_left, antigen_right = _column_x_range(COL_VACCINE)
+    boxes: list[dict] = []
+    for spec in EGYPT_MOHP_ROW_SPECS:
+        idx = spec["row_index"]
+        row_top, row_bot = _row_y_range(idx)
+        boxes.append({
+            "row_index": idx,
+            "age_label": spec["age_label"],
+            "primary_antigen": spec["primary_antigen"],
+            "date_roi": _normalized_box(date_left, row_top, date_right, row_bot),
+            "antigen_roi": _normalized_box(antigen_left, row_top, antigen_right, row_bot),
+        })
+    return boxes
+
+
+def build_canonical_template() -> dict:
+    """Full canonical Egyptian MoHP template structure.
+
+    Mirrors the row_specs in web/lib/document-intelligence.ts and adds
+    ROI coordinates for date and antigen cells. This is the structure
+    written verbatim to data/templates/egypt_mohp_child_card.json.
+    """
+    roi_by_idx = {box["row_index"]: box for box in compute_canonical_template_roi_boxes()}
+    row_specs_with_roi: list[dict] = []
+    for spec in EGYPT_MOHP_ROW_SPECS:
+        idx = spec["row_index"]
+        roi = roi_by_idx[idx]
+        row_specs_with_roi.append({
+            **spec,
+            "date_roi": roi["date_roi"],
+            "antigen_roi": roi["antigen_roi"],
+        })
+    return {
+        "template_id": "egypt_mohp_mandatory_childhood_immunization",
+        "country": "EG",
+        "card_type": "mandatory_childhood_immunization",
+        "version": "1.0",
+        "is_synthetic_derived": True,
+        "source_notes": (
+            "ROI coordinates derived from the deterministic synthetic-card "
+            "generator at cards/fixtures/synthetic_vaccination_cards/"
+            "generate_synthetic_vaccination_cards.py (SEED=20260424, canvas "
+            f"{WIDTH}x{HEIGHT}). Synthetic-only — real Egyptian MoHP card "
+            "photographs require a separate alignment step (planned for PR 5)."
+        ),
+        "coordinate_system": {
+            "kind": "normalized",
+            "x_range": [0, 1],
+            "y_range": [0, 1],
+            "origin": "top-left",
+            "reference_canvas": {"width": WIDTH, "height": HEIGHT},
+        },
+        "row_specs": row_specs_with_roi,
+    }
+
+
+def assert_canonical_template_matches_committed() -> None:
+    """Hard self-check: refuse to regenerate if data/templates drifts.
+
+    The generator and data/templates/egypt_mohp_child_card.json both
+    derive from EGYPT_MOHP_ROW_SPECS + the geometry constants above.
+    If either side changes without the other, this raises so the
+    drift is visible at generation time rather than silently shipping
+    a manifest whose ROI boxes disagree with the canonical template.
+    """
+    if not CANONICAL_TEMPLATE_PATH.exists():
+        return  # First-run bootstrap: caller will write it via main().
+    on_disk = json.loads(CANONICAL_TEMPLATE_PATH.read_text(encoding="utf-8"))
+    expected = build_canonical_template()
+    if on_disk != expected:
+        raise SystemExit(
+            "Canonical template drift detected.\n"
+            f"  {CANONICAL_TEMPLATE_PATH} disagrees with the generator's "
+            "canonical template.\n"
+            "  If you intentionally changed the geometry, regenerate the "
+            "canonical template by deleting that file and re-running this "
+            "script. If not, revert your edits to either the generator or "
+            "the JSON until they agree.\n"
+        )
 
 
 @dataclass(frozen=True)
@@ -795,7 +965,18 @@ def make_card(
 
     output.save(OUT_DIR / filename, quality=95)
 
-    return {
+    # template_roi_boxes is emitted only when the saved image preserves
+    # the canonical 9-row Egyptian draw_table geometry. Rotation
+    # invalidates the coordinates (skew_and_rotate) and the duplicate-
+    # same-visit variant runs draw_table with len(rows)==10 (row_h=56),
+    # so neither qualifies. Non-Egyptian templates never qualify.
+    canonical_egyptian_layout = (
+        template == "egypt"
+        and not rotated
+        and not duplicate_same_visit
+    )
+
+    fixture_dict: dict = {
         "id": fixture_id,
         "filename": filename,
         "source_type": "synthetic_recreated_mock_card",
@@ -820,6 +1001,9 @@ def make_card(
         "negative_controls": negative_controls,
         "expected_warnings": warnings,
     }
+    if canonical_egyptian_layout:
+        fixture_dict["template_roi_boxes"] = compute_canonical_template_roi_boxes()
+    return fixture_dict
 
 
 def dose_to_manifest(dose: Dose) -> dict:
@@ -914,7 +1098,32 @@ def fixture_specs() -> Iterable[dict]:
     ]
 
 
+def write_canonical_template_if_missing() -> str:
+    """Bootstrap-write data/templates/egypt_mohp_child_card.json on first run.
+
+    When the file already exists, this is a no-op — the caller is
+    expected to have run assert_canonical_template_matches_committed()
+    earlier so any drift is loud.
+
+    Returns one of {"created", "exists"} for the main() log line.
+    """
+    if CANONICAL_TEMPLATE_PATH.exists():
+        return "exists"
+    CANONICAL_TEMPLATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = build_canonical_template()
+    CANONICAL_TEMPLATE_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return "created"
+
+
 def main() -> None:
+    # Drift check first — fail loudly before regenerating PNGs if the
+    # committed canonical template no longer matches the generator's
+    # constants.
+    assert_canonical_template_matches_committed()
+
     random.seed(SEED)
     fixtures = []
     for raw_spec in fixture_specs():
@@ -941,7 +1150,13 @@ def main() -> None:
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"Wrote {len(fixtures)} synthetic cards to {OUT_DIR}")
+    template_status = write_canonical_template_if_missing()
+    rois_emitted = sum(1 for f in fixtures if "template_roi_boxes" in f)
+    print(
+        f"Wrote {len(fixtures)} synthetic cards to {OUT_DIR} "
+        f"({rois_emitted} with template_roi_boxes); "
+        f"canonical template {template_status} at {CANONICAL_TEMPLATE_PATH}"
+    )
 
 
 if __name__ == "__main__":
