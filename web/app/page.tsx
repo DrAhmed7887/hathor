@@ -1,18 +1,24 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { DEMO_SCENARIOS, type DemoScenario } from "@/lib/scenarios";
+
 const H = {
   ivory: "#FAF7EF",
   paper: "#F3EBDD",
   card: "#FFFDF8",
+  cardSoft: "#F8F2E5",
   line: "#DED4C2",
+  lineSoft: "#EAE1CE",
   teal: "#123C3F",
   teal2: "#1F5D61",
   gold: "#B88A3D",
   goldSoft: "#EFE1BE",
   ink: "#172222",
   mute: "#5C6764",
+  faint: "#8C9492",
   white: "#FFFFFF",
+  amber: "#B8833B",
 };
 
 const F = {
@@ -23,7 +29,7 @@ const F = {
 
 function HathorSigil() {
   return (
-    <svg width="54" height="54" viewBox="0 0 54 54" fill="none" aria-hidden="true">
+    <svg width="44" height="44" viewBox="0 0 54 54" fill="none" aria-hidden="true">
       <circle cx="27" cy="20" r="7" fill={H.goldSoft} stroke={H.gold} strokeWidth="1.4" />
       <path
         d="M14 17c2.2 11.5 7.1 17.2 13 17.2S37.8 28.5 40 17"
@@ -31,12 +37,7 @@ function HathorSigil() {
         strokeWidth="1.8"
         strokeLinecap="round"
       />
-      <path
-        d="M20 36h14M18 42h18"
-        stroke={H.teal}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
+      <path d="M20 36h14M18 42h18" stroke={H.teal} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -57,251 +58,359 @@ function Eyebrow({ children }: { children: ReactNode }) {
   );
 }
 
-function WorkflowCard({
-  title,
-  body,
-}: {
-  title: string;
-  body: string;
-}) {
+function ScenarioCard({ s }: { s: DemoScenario }) {
   return (
-    <article
+    <Link
+      href={`/scan?scenario=${encodeURIComponent(s.id)}`}
       style={{
+        display: "flex",
+        flexDirection: "column",
         background: H.card,
         border: `1px solid ${H.line}`,
-        borderRadius: 8,
-        padding: "22px 22px 24px",
-        minHeight: 150,
+        borderRadius: 10,
+        overflow: "hidden",
+        textDecoration: "none",
+        color: "inherit",
+        transition: "border-color 120ms ease, transform 120ms ease",
       }}
     >
-      <h3
+      <div
         style={{
-          fontFamily: F.serif,
-          fontSize: 22,
-          fontWeight: 400,
-          color: H.teal,
-          margin: 0,
-          letterSpacing: "-0.01em",
+          aspectRatio: "5 / 3",
+          backgroundImage: `linear-gradient(180deg, rgba(18,60,63,0) 55%, rgba(18,60,63,0.42) 100%), url('${s.cardImageUrl}')`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          borderBottom: `1px solid ${H.line}`,
+          position: "relative",
         }}
       >
-        {title}
-      </h3>
-      <p
+        <div
+          style={{
+            position: "absolute",
+            top: 12,
+            left: 12,
+            background: "rgba(255,253,248,0.92)",
+            color: H.teal,
+            fontFamily: F.mono,
+            fontSize: 10.5,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            padding: "5px 9px",
+            borderRadius: 999,
+            border: `1px solid ${H.line}`,
+          }}
+        >
+          {s.routePill}
+        </div>
+        {s.cardLanguage === "ar" && (
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              background: "rgba(255,253,248,0.92)",
+              color: H.amber,
+              fontFamily: F.mono,
+              fontSize: 10.5,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              padding: "5px 9px",
+              borderRadius: 999,
+              border: `1px solid ${H.line}`,
+            }}
+          >
+            عربى · Arabic
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: "18px 20px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <h3
+            style={{
+              fontFamily: F.serif,
+              fontSize: 22,
+              fontWeight: 400,
+              color: H.teal,
+              margin: 0,
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {s.patient}
+          </h3>
+          <span style={{ fontSize: 13, color: H.mute }}>{s.ageLabel}</span>
+        </div>
+        <p style={{ fontSize: 14.5, lineHeight: 1.55, color: H.ink, margin: 0 }}>{s.blurb}</p>
+        <div
+          style={{
+            marginTop: 4,
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.08em",
+            color: H.gold,
+          }}
+        >
+          Showcases · {s.showcases}
+        </div>
+        <div
+          style={{
+            marginTop: 8,
+            display: "inline-flex",
+            alignSelf: "flex-start",
+            background: H.teal,
+            color: H.white,
+            border: `1px solid ${H.teal}`,
+            borderRadius: 6,
+            padding: "9px 14px",
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+          }}
+        >
+          Run reconciliation →
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function UploadTile() {
+  return (
+    <Link
+      href="/scan"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        background: H.cardSoft,
+        border: `1.5px dashed ${H.line}`,
+        borderRadius: 10,
+        textDecoration: "none",
+        color: "inherit",
+        overflow: "hidden",
+      }}
+    >
+      <div
         style={{
-          fontFamily: F.sans,
-          fontSize: 15,
-          lineHeight: 1.65,
-          color: H.mute,
-          margin: "14px 0 0",
+          aspectRatio: "5 / 3",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderBottom: `1px dashed ${H.line}`,
+          color: H.faint,
         }}
       >
-        {body}
-      </p>
-    </article>
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M12 16V4M12 4l-4 4M12 4l4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
+            stroke={H.teal2}
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+      <div style={{ padding: "18px 20px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <h3
+          style={{
+            fontFamily: F.serif,
+            fontSize: 22,
+            fontWeight: 400,
+            color: H.teal,
+            margin: 0,
+            letterSpacing: "-0.01em",
+          }}
+        >
+          Bring your own card
+        </h3>
+        <p style={{ fontSize: 14.5, lineHeight: 1.55, color: H.ink, margin: 0 }}>
+          Upload a photo of any vaccination card. Hathor extracts every dose,
+          checks confidence per field, and reconciles against the destination
+          schedule.
+        </p>
+        <div
+          style={{
+            marginTop: 4,
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.08em",
+            color: H.gold,
+          }}
+        >
+          Accepts · JPG, PNG, HEIC · single page
+        </div>
+        <div
+          style={{
+            marginTop: 8,
+            display: "inline-flex",
+            alignSelf: "flex-start",
+            background: "rgba(255,253,248,0.85)",
+            color: H.teal,
+            border: `1px solid ${H.teal}`,
+            borderRadius: 6,
+            padding: "9px 14px",
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+          }}
+        >
+          Upload a card →
+        </div>
+      </div>
+    </Link>
   );
 }
 
 export default function HomePage() {
   return (
-    <main style={{ minHeight: "100vh", background: H.ivory, color: H.ink, fontFamily: F.sans }}>
-      <section
+    <main
+      style={{
+        minHeight: "100vh",
+        background: H.ivory,
+        color: H.ink,
+        fontFamily: F.sans,
+      }}
+    >
+      <header
         style={{
-          minHeight: "82vh",
+          width: "min(1180px, calc(100% - 40px))",
+          margin: "0 auto",
+          padding: "22px 0 18px",
           display: "flex",
-          flexDirection: "column",
-          backgroundImage:
-            "linear-gradient(90deg, rgba(250,247,239,0.98) 0%, rgba(250,247,239,0.92) 46%, rgba(18,60,63,0.64) 100%), url('/card-images/demo.jpg')",
-          backgroundSize: "cover",
-          backgroundPosition: "center right",
-          borderBottom: `1px solid ${H.line}`,
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 18,
+          borderBottom: `1px solid ${H.lineSoft}`,
         }}
       >
-        <header
+        <Link
+          href="/"
           style={{
-            width: "min(1120px, calc(100% - 40px))",
-            margin: "0 auto",
-            padding: "26px 0",
-            display: "flex",
+            display: "inline-flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            gap: 18,
+            gap: 12,
+            color: H.teal,
+            textDecoration: "none",
           }}
         >
-          <Link
-            href="/"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 12,
-              color: H.teal,
-              textDecoration: "none",
-            }}
-          >
-            <HathorSigil />
-            <span style={{ fontFamily: F.serif, fontSize: 24, letterSpacing: "-0.01em" }}>
+          <HathorSigil />
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={{ fontFamily: F.serif, fontSize: 22, letterSpacing: "-0.01em" }}>
               Hathor
             </span>
-          </Link>
-          <nav style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
-            <Link href="/scan" style={{ color: H.teal, fontSize: 14, textDecoration: "none" }}>
-              Scan
-            </Link>
-            <Link href="/demo" style={{ color: H.teal, fontSize: 14, textDecoration: "none" }}>
-              Full demo
-            </Link>
-          </nav>
-        </header>
-
-        <div
-          style={{
-            width: "min(1120px, calc(100% - 40px))",
-            margin: "auto auto 72px",
-            padding: "54px 0 36px",
-          }}
-        >
-          <div style={{ maxWidth: 760 }}>
-            <Eyebrow>Clinical reconciliation assistant</Eyebrow>
-            <h1
+            <span
               style={{
-                fontFamily: F.serif,
-                fontSize: "clamp(48px, 8vw, 96px)",
-                lineHeight: 0.95,
-                fontWeight: 400,
-                letterSpacing: "0",
-                color: H.teal,
-                margin: "18px 0 18px",
-              }}
-            >
-              Hathor
-            </h1>
-            <p
-              style={{
-                fontFamily: F.serif,
-                fontSize: "clamp(25px, 3.2vw, 42px)",
-                lineHeight: 1.14,
-                color: H.ink,
-                margin: 0,
-                maxWidth: 760,
-              }}
-            >
-              Turn vaccination cards into clear, safe, actionable schedules.
-            </p>
-            <p
-              style={{
-                fontSize: 17,
-                lineHeight: 1.7,
+                fontFamily: F.mono,
+                fontSize: 10,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
                 color: H.mute,
-                margin: "24px 0 0",
-                maxWidth: 690,
+                marginTop: 2,
               }}
             >
-              Upload or enter a child&apos;s immunization record. Hathor extracts doses,
-              reconciles them against national schedules, and highlights what is due,
-              delayed, or missing.
-            </p>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 34 }}>
-              <Link
-                href="/scan"
-                style={{
-                  background: H.teal,
-                  color: H.white,
-                  border: `1px solid ${H.teal}`,
-                  borderRadius: 8,
-                  padding: "13px 18px",
-                  fontFamily: F.mono,
-                  fontSize: 12,
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  textDecoration: "none",
-                }}
-              >
-                Scan a card
-              </Link>
-              <Link
-                href="/demo"
-                style={{
-                  background: "rgba(255,253,248,0.82)",
-                  color: H.teal,
-                  border: `1px solid ${H.line}`,
-                  borderRadius: 8,
-                  padding: "13px 18px",
-                  fontFamily: F.mono,
-                  fontSize: 12,
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  textDecoration: "none",
-                }}
-              >
-                Full demo flow
-              </Link>
-            </div>
+              Cross-border vaccine reconciliation
+            </span>
           </div>
-        </div>
-      </section>
+        </Link>
+        <nav style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+          <Link href="/scan" style={{ color: H.teal, fontSize: 14, textDecoration: "none" }}>
+            Scan
+          </Link>
+          <Link href="/demo" style={{ color: H.teal, fontSize: 14, textDecoration: "none" }}>
+            Full safety-loop demo
+          </Link>
+        </nav>
+      </header>
 
       <section
-        aria-label="Workflow"
         style={{
-          width: "min(1120px, calc(100% - 40px))",
+          width: "min(1180px, calc(100% - 40px))",
           margin: "0 auto",
-          padding: "56px 0 34px",
+          padding: "32px 0 8px",
         }}
       >
-        <div style={{ marginBottom: 22 }}>
-          <Eyebrow>Workflow</Eyebrow>
-        </div>
-        <div
+        <Eyebrow>Pick a case · agent reasoning starts on click</Eyebrow>
+        <h1
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 16,
+            fontFamily: F.serif,
+            fontSize: "clamp(32px, 4.4vw, 50px)",
+            lineHeight: 1.05,
+            fontWeight: 400,
+            letterSpacing: "-0.01em",
+            color: H.teal,
+            margin: "12px 0 6px",
+            maxWidth: 880,
           }}
         >
-          <WorkflowCard title="1. Capture" body="Upload a card or enter doses manually." />
-          <WorkflowCard title="2. Reconcile" body="Match records against vaccine schedule logic." />
-          <WorkflowCard title="3. Guide" body="Show due, overdue, and next recommended vaccines." />
-        </div>
+          A child arrives in Cairo with a vaccine card from somewhere else.
+          What counts, what is missing, what is due?
+        </h1>
+        <p
+          style={{
+            fontSize: 15,
+            lineHeight: 1.65,
+            color: H.mute,
+            margin: "10px 0 0",
+            maxWidth: 760,
+          }}
+        >
+          Hathor reads the card, reconciles it against the destination national
+          schedule, and surfaces a clinician-confirmable plan. Pick a prepared
+          case below or upload your own — the agent&apos;s reasoning streams
+          live as it works.
+        </p>
       </section>
 
       <section
-        aria-label="Trust and safety"
+        aria-label="Demo scenarios"
         style={{
-          width: "min(1120px, calc(100% - 40px))",
+          width: "min(1180px, calc(100% - 40px))",
           margin: "0 auto",
-          padding: "0 0 64px",
+          padding: "26px 0 28px",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))",
+          gap: 18,
+        }}
+      >
+        {DEMO_SCENARIOS.map((s) => (
+          <ScenarioCard key={s.id} s={s} />
+        ))}
+        <UploadTile />
+      </section>
+
+      <section
+        aria-label="Safety footnote"
+        style={{
+          width: "min(1180px, calc(100% - 40px))",
+          margin: "0 auto",
+          padding: "8px 0 56px",
         }}
       >
         <div
           style={{
-            border: `1px solid ${H.line}`,
+            border: `1px solid ${H.lineSoft}`,
             background: H.paper,
             borderRadius: 8,
-            padding: "14px 16px",
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 8,
+            padding: "12px 16px",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 18,
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.08em",
+            color: H.teal,
           }}
         >
-          {[
-            "Clinician-in-the-loop",
-            "Schedule-aware",
-            "Built for auditability",
-            "Designed for low-resource settings",
-          ].map((item) => (
-            <div
-              key={item}
-              style={{
-                color: H.teal,
-                fontFamily: F.mono,
-                fontSize: 11,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                padding: "10px 8px",
-              }}
-            >
-              {item}
-            </div>
-          ))}
+          <span>
+            Clinical decision support · clinician confirms every recommendation ·
+            Phase 1 destination Egypt
+          </span>
+          <span style={{ color: H.mute }}>
+            Two safety gates · per-field vision review · per-recommendation rules engine
+          </span>
         </div>
       </section>
     </main>

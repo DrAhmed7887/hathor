@@ -12,15 +12,16 @@
  * column, max-w-3xl, no chat / no redaction step / no 6-phase rail.
  *
  * Data path:
- *   POST /api/parse-card?stream=1&fast=1 — SSE; the route emits
- *   structured progress events so the agent's actual work shows
- *   up as a live trail. fast=1 skips the per-row ROI cascade
- *   (~3× speedup, minor accuracy cost on Egypt cards). The user
- *   can flip "deep extraction" on if they want the cross-check.
+ *   POST /api/parse-card?stream=1 — SSE; the route emits structured
+ *   progress events so the agent's actual work shows up as a live
+ *   trail. The vision call is unconditional on template recognition;
+ *   Opus reads any vaccination card from any country.
  *
- *   GET /api/schedule/EG and /api/schedule/<source> are then
+ *   GET /api/schedule/EG and /api/schedule/<source-or-WHO> are then
  *   diffed against the parsed rows by lib/schedule-diff.ts to
- *   produce next-dose / missed-doses cards.
+ *   produce next-dose / missed-doses cards. Source country is a
+ *   free-text input — anything we don't have a seeded schedule for
+ *   falls back to the WHO 6/10/14-week baseline for the comparison.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,7 +35,7 @@ import {
   type CountrySchedule,
   type ScheduleDose,
 } from "@/lib/schedule-diff";
-import { COUNTRIES } from "@/lib/countries";
+import { getScenario, type DemoScenario } from "@/lib/scenarios";
 import type { ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 
 // ── Palette: safe-triage clinical + Pharos warmth ───────────────────────────
@@ -79,9 +80,8 @@ type ProgressEvent =
   | { kind: "vision_start"; bytes: number; mediaType: string }
   | { kind: "vision_done"; rows: number }
   | { kind: "template"; id: string }
-  | { kind: "roi_start"; total: number }
-  | { kind: "roi_progress"; done: number; total: number }
-  | { kind: "roi_done"; merged: number }
+  | { kind: "normalize_start"; labels: number; model: string }
+  | { kind: "normalize_done"; mapped: number; ms: number }
   | { kind: "result"; body: ParsedCardOutput }
   | { kind: "error"; message: string };
 
@@ -94,57 +94,83 @@ interface TrailItem {
   finishedAt?: number;
 }
 
-// ── Country options ─────────────────────────────────────────────────────────
+// ── Source-country resolver ─────────────────────────────────────────────────
 //
-// Source picker is registry-backed (lib/countries.ts is the source of
-// truth). Order: Egypt first because the Egyptian MoHP card is the one
-// with a per-row ROI template + clinician-reviewed schedule; then the
-// UNHCR-Egypt top-5 source populations the demo narrates; then Nigeria
-// (Phase 1 reference profile, kept for the Amina Bello card); then the
-// generic WHO 6/10/14 baseline for any other origin. The card_language
-// hint is the first registry language whose code the API accepts —
-// non-{en,ar,fr,mixed} languages (am, ti) fall back to "mixed", which
-// the model treats as "read the card as shown".
+// The "Card from" field is free-text. The user types whatever country
+// the child arrived from — Pakistan, Iraq, Yemen, anywhere. The typed
+// string is sent verbatim to /api/parse-card as an advisory hint
+// (the model ignores it when the card itself contradicts).
+//
+// For the schedule comparison view we need a country code to fetch a
+// seeded schedule against. `resolveScheduleCode` maps the typed text
+// to one of the seeded schedules when there's a clean match (ISO
+// alpha-2 or English country name); everything else falls back to the
+// WHO 6/10/14-week baseline. The source schedule is a comparison aid,
+// not a gate — falling back to WHO never blocks reconciliation.
 
-const SCAN_API_LANGS = new Set(["en", "ar", "fr", "mixed"]);
-const SCAN_SOURCE_ORDER = [
+const SEEDED_SCHEDULE_CODES = new Set([
   "EG",
+  "NG",
   "SD",
   "SY",
   "SS",
   "ER",
   "ET",
-  "NG",
-  "WHO",
-] as const;
+]);
 
-const SOURCE_COUNTRIES: Array<{
-  code: string;
-  name: string;
-  cardLanguage: "en" | "ar" | "fr" | "mixed";
-}> = SCAN_SOURCE_ORDER.map((code) => {
-  const profile = COUNTRIES[code];
-  const firstAcceptedLang = profile.cardLanguages.find((l) =>
-    SCAN_API_LANGS.has(l),
-  );
-  return {
-    code,
-    name: profile.name,
-    cardLanguage: (firstAcceptedLang ?? "mixed") as
-      | "en"
-      | "ar"
-      | "fr"
-      | "mixed",
-  };
-});
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  egypt: "EG",
+  nigeria: "NG",
+  sudan: "SD",
+  syria: "SY",
+  "south sudan": "SS",
+  eritrea: "ER",
+  ethiopia: "ET",
+};
+
+function resolveScheduleCode(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "WHO";
+  const upper = trimmed.toUpperCase();
+  if (SEEDED_SCHEDULE_CODES.has(upper)) return upper;
+  const lower = trimmed.toLowerCase();
+  const byName = COUNTRY_NAME_TO_CODE[lower];
+  if (byName) return byName;
+  return "WHO";
+}
+
+// Suggested countries — the seeded schedules plus a handful of common
+// migration source countries that fall back to WHO baseline. Surfaced
+// via a <datalist> so the input still gives autocomplete UX without
+// constraining the user to a closed set.
+const SUGGESTED_COUNTRIES = [
+  "Egypt",
+  "Sudan",
+  "Syria",
+  "South Sudan",
+  "Eritrea",
+  "Ethiopia",
+  "Nigeria",
+  "Pakistan",
+  "Afghanistan",
+  "Iraq",
+  "Yemen",
+  "Somalia",
+  "Libya",
+  "Bangladesh",
+  "Myanmar",
+];
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ScanPage() {
   // Patient context
   const [dob, setDob] = useState<string>("2024-06-15");
-  const [sourceCountry, setSourceCountry] = useState<string>("NG");
-  const [deepMode, setDeepMode] = useState<boolean>(false); // false → fast=1
+  const [sourceCountry, setSourceCountry] = useState<string>("Nigeria");
+  const sourceScheduleCode = useMemo(
+    () => resolveScheduleCode(sourceCountry),
+    [sourceCountry],
+  );
 
   // File
   const [file, setFile] = useState<File | null>(null);
@@ -163,16 +189,24 @@ export default function ScanPage() {
     null,
   );
 
+  // Scenario prefill (set when /scan is opened with ?scenario=<id>).
+  const [activeScenario, setActiveScenario] = useState<DemoScenario | null>(
+    null,
+  );
+  const autoStartedRef = useRef(false);
+
   const startedAtRef = useRef<number | null>(null);
 
-  // Load schedules once whenever source country changes.
+  // Load schedules once whenever the resolved source-schedule code
+  // changes. Free-text countries that don't match a seeded schedule
+  // fetch the WHO baseline so the comparison view always renders.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const [eg, src] = await Promise.all([
           fetch("/api/schedule/EG").then((r) => r.json()),
-          fetch(`/api/schedule/${sourceCountry}`).then((r) => r.json()),
+          fetch(`/api/schedule/${sourceScheduleCode}`).then((r) => r.json()),
         ]);
         if (cancelled) return;
         setDestSchedule(eg as CountrySchedule);
@@ -190,7 +224,7 @@ export default function ScanPage() {
     return () => {
       cancelled = true;
     };
-  }, [sourceCountry]);
+  }, [sourceScheduleCode]);
 
   // Revoke object URL on swap.
   useEffect(() => {
@@ -198,6 +232,48 @@ export default function ScanPage() {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  // Read ?scenario=<id> on mount: prefill DOB + source country and fetch the
+  // demo card image as a File so it goes through the same code path as a
+  // user upload. Auto-start happens in the next effect once schedules load.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("scenario");
+    const sc = getScenario(id);
+    if (!sc) return;
+    setActiveScenario(sc);
+    setSourceCountry(sc.sourceCountry);
+    setDob(sc.dob);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(sc.cardImageUrl);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
+        const blob = await r.blob();
+        if (cancelled) return;
+        const filename = sc.cardImageUrl.split("/").pop() ?? "card.jpg";
+        const f = new File([blob], filename, {
+          type: blob.type || "image/jpeg",
+        });
+        onFile(f);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            `Could not load demo scenario: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Mount-only: scenario id is taken from the URL once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onFile = useCallback(
     (f: File) => {
@@ -257,15 +333,9 @@ export default function ScanPage() {
       const form = new FormData();
       form.append("file", file, file.name);
       form.append("source_country", sourceCountry);
-      form.append(
-        "card_language",
-        SOURCE_COUNTRIES.find((c) => c.code === sourceCountry)?.cardLanguage ??
-          "en",
-      );
       if (dob) form.append("child_dob", dob);
 
-      const qs = deepMode ? "?stream=1" : "?stream=1&fast=1";
-      const res = await fetch(`/api/parse-card${qs}`, {
+      const res = await fetch(`/api/parse-card?stream=1`, {
         method: "POST",
         body: form,
       });
@@ -293,38 +363,13 @@ export default function ScanPage() {
               `Opus 4.7 · whole-image pass`,
             );
           } else if (data.kind === "vision_done") {
-            // Whole-image pass is one of several extraction paths. On
-            // dense Eastern-Arabic tables it commonly returns 0 rows
-            // and the per-cell ROI cascade or template-inference fills
-            // them in afterwards — so we narrate it as a stage result,
-            // not a final count.
             updateStep(
               "vision",
-              data.rows === 0
-                ? "Whole-image pass returned no rows; will retry per cell"
-                : `Whole-image pass · ${data.rows} row${
-                    data.rows === 1 ? "" : "s"
-                  }`,
+              `${data.rows} row${data.rows === 1 ? "" : "s"} extracted`,
             );
           } else if (data.kind === "template") {
             const friendly = templateLabel(data.id);
-            startStep("template", "Recognising card layout", friendly);
-          } else if (data.kind === "roi_start") {
-            startStep(
-              "roi",
-              "Cross-checking each row against the layout template",
-              `0 / ${data.total} cells confirmed`,
-            );
-          } else if (data.kind === "roi_progress") {
-            updateStep(
-              "roi",
-              `${data.done} / ${data.total} cells confirmed`,
-            );
-          } else if (data.kind === "roi_done") {
-            updateStep(
-              "roi",
-              `${data.merged} row${data.merged === 1 ? "" : "s"} reconciled`,
-            );
+            startStep("template", "Card layout", friendly);
           } else if (data.kind === "status") {
             startStep(`status-${ev.type}`, data.label, data.detail);
           } else if (data.kind === "result") {
@@ -361,7 +406,17 @@ export default function ScanPage() {
     } finally {
       setRunning(false);
     }
-  }, [file, sourceCountry, dob, deepMode]);
+  }, [file, sourceCountry, dob]);
+
+  // Auto-start once a scenario has been prefilled and schedules are ready.
+  // The ref guard means a manual re-run from a scenario URL still works
+  // (clicking "Read & reconcile" after the auto-run completes).
+  useEffect(() => {
+    if (!activeScenario || autoStartedRef.current) return;
+    if (!file || running || !destSchedule || !sourceSchedule) return;
+    autoStartedRef.current = true;
+    void start();
+  }, [activeScenario, file, running, destSchedule, sourceSchedule, start]);
 
   // Reconciliation
   const reconciliation = useMemo(() => {
@@ -452,6 +507,41 @@ export default function ScanPage() {
           gap: 20,
         }}
       >
+        {/* Demo-scenario banner (only when /scan?scenario=… prefilled state) */}
+        {activeScenario && (
+          <div
+            style={{
+              background: C.tealWash,
+              border: `1px solid ${C.tealSoft}`,
+              borderLeft: `3px solid ${C.teal}`,
+              padding: "10px 14px",
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              fontFamily: F.mono,
+              fontSize: 11.5,
+              letterSpacing: "0.08em",
+              color: C.teal,
+            }}
+          >
+            <span style={{ textTransform: "uppercase", letterSpacing: "0.14em" }}>
+              Demo case · {activeScenario.patient} · {activeScenario.routePill}
+            </span>
+            <Link
+              href="/"
+              style={{
+                color: C.teal,
+                textDecoration: "underline",
+                textUnderlineOffset: 2,
+              }}
+            >
+              Pick a different case
+            </Link>
+          </div>
+        )}
+
         {/* Headline */}
         <div>
           <h1
@@ -465,7 +555,9 @@ export default function ScanPage() {
               lineHeight: 1.15,
             }}
           >
-            Upload a vaccination card.
+            {activeScenario
+              ? "Reading the card, live."
+              : "Upload a vaccination card."}
           </h1>
           <p
             style={{
@@ -502,18 +594,19 @@ export default function ScanPage() {
               />
             </Field>
             <Field label="Card from">
-              <select
+              <input
+                list="hathor-source-countries"
                 value={sourceCountry}
                 disabled={running}
+                placeholder="e.g. Pakistan, Iraq, Yemen…"
                 onChange={(e) => setSourceCountry(e.target.value)}
                 style={inputStyle}
-              >
-                {SOURCE_COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
+              />
+              <datalist id="hathor-source-countries">
+                {SUGGESTED_COUNTRIES.map((c) => (
+                  <option key={c} value={c} />
                 ))}
-              </select>
+              </datalist>
             </Field>
             <Field label="Reconciling against">
               <input
@@ -532,31 +625,11 @@ export default function ScanPage() {
               marginTop: 18,
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
+              justifyContent: "flex-end",
               gap: 16,
               flexWrap: "wrap",
             }}
           >
-            <label
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                fontSize: 13,
-                color: C.mute,
-                cursor: running ? "not-allowed" : "pointer",
-              }}
-              title="Deep extraction runs an extra per-row vision cross-check on Egyptian MoHP cards. ~3× slower; recommended only if the whole-image pass missed dates."
-            >
-              <input
-                type="checkbox"
-                checked={deepMode}
-                disabled={running}
-                onChange={(e) => setDeepMode(e.target.checked)}
-                style={{ accentColor: C.teal }}
-              />
-              Deep extraction (slower, more accurate on Egypt cards)
-            </label>
             <button
               type="button"
               onClick={start}
@@ -605,7 +678,32 @@ export default function ScanPage() {
               title="Doses read from the card"
               eyebrow={`${parsed.rows.length} row${parsed.rows.length === 1 ? "" : "s"}`}
             />
-            <DoseTable rows={parsed.rows} />
+            <DoseTable
+              rows={parsed.rows}
+              onEdit={(rowId, patch) => {
+                setParsed((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    rows: prev.rows.map((r) =>
+                      (r.row_id ?? "") === rowId
+                        ? {
+                            ...r,
+                            ...patch,
+                            // Clinician-edited: full confidence + the
+                            // "edited" action so the trust gate accepts
+                            // the row and the audit log records the
+                            // override.
+                            confidence: 1,
+                            clinician_action: "edited",
+                            clinician_action_at: new Date().toISOString(),
+                          }
+                        : r,
+                    ),
+                  };
+                });
+              }}
+            />
           </Card>
         )}
 
@@ -1084,9 +1182,17 @@ function ThinkingTrail({ items }: { items: TrailItem[] }) {
   );
 }
 
-// ── Doses table ──────────────────────────────────────────────────────────────
+// ── Doses table (inline-editable, clinician-in-the-loop) ────────────────────
 
-function DoseTable({ rows }: { rows: ParsedCardRow[] }) {
+type RowPatch = Partial<Pick<ParsedCardRow, "date" | "antigen">>;
+
+function DoseTable({
+  rows,
+  onEdit,
+}: {
+  rows: ParsedCardRow[];
+  onEdit: (rowId: string, patch: RowPatch) => void;
+}) {
   const sorted = [...rows].sort((a, b) => {
     if (!a.date) return 1;
     if (!b.date) return -1;
@@ -1097,7 +1203,7 @@ function DoseTable({ rows }: { rows: ParsedCardRow[] }) {
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
-            {["Date", "Antigen", "Dose", "Confidence"].map((h) => (
+            {["Date", "Antigen", "Dose", "Confidence", ""].map((h) => (
               <th
                 key={h}
                 style={{
@@ -1118,36 +1224,159 @@ function DoseTable({ rows }: { rows: ParsedCardRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {sorted.map((r, i) => {
-            const amber = r.confidence < 0.85;
-            return (
-              <tr key={r.row_id ?? i}>
-                <td style={tdStyle}>{r.date ?? "—"}</td>
-                <td style={{ ...tdStyle, fontWeight: 500 }}>{r.antigen}</td>
-                <td style={tdStyle}>
-                  {r.doseNumber ?? (r.doseKind === "booster" ? "Booster" : "—")}
-                </td>
-                <td style={tdStyle}>
-                  <span
-                    style={{
-                      fontFamily: F.mono,
-                      fontSize: 11,
-                      padding: "2px 8px",
-                      borderRadius: 4,
-                      background: amber ? C.amberWash : C.okWash,
-                      color: amber ? C.amber : C.ok,
-                      border: `1px solid ${amber ? C.amber : C.ok}`,
-                    }}
-                  >
-                    {Math.round(r.confidence * 100)}%
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
+          {sorted.map((r, i) => (
+            <DoseRow key={r.row_id ?? i} row={r} onEdit={onEdit} />
+          ))}
         </tbody>
       </table>
+      <p
+        style={{
+          marginTop: 10,
+          fontSize: 11.5,
+          color: C.mute,
+          fontStyle: "italic",
+        }}
+      >
+        Click any date or antigen to correct it. Edits are clinician-confirmed
+        and re-run reconciliation immediately.
+      </p>
     </div>
+  );
+}
+
+function DoseRow({
+  row,
+  onEdit,
+}: {
+  row: ParsedCardRow;
+  onEdit: (rowId: string, patch: RowPatch) => void;
+}) {
+  const rowId = row.row_id ?? "";
+  const amber = row.confidence < 0.85;
+  const edited = row.clinician_action === "edited";
+  return (
+    <tr>
+      <td style={tdStyle}>
+        <EditableCell
+          kind="date"
+          value={row.date}
+          disabled={!rowId}
+          onCommit={(next) => onEdit(rowId, { date: next })}
+        />
+      </td>
+      <td style={{ ...tdStyle, fontWeight: 500 }}>
+        <EditableCell
+          kind="text"
+          value={row.antigen}
+          disabled={!rowId}
+          onCommit={(next) => onEdit(rowId, { antigen: next ?? "" })}
+        />
+      </td>
+      <td style={tdStyle}>
+        {row.doseNumber ?? (row.doseKind === "booster" ? "Booster" : "—")}
+      </td>
+      <td style={tdStyle}>
+        <span
+          style={{
+            fontFamily: F.mono,
+            fontSize: 11,
+            padding: "2px 8px",
+            borderRadius: 4,
+            background: amber && !edited ? C.amberWash : C.okWash,
+            color: amber && !edited ? C.amber : C.ok,
+            border: `1px solid ${amber && !edited ? C.amber : C.ok}`,
+          }}
+        >
+          {Math.round(row.confidence * 100)}%
+        </span>
+      </td>
+      <td style={{ ...tdStyle, color: C.faint, fontFamily: F.mono, fontSize: 10.5 }}>
+        {edited ? "edited" : ""}
+      </td>
+    </tr>
+  );
+}
+
+function EditableCell({
+  kind,
+  value,
+  disabled,
+  onCommit,
+}: {
+  kind: "date" | "text";
+  value: string | null;
+  disabled?: boolean;
+  onCommit: (next: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>(value ?? "");
+
+  // Keep the draft in sync if the parent value changes externally
+  // (e.g. a re-parse) and we're not currently editing.
+  useEffect(() => {
+    if (!editing) setDraft(value ?? "");
+  }, [value, editing]);
+
+  if (editing && !disabled) {
+    return (
+      <input
+        autoFocus
+        type={kind === "date" ? "date" : "text"}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          const next = draft.trim();
+          const nextValue = kind === "date" ? (next || null) : next;
+          if ((nextValue ?? "") !== (value ?? "")) {
+            onCommit(nextValue);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") {
+            setDraft(value ?? "");
+            setEditing(false);
+          }
+        }}
+        style={{
+          font: "inherit",
+          fontFamily: F.mono,
+          fontSize: 12.5,
+          padding: "2px 4px",
+          border: `1px solid ${C.teal}`,
+          borderRadius: 3,
+          outline: "none",
+          width: kind === "date" ? 130 : 110,
+          background: "white",
+        }}
+      />
+    );
+  }
+
+  const display = value ?? "—";
+  return (
+    <span
+      role={disabled ? undefined : "button"}
+      tabIndex={disabled ? -1 : 0}
+      onClick={() => {
+        if (!disabled) setEditing(true);
+      }}
+      onKeyDown={(e) => {
+        if (!disabled && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          setEditing(true);
+        }
+      }}
+      style={{
+        cursor: disabled ? "default" : "pointer",
+        borderBottom: disabled ? "none" : `1px dashed ${C.rule}`,
+        padding: "1px 2px",
+      }}
+      title={disabled ? "" : "Click to edit"}
+    >
+      {display}
+    </span>
   );
 }
 

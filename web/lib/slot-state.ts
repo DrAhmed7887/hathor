@@ -93,16 +93,11 @@ export function predictionIdOf(row: ParsedCardRow): string {
   return `V:${fragId}`;
 }
 
-/** Group rows into Visit objects. Egyptian MoHP cards have nine age
- * points; predicted rows carry their template_spec_index by
- * construction, vision rows carry it from the greedy matcher in
- * inferRowsFromTemplate. Vision rows whose antigen has no template
- * spec land in their own Visits with `template_spec_index: null` at
- * the end of the list (visit_id format: `V:<row_id>`).
+/** Group rows into Visit objects. Vision rows carry no
+ * template_spec_index (template inference was removed); each vision
+ * row becomes its own visit (visit_id format: `V:<row_id>`).
  *
- * Visit ordering: template-aligned visits first, in
- * template_spec_index ascending order; non-template visits after,
- * in input order. */
+ * Visit ordering: input order. */
 export function buildVisits(
   rows: ParsedCardRow[],
   templateAgeLabels: Record<number, string>,
