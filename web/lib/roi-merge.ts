@@ -36,6 +36,21 @@ function antigenKey(s: string): string {
   return s.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+/** Per-slot dose_kind compatibility. The Egyptian MoHP card has separate
+ * slots for primary, booster, and birth doses of the same antigen — e.g.
+ * DTP rows 3-5 are primary 1/2/3 and row 8 is the booster ("جرعة منشطة").
+ * Without this gate, a booster row could greedily claim the first DTP
+ * primary slot (masking a missing primary). Rule: known dose_kind on
+ * both sides must match; "unknown" on either side is a wildcard. */
+function doseKindCompatible(
+  specKind: ParsedCardRow["doseKind"],
+  rowKind: ParsedCardRow["doseKind"] | undefined,
+): boolean {
+  if (rowKind == null || rowKind === "unknown") return true;
+  if (specKind === "unknown") return true;
+  return specKind === rowKind;
+}
+
 export interface MergeRoiInput {
   template: VaccineCardTemplateJson;
   /** Rows from the whole-image vision call. */
@@ -87,7 +102,9 @@ export function mergeRoiIntoVisionRows({
     let assigned = -1;
     for (let i = 0; i < template.row_specs.length; i++) {
       if (claimedByVision.has(i)) continue;
-      if (antigenKey(template.row_specs[i].primary_antigen) !== k) continue;
+      const spec = template.row_specs[i];
+      if (antigenKey(spec.primary_antigen) !== k) continue;
+      if (!doseKindCompatible(spec.dose_kind, row.doseKind)) continue;
       assigned = i;
       break;
     }
