@@ -140,16 +140,18 @@ function cropStyles(
   const bgX = w >= 1 ? 0 : (region.x / (1 - w)) * 100;
   const bgY = h >= 1 ? 0 : (region.y / (1 - h)) * 100;
 
+  // NOTE: do NOT set the `background` shorthand here. It would reset
+  // backgroundImage/Size/Position back to their initial values and the
+  // crop would render as a solid colour. Use `backgroundColor` only.
   return {
     width: displayWidth,
     aspectRatio: aspect,
+    backgroundColor: H.paper,
     backgroundImage: `url(${imageUrl})`,
     backgroundSize: `${100 / w}% ${100 / h}%`,
     backgroundPosition: `${bgX}% ${bgY}%`,
     backgroundRepeat: "no-repeat",
     border: `1px solid ${H.rule}`,
-    background: "#000", // dark fallback behind any transparent pixels
-    backgroundColor: "#000",
   };
 }
 
@@ -416,91 +418,87 @@ function RowCard({
           </p>
         )}
 
-        {/* Acknowledge / Skip / Reject controls — shown for amber rows
-            that aren't already resolved via an edit, AND for any row the
-            clinician wants to actively skip or mark definitively absent.
-            The trust gate (web/lib/trust-gate.ts) routes these:
-              - confirmed/edited → admit to engine
-              - skipped          → drop with reason "clinician skipped"
-              - rejected         → routed to definitively_absent channel
-                                   (NOT engine input — engine never sees
-                                   a dose the clinician asserted didn't
-                                   happen). Reject requires a reason. */}
+        {/* CLINICIAN DECISION cluster — visible for any unresolved amber
+            row. Three explicit, distinct paths:
+              - Keep as read       → vision verdict admitted (audit ack)
+              - Skip               → drop with reason "clinician skipped"
+              - Reject (w/ reason) → routed to definitively_absent channel
+                                     (NEVER engine input). The trust gate
+                                     (web/lib/trust-gate.ts) enforces the
+                                     routing; this UI exposes it. */}
         {amber && !resolved && !skipped && !rejected && !rejectOpen && (
           <div
             style={{
-              marginTop: 4,
+              marginTop: 6,
+              padding: "10px 12px",
+              background: H.amberSoft,
+              border: `1px solid ${H.amberLine}`,
               display: "flex",
-              alignItems: "center",
+              flexDirection: "column",
               gap: 8,
-              justifyContent: "flex-end",
-              flexWrap: "wrap",
             }}
           >
-            <span
+            <div
               style={{
-                fontFamily: F.mono,
-                fontSize: 10,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                color: H.meta,
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
               }}
             >
-              Click a cell to correct, or
-            </span>
-            <button
-              type="button"
-              onClick={onAcknowledge}
+              <span
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: H.amber,
+                }}
+              >
+                Clinician decision required
+              </span>
+              <span
+                style={{
+                  fontFamily: F.serif,
+                  fontStyle: "italic",
+                  fontSize: 12,
+                  color: H.meta,
+                }}
+              >
+                Click a cell above to correct, or pick one below.
+              </span>
+            </div>
+            <div
               style={{
-                padding: "6px 14px",
-                fontFamily: F.mono,
-                fontSize: 10.5,
-                letterSpacing: "0.16em",
-                textTransform: "uppercase",
-                color: H.amber,
-                background: "transparent",
-                border: `1px solid ${H.amber}`,
-                cursor: "pointer",
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                justifyContent: "flex-end",
               }}
             >
-              Keep as read
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              title="Skip — do not include in this reconciliation. The visit stays unreviewed."
-              style={{
-                padding: "6px 14px",
-                fontFamily: F.mono,
-                fontSize: 10.5,
-                letterSpacing: "0.16em",
-                textTransform: "uppercase",
-                color: H.meta,
-                background: "transparent",
-                border: `1px solid ${H.stone}`,
-                cursor: "pointer",
-              }}
-            >
-              Skip
-            </button>
-            <button
-              type="button"
-              onClick={() => setRejectOpen(true)}
-              title="Reject — assert this dose was definitively NOT given. Requires a reason; logged to the audit trail and excluded from reconciliation."
-              style={{
-                padding: "6px 14px",
-                fontFamily: F.mono,
-                fontSize: 10.5,
-                letterSpacing: "0.16em",
-                textTransform: "uppercase",
-                color: H.bad,
-                background: "transparent",
-                border: `1px solid ${H.bad}`,
-                cursor: "pointer",
-              }}
-            >
-              Reject
-            </button>
+              <DecisionButton
+                tone="confirm"
+                onClick={onAcknowledge}
+                title="Accept the model's read as written. The dose enters reconciliation as a clinician-confirmed row."
+              >
+                ✓ Keep as read
+              </DecisionButton>
+              <DecisionButton
+                tone="skip"
+                onClick={onSkip}
+                title="Skip — exclude this row from this reconciliation. The visit stays unreviewed; no clinical claim is made."
+              >
+                ⊘ Skip
+              </DecisionButton>
+              <DecisionButton
+                tone="reject"
+                onClick={() => setRejectOpen(true)}
+                title="Reject — assert the dose was NOT given. Requires a reason. Routed to the definitively_absent channel; never reaches the engine."
+              >
+                ✕ Reject as not given
+              </DecisionButton>
+            </div>
           </div>
         )}
 
@@ -508,35 +506,57 @@ function RowCard({
         {rejectOpen && !rejected && (
           <div
             style={{
-              marginTop: 4,
-              padding: "10px 12px",
+              marginTop: 6,
+              padding: "12px 14px",
               background: H.badSoft,
               border: `1px solid ${H.bad}`,
+              borderLeft: `3px solid ${H.bad}`,
               display: "flex",
               flexDirection: "column",
-              gap: 8,
+              gap: 10,
             }}
           >
-            <label
-              style={{
-                fontFamily: F.mono,
-                fontSize: 10,
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: H.bad,
-              }}
-            >
-              Reason for rejecting this dose (required)
-            </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label
+                htmlFor={`reject-reason-${index}`}
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: H.bad,
+                }}
+              >
+                Why is this dose not given?
+              </label>
+              <span
+                style={{
+                  fontFamily: F.serif,
+                  fontStyle: "italic",
+                  fontSize: 12,
+                  color: H.meta,
+                  lineHeight: 1.5,
+                }}
+              >
+                Required. The reason is logged to the audit trail and travels
+                with the row through the FHIR Provenance export.
+              </span>
+            </div>
             <input
+              id={`reject-reason-${index}`}
               autoFocus
               type="text"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="e.g. parent confirmed dose was not given"
+              placeholder="e.g. parent confirmed dose was not given; clinic record absent"
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
+                  setRejectOpen(false);
+                  setRejectReason("");
+                } else if (e.key === "Enter" && rejectReason.trim() !== "") {
+                  e.preventDefault();
+                  onReject(rejectReason.trim());
                   setRejectOpen(false);
                   setRejectReason("");
                 }
@@ -544,8 +564,8 @@ function RowCard({
               style={{
                 width: "100%",
                 fontFamily: F.sans,
-                fontSize: 13,
-                padding: "6px 8px",
+                fontSize: 13.5,
+                padding: "8px 10px",
                 background: "#fff",
                 border: `1px solid ${H.bad}`,
                 color: H.ink,
@@ -553,102 +573,171 @@ function RowCard({
                 borderRadius: 0,
               }}
             />
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setRejectOpen(false);
-                  setRejectReason("");
-                }}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <span
                 style={{
-                  padding: "6px 12px",
                   fontFamily: F.mono,
                   fontSize: 10,
-                  letterSpacing: "0.14em",
+                  letterSpacing: "0.12em",
                   textTransform: "uppercase",
                   color: H.meta,
-                  background: "transparent",
-                  border: `1px solid ${H.stone}`,
-                  cursor: "pointer",
                 }}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={rejectReason.trim() === ""}
-                onClick={() => {
-                  const reason = rejectReason.trim();
-                  if (reason === "") return;
-                  onReject(reason);
-                  setRejectOpen(false);
-                  setRejectReason("");
-                }}
-                style={{
-                  padding: "6px 12px",
-                  fontFamily: F.mono,
-                  fontSize: 10,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                  color: rejectReason.trim() === "" ? H.faint : "#FFFDF7",
-                  background: rejectReason.trim() === "" ? H.stone : H.bad,
-                  border: "none",
-                  cursor: rejectReason.trim() === "" ? "not-allowed" : "pointer",
-                }}
-              >
-                Confirm reject
-              </button>
+                Esc to cancel · Enter to confirm
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <DecisionButton
+                  tone="ghost"
+                  onClick={() => {
+                    setRejectOpen(false);
+                    setRejectReason("");
+                  }}
+                >
+                  Cancel
+                </DecisionButton>
+                <DecisionButton
+                  tone="rejectSolid"
+                  disabled={rejectReason.trim() === ""}
+                  onClick={() => {
+                    const reason = rejectReason.trim();
+                    if (reason === "") return;
+                    onReject(reason);
+                    setRejectOpen(false);
+                    setRejectReason("");
+                  }}
+                  title={
+                    rejectReason.trim() === ""
+                      ? "Enter a reason to enable Confirm reject."
+                      : "Route this row to the definitively_absent channel."
+                  }
+                >
+                  ✕ Confirm reject
+                </DecisionButton>
+              </div>
             </div>
           </div>
         )}
 
         {amber && resolved && !skipped && !rejected && (
-          <div
-            style={{
-              fontFamily: F.mono,
-              fontSize: 10,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: H.ok,
-              textAlign: "right",
-            }}
-          >
-            ✓ Reviewed
-          </div>
+          <ResolvedBadge tone="ok">✓ Reviewed</ResolvedBadge>
         )}
 
         {skipped && (
-          <div
-            style={{
-              fontFamily: F.mono,
-              fontSize: 10,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: H.meta,
-              textAlign: "right",
-            }}
-          >
+          <ResolvedBadge tone="meta">
             ⊘ Skipped — not included in reconciliation
-          </div>
+          </ResolvedBadge>
         )}
 
         {rejected && (
-          <div
-            style={{
-              fontFamily: F.mono,
-              fontSize: 10,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: H.bad,
-              textAlign: "right",
-            }}
-          >
+          <ResolvedBadge tone="bad">
             ✕ Rejected as definitively absent
             {row.clinician_reason ? ` — ${row.clinician_reason}` : ""}
-          </div>
+          </ResolvedBadge>
         )}
       </div>
     </article>
+  );
+}
+
+type DecisionTone = "confirm" | "skip" | "reject" | "ghost" | "rejectSolid";
+
+interface DecisionButtonProps {
+  tone: DecisionTone;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  children: React.ReactNode;
+}
+
+/** Button used in the amber-row decision cluster + reject-reason editor.
+ * Tone encodes the clinical meaning so the styling stays consistent
+ * across the row: confirm (amber-on-cream), skip (neutral outline),
+ * reject (bad-outline), rejectSolid (filled bad), ghost (cancel). */
+function DecisionButton({
+  tone,
+  onClick,
+  disabled,
+  title,
+  children,
+}: DecisionButtonProps) {
+  const palette = (() => {
+    switch (tone) {
+      case "confirm":
+        return { fg: H.amber, bg: "#FFFDF7", border: H.amber };
+      case "skip":
+        return { fg: H.meta, bg: "transparent", border: H.stone };
+      case "reject":
+        return { fg: H.bad, bg: "transparent", border: H.bad };
+      case "rejectSolid":
+        return disabled
+          ? { fg: H.faint, bg: H.stone, border: H.stone }
+          : { fg: "#FFFDF7", bg: H.bad, border: H.bad };
+      case "ghost":
+        return { fg: H.meta, bg: "transparent", border: H.stone };
+    }
+  })();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        padding: "7px 14px",
+        fontFamily: F.mono,
+        fontSize: 10.5,
+        letterSpacing: "0.16em",
+        textTransform: "uppercase",
+        color: palette.fg,
+        background: palette.bg,
+        border: `1px solid ${palette.border}`,
+        cursor: disabled ? "not-allowed" : "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ResolvedBadge({
+  tone,
+  children,
+}: {
+  tone: "ok" | "meta" | "bad";
+  children: React.ReactNode;
+}) {
+  const palette =
+    tone === "ok"
+      ? { fg: H.ok, bg: "rgba(95,122,82,0.08)", border: H.ok }
+      : tone === "bad"
+        ? { fg: H.bad, bg: "rgba(163,69,59,0.08)", border: H.bad }
+        : { fg: H.meta, bg: "rgba(107,97,88,0.06)", border: H.stone };
+  return (
+    <div
+      style={{
+        marginTop: 4,
+        alignSelf: "flex-end",
+        padding: "5px 10px",
+        background: palette.bg,
+        border: `1px solid ${palette.border}`,
+        fontFamily: F.mono,
+        fontSize: 10,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: palette.fg,
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
