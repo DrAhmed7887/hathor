@@ -1,7 +1,18 @@
-"""Flagship demonstration scenario for Hathor.
+"""Flagship demonstration scenarios for Hathor.
 
-Nigerian infant relocating to Egypt — the canonical demo case.
-Imported by run_agent.py (--flagship flag) and usable from any evaluation harness.
+Two scenario shapes:
+
+- :class:`FlagshipScenario` — typed dose list. The agent receives the doses
+  directly in the prompt and never calls the extraction tool. Used to
+  isolate clinical-reasoning quality from vision quality.
+
+- :class:`CardScenario` — image-path scenario. The agent receives only the
+  card path + DOB + target country and must call the extraction tool itself.
+  Used for end-to-end measurements that include vision + (optional)
+  enrichment + reasoning.
+
+Imported by run_agent.py (--flagship / --arabic flags) and usable from any
+evaluation harness.
 """
 
 import datetime
@@ -13,6 +24,15 @@ class FlagshipScenario:
     child_dob: str
     doses: list[dict]
     source_country: str
+    target_country: str
+    scenario_title: str
+    scenario_description: str
+
+
+@dataclass(frozen=True)
+class CardScenario:
+    image_path: str
+    child_dob: str | None
     target_country: str
     scenario_title: str
     scenario_description: str
@@ -51,6 +71,42 @@ FLAGSHIP = FlagshipScenario(
         "what about MMR, which Nigeria does not use routinely (Measles monovalent only)?"
     ),
 )
+
+
+ARABIC_EGYPT_CARD = CardScenario(
+    image_path="cards/Arabic vaccination.jpg",
+    child_dob=None,  # DOB not explicitly labelled on the card (Phase D will flag)
+    target_country="Egypt",
+    scenario_title="Egyptian Arabic vaccination card — staying in Egypt.",
+    scenario_description=(
+        "An Arabic-only Egyptian EPI card. Tests the end-to-end path on a "
+        "non-English source: vision OCR must read Arabic, the agent must "
+        "infer source country, normalise antigens (الثلاثى البكتيرى → DTP, "
+        "الثلاثى الفيروسى → MMR, الدرن → BCG, شلل أطفال فموى → OPV, "
+        "الالتهاب الكبدى → HepB), and reconcile against the Egyptian schedule. "
+        "DOB is not explicitly labelled — Phase D should route it to HITL."
+    ),
+)
+
+
+def build_card_agent_prompt(scenario: CardScenario) -> str:
+    today = datetime.date.today().isoformat()
+    dob_line = (
+        f"Child date of birth : {scenario.child_dob}\n"
+        if scenario.child_dob
+        else "Child date of birth : NOT PROVIDED — extract from card if visible, else flag for clinician.\n"
+    )
+    return (
+        f"A child's vaccination card is available at the following path:\n\n"
+        f"  Image path : {scenario.image_path}\n\n"
+        f"{dob_line}"
+        f"Target country      : {scenario.target_country}\n"
+        f"Today's date        : {today}\n\n"
+        f"Please extract the vaccinations from this card image, then reconcile "
+        f"the child's history against the {scenario.target_country} EPI schedule "
+        f"and provide a complete catch-up plan. Use the extraction tool first, "
+        f"then proceed through your normal reasoning."
+    )
 
 
 def build_agent_prompt(scenario: FlagshipScenario) -> str:
