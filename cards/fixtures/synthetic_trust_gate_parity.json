@@ -61,6 +61,35 @@
       "date": { "value": "2024-08-15", "confidence": 0.85, "needs_review": false },
       "row_confidence": 0.85,
       "expected": "admit"
+    },
+    {
+      "id": "clinician_confirmed_admits_even_below_threshold",
+      "summary": "An explicit clinician confirm short-circuits the source/confidence checks; ambiguous vision rows the clinician validates are admitted.",
+      "antigen": { "value": "MMR", "confidence": 0.55, "needs_review": true },
+      "date": { "value": "2024-08-15", "confidence": 0.55, "needs_review": true },
+      "row_confidence": 0.55,
+      "clinician_action": "confirmed",
+      "expected": "admit"
+    },
+    {
+      "id": "clinician_skipped_dropped",
+      "summary": "Skip = absence of confirmation; visit unreviewed; dropped from reconciliation. Reason cites 'clinician skipped'.",
+      "antigen": { "value": "DTP", "confidence": 0.95, "needs_review": false },
+      "date": { "value": "2024-05-01", "confidence": 0.95, "needs_review": false },
+      "row_confidence": 0.95,
+      "clinician_action": "skipped",
+      "expected": "drop",
+      "expected_reason_substring": "skipped"
+    },
+    {
+      "id": "clinician_rejected_routes_to_definitively_absent",
+      "summary": "Reject = confirmation of absence; routed to the definitively_absent channel (NOT dropped). Reason on the dose is required.",
+      "antigen": { "value": "OPV", "confidence": 0.95, "needs_review": false },
+      "date": { "value": "2024-10-01", "confidence": 0.95, "needs_review": false },
+      "row_confidence": 0.95,
+      "clinician_action": "rejected",
+      "clinician_reason": "Mother confirmed visit was missed; child travelled abroad.",
+      "expected": "definitively_absent"
     }
   ],
   "ts_only_cases": [

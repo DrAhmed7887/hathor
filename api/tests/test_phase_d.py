@@ -329,6 +329,125 @@ class TestFilterConfirmedDoses(unittest.TestCase):
         after = e.model_dump()
         self.assertEqual(before, after)
 
+    def test_clinician_confirmed_admits_below_threshold(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_lo("MMR", "faded"),
+                date_administered=_lo("2025-01-01", "smudged"),
+                clinician_action="confirmed",
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 1)
+        self.assertEqual(len(r.definitively_absent), 0)
+        self.assertEqual(len(r.dropped), 0)
+
+    def test_clinician_skipped_dropped(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("DTP"),
+                date_administered=_hi("2024-05-01"),
+                clinician_action="skipped",
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 0)
+        self.assertEqual(len(r.dropped), 1)
+        self.assertIn("skipped", r.dropped[0].reason.lower())
+
+    def test_clinician_rejected_routes_to_definitively_absent(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("OPV"),
+                date_administered=_hi("2024-10-01"),
+                clinician_action="rejected",
+                clinician_reason="Mother confirms missed visit.",
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 0)
+        self.assertEqual(len(r.definitively_absent), 1)
+        self.assertEqual(len(r.dropped), 0)
+
+    def test_orientation_unconfirmed_drops_everything(self):
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_hi("2024-08-15"),
+            ),
+            ExtractedDose(
+                transcribed_antigen=_hi("BCG"),
+                date_administered=_hi("2024-01-01"),
+            ),
+        ])
+        e_blocked = e.model_copy(update={"orientation_acknowledged": False})
+        r = filter_confirmed_doses(e_blocked)
+        self.assertEqual(len(r.confirmed), 0)
+        self.assertEqual(len(r.definitively_absent), 0)
+        self.assertEqual(len(r.dropped), 2)
+        for d in r.dropped:
+            self.assertIn("orientation", d.reason.lower())
+
+    def test_orientation_acknowledged_passes_through(self):
+        # Default orientation_acknowledged=True restores normal behaviour.
+        e = _extraction([
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_hi("2024-08-15"),
+            ),
+        ])
+        r = filter_confirmed_doses(e)
+        self.assertEqual(len(r.confirmed), 1)
+
+
+class TestRejectRequiresReason(unittest.TestCase):
+    """Schema-enforced reject reason. A reason-less reject must be
+    impossible to construct from any client (Python API, JSON
+    deserialisation, future automation). Mirror of the TS
+    `assertClinicianAction` validator."""
+
+    def test_reject_without_reason_raises(self):
+        with self.assertRaises(Exception) as ctx:
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_hi("2024-08-15"),
+                clinician_action="rejected",
+                # No clinician_reason — must fail validation.
+            )
+        self.assertIn("clinician_reason", str(ctx.exception).lower())
+
+    def test_reject_with_empty_reason_raises(self):
+        with self.assertRaises(Exception):
+            ExtractedDose(
+                transcribed_antigen=_hi("Hexyon"),
+                date_administered=_hi("2024-08-15"),
+                clinician_action="rejected",
+                clinician_reason="   ",  # whitespace-only must also fail
+            )
+
+    def test_reject_with_reason_validates(self):
+        dose = ExtractedDose(
+            transcribed_antigen=_hi("Hexyon"),
+            date_administered=_hi("2024-08-15"),
+            clinician_action="rejected",
+            clinician_reason="Mother confirmed missed visit.",
+        )
+        self.assertEqual(dose.clinician_action, "rejected")
+        self.assertEqual(
+            dose.clinician_reason, "Mother confirmed missed visit."
+        )
+
+    def test_non_reject_actions_do_not_require_reason(self):
+        # All other action values may have a null/empty reason.
+        for action in ("none", "confirmed", "edited", "skipped"):
+            with self.subTest(action=action):
+                dose = ExtractedDose(
+                    transcribed_antigen=_hi("Hexyon"),
+                    date_administered=_hi("2024-08-15"),
+                    clinician_action=action,
+                )
+                self.assertEqual(dose.clinician_action, action)
+
 
 class TestParityFixture(unittest.TestCase):
     """Cross-language parity for filter_confirmed_doses.
@@ -389,13 +508,18 @@ class TestParityFixture(unittest.TestCase):
                         ExtractedDose(
                             transcribed_antigen=antigen_field,
                             date_administered=date_field,
+                            clinician_action=case.get(
+                                "clinician_action", "none"
+                            ),
+                            clinician_reason=case.get("clinician_reason"),
                         )
                     ],
                     extraction_method=f"parity-fixture::{case['id']}",
                 )
                 result = filter_confirmed_doses(extraction)
 
-                if case["expected"] == "admit":
+                expected = case["expected"]
+                if expected == "admit":
                     self.assertEqual(
                         len(result.confirmed),
                         1,
@@ -404,12 +528,25 @@ class TestParityFixture(unittest.TestCase):
                         f"{result.dropped[0].reason if result.dropped else '?'}",
                     )
                     self.assertEqual(len(result.dropped), 0)
-                else:
+                    self.assertEqual(len(result.definitively_absent), 0)
+                elif expected == "definitively_absent":
+                    self.assertEqual(
+                        len(result.definitively_absent),
+                        1,
+                        f"case '{case['id']}' expected definitively_absent "
+                        f"but Python routed elsewhere "
+                        f"(confirmed={len(result.confirmed)} "
+                        f"dropped={len(result.dropped)})",
+                    )
+                    self.assertEqual(len(result.confirmed), 0)
+                    self.assertEqual(len(result.dropped), 0)
+                else:  # "drop"
                     self.assertEqual(
                         len(result.confirmed),
                         0,
                         f"case '{case['id']}' expected drop but Python admitted",
                     )
+                    self.assertEqual(len(result.definitively_absent), 0)
                     self.assertEqual(len(result.dropped), 1)
                     expected_substr = case.get("expected_reason_substring")
                     if expected_substr:
