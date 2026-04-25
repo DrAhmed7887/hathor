@@ -26,8 +26,18 @@ from claude_agent_sdk.types import (
     ToolUseBlock,
 )
 
-from hathor.agent_prompt import SYSTEM_PROMPT
+from hathor.agent_prompt import SYSTEM_PROMPT, SYSTEM_PROMPT_SPECIALISTS
 from hathor.tools import HATHOR_TOOLS
+
+# Pair the system prompt to the active extraction tool. When the
+# specialist fan-out tool is active, the lean prompt skips the country-
+# rules / antigen-equivalence / catch-up content because the specialists
+# now own that knowledge at runtime.
+_ACTIVE_SYSTEM_PROMPT = (
+    SYSTEM_PROMPT_SPECIALISTS
+    if os.environ.get("HATHOR_USE_SPECIALISTS", "").strip().lower() in {"1", "true", "yes", "on"}
+    else SYSTEM_PROMPT
+)
 
 DEFAULT_MODEL = os.environ.get("HATHOR_MODEL", "claude-opus-4-7")
 OPUS_MODEL = "claude-opus-4-7"
@@ -47,7 +57,7 @@ async def run_once(prompt: str, model: str) -> tuple[list[str], str, ResultMessa
     allowed_tools = [f"mcp__{MCP_SERVER_NAME}__{t.name}" for t in HATHOR_TOOLS]
 
     options = ClaudeAgentOptions(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=_ACTIVE_SYSTEM_PROMPT,
         model=model,
         mcp_servers={MCP_SERVER_NAME: mcp_server},
         allowed_tools=allowed_tools,
@@ -185,7 +195,12 @@ async def main() -> None:
     parser.add_argument(
         "--flagship",
         action="store_true",
-        help="Use the flagship Nigeria→Egypt demo scenario",
+        help="Use the flagship Nigeria→Egypt demo scenario (typed doses)",
+    )
+    parser.add_argument(
+        "--arabic",
+        action="store_true",
+        help="Use the Egyptian Arabic card scenario (image-based; exercises extraction tool)",
     )
     parser.add_argument(
         "--compare",
@@ -194,10 +209,20 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.flagship and args.arabic:
+        parser.error("--flagship and --arabic are mutually exclusive")
+
     if args.flagship:
         from hathor.flagship_scenario import FLAGSHIP, build_agent_prompt
         prompt = build_agent_prompt(FLAGSHIP)
         print(f"\n  Scenario : {FLAGSHIP.scenario_title}")
+    elif args.arabic:
+        from hathor.flagship_scenario import (
+            ARABIC_EGYPT_CARD,
+            build_card_agent_prompt,
+        )
+        prompt = build_card_agent_prompt(ARABIC_EGYPT_CARD)
+        print(f"\n  Scenario : {ARABIC_EGYPT_CARD.scenario_title}")
     else:
         prompt = _build_default_prompt()
 
