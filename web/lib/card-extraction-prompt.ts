@@ -126,16 +126,59 @@ For document_intelligence, emit:
                           - "egypt_mohp_mandatory_childhood_immunization"
                             (Egyptian MoHP mandatory-immunizations card;
                             canonical title "التطعيمات الإجبارية")
+                          - "who_icvp_international_certificate"
+                            (WHO/IHR International Certificate of
+                            Vaccination or Prophylaxis — yellow booklet
+                            or single-page form. Header reads
+                            "International Certificate of Vaccination or
+                            Prophylaxis" / "Certificat International de
+                            Vaccination ou de Prophylaxie" / "Certificado
+                            Internacional de Vacunación o Profilaxis".
+                            Carries traveller fields — name, DOB, sex,
+                            nationality, passport / travel document #,
+                            and a table of vaccine entries with
+                            disease, vaccine, date, signature, batch,
+                            valid-from / valid-until.)
                           - "unknown_vaccine_card"
                             (honest default — every other layout)
                         DO NOT invent new ids. Downstream code only
-                        branches on these two values; anything else
+                        branches on these three values; anything else
                         coerces to "unknown_vaccine_card" server-side.
   document_type_guess:  your first-pass document-type guess; same enum.
                         Use "unknown_vaccine_card" when unsure. The
                         server re-checks recognized_template_id
                         against the region source_text regardless of
                         what you emit.
+
+WHO / ICVP CARD-SPECIFIC RULES (when recognized_template_id is
+who_icvp_international_certificate):
+
+  - Treat each filled vaccine row as an administered dose. Map the
+    "Disease or condition" / "Vaccine or prophylaxis" cell to canonical
+    antigens where possible: "Yellow fever" → YellowFever; "Polio" /
+    "OPV" / "IPV" → OPV or IPV depending on what is written; "Cholera"
+    → Cholera; "Meningococcal" / "MenACWY" → MenACWY; "COVID-19" →
+    COVID-19; "Typhoid" → Typhoid. For unknown disease or vaccine
+    names, emit the raw printed label verbatim — DO NOT drop the row
+    and DO NOT guess a canonical mapping. Confidence drops below 0.85
+    so the row routes to clinician review.
+  - dose_kind defaults to "primary" for traveller vaccines unless the
+    row is explicitly labelled as a booster ("Booster" / "Rappel" /
+    "Refuerzo"). Yellow-fever single doses confer lifetime protection
+    per WHO; emit dose_number = 1 unless the card numbers them
+    differently.
+  - The lot / batch number cell maps to lot_number. The clinician
+    signature / status, manufacturer, valid-from, and valid-until cells
+    are NOT load-bearing for this demo — preserve them in
+    evidence_fragments under "note" if you have time, but do not
+    invent rows from them.
+  - Do NOT extract or repeat the passport / travel document number
+    into rows. The redaction layer is upstream of you; if you can see
+    a passport number, mention it in the page-level "warnings" array
+    so the clinician knows redaction failed — do not echo the digits.
+  - If the card is stamped "SYNTHETIC TEST RECORD — NOT VALID FOR
+    TRAVEL", carry that verbatim into a page-level warning so
+    downstream UI can re-render the disclosure.
   pages_detected:       integer, typically 1.
   orientation_warning:  null, or a short string if the card is rotated,
                         tilted, or upside-down ("Rotated 180°; header

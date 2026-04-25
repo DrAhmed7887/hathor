@@ -63,6 +63,8 @@ const H = {
   amber:     "#B8833B",
   amberSoft: "#F4E9D1",
   amberLine: "#E2C998",
+  bad:       "#A3453B",
+  badSoft:   "#F3E3DF",
 };
 
 const F = {
@@ -192,6 +194,8 @@ interface RowCardProps {
   resolved: boolean;
   onEdit: (field: CellField, value: string) => void;
   onAcknowledge: () => void;
+  onSkip: () => void;
+  onReject: (reason: string) => void;
 }
 
 function RowCard({
@@ -201,10 +205,18 @@ function RowCard({
   resolved,
   onEdit,
   onAcknowledge,
+  onSkip,
+  onReject,
 }: RowCardProps) {
   const amber = isAmber(row);
   const [editing, setEditing] = useState<CellField | null>(null);
   const [draft, setDraft] = useState("");
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const action = row.clinician_action ?? "none";
+  const skipped = action === "skipped";
+  const rejected = action === "rejected";
 
   const beginEdit = (field: CellField) => {
     setEditing(field);
@@ -404,16 +416,25 @@ function RowCard({
           </p>
         )}
 
-        {/* Acknowledge control — only shown for amber rows that aren't
-            already resolved via an edit. */}
-        {amber && !resolved && (
+        {/* Acknowledge / Skip / Reject controls — shown for amber rows
+            that aren't already resolved via an edit, AND for any row the
+            clinician wants to actively skip or mark definitively absent.
+            The trust gate (web/lib/trust-gate.ts) routes these:
+              - confirmed/edited → admit to engine
+              - skipped          → drop with reason "clinician skipped"
+              - rejected         → routed to definitively_absent channel
+                                   (NOT engine input — engine never sees
+                                   a dose the clinician asserted didn't
+                                   happen). Reject requires a reason. */}
+        {amber && !resolved && !skipped && !rejected && !rejectOpen && (
           <div
             style={{
               marginTop: 4,
               display: "flex",
               alignItems: "center",
-              gap: 10,
+              gap: 8,
               justifyContent: "flex-end",
+              flexWrap: "wrap",
             }}
           >
             <span
@@ -444,10 +465,144 @@ function RowCard({
             >
               Keep as read
             </button>
+            <button
+              type="button"
+              onClick={onSkip}
+              title="Skip — do not include in this reconciliation. The visit stays unreviewed."
+              style={{
+                padding: "6px 14px",
+                fontFamily: F.mono,
+                fontSize: 10.5,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                color: H.meta,
+                background: "transparent",
+                border: `1px solid ${H.stone}`,
+                cursor: "pointer",
+              }}
+            >
+              Skip
+            </button>
+            <button
+              type="button"
+              onClick={() => setRejectOpen(true)}
+              title="Reject — assert this dose was definitively NOT given. Requires a reason; logged to the audit trail and excluded from reconciliation."
+              style={{
+                padding: "6px 14px",
+                fontFamily: F.mono,
+                fontSize: 10.5,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                color: H.bad,
+                background: "transparent",
+                border: `1px solid ${H.bad}`,
+                cursor: "pointer",
+              }}
+            >
+              Reject
+            </button>
           </div>
         )}
 
-        {amber && resolved && (
+        {/* Reject reason inline editor — required by the trust gate. */}
+        {rejectOpen && !rejected && (
+          <div
+            style={{
+              marginTop: 4,
+              padding: "10px 12px",
+              background: H.badSoft,
+              border: `1px solid ${H.bad}`,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <label
+              style={{
+                fontFamily: F.mono,
+                fontSize: 10,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: H.bad,
+              }}
+            >
+              Reason for rejecting this dose (required)
+            </label>
+            <input
+              autoFocus
+              type="text"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="e.g. parent confirmed dose was not given"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRejectOpen(false);
+                  setRejectReason("");
+                }
+              }}
+              style={{
+                width: "100%",
+                fontFamily: F.sans,
+                fontSize: 13,
+                padding: "6px 8px",
+                background: "#fff",
+                border: `1px solid ${H.bad}`,
+                color: H.ink,
+                outline: "none",
+                borderRadius: 0,
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectOpen(false);
+                  setRejectReason("");
+                }}
+                style={{
+                  padding: "6px 12px",
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  color: H.meta,
+                  background: "transparent",
+                  border: `1px solid ${H.stone}`,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={rejectReason.trim() === ""}
+                onClick={() => {
+                  const reason = rejectReason.trim();
+                  if (reason === "") return;
+                  onReject(reason);
+                  setRejectOpen(false);
+                  setRejectReason("");
+                }}
+                style={{
+                  padding: "6px 12px",
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  color: rejectReason.trim() === "" ? H.faint : "#FFFDF7",
+                  background: rejectReason.trim() === "" ? H.stone : H.bad,
+                  border: "none",
+                  cursor: rejectReason.trim() === "" ? "not-allowed" : "pointer",
+                }}
+              >
+                Confirm reject
+              </button>
+            </div>
+          </div>
+        )}
+
+        {amber && resolved && !skipped && !rejected && (
           <div
             style={{
               fontFamily: F.mono,
@@ -459,6 +614,37 @@ function RowCard({
             }}
           >
             ✓ Reviewed
+          </div>
+        )}
+
+        {skipped && (
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 10,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: H.meta,
+              textAlign: "right",
+            }}
+          >
+            ⊘ Skipped — not included in reconciliation
+          </div>
+        )}
+
+        {rejected && (
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 10,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: H.bad,
+              textAlign: "right",
+            }}
+          >
+            ✕ Rejected as definitively absent
+            {row.clinician_reason ? ` — ${row.clinician_reason}` : ""}
           </div>
         )}
       </div>
@@ -640,6 +826,11 @@ export function ParsedResults({
 
   const isResolved = useCallback(
     (index: number, row: ParsedCardRow) => {
+      const action = row.clinician_action ?? "none";
+      // Skip / reject are explicit clinician decisions — they resolve
+      // the row even on a high-confidence read (e.g., the model read a
+      // dose the parent denies was given).
+      if (action === "skipped" || action === "rejected") return true;
       if (!isAmber(row)) return true;
       return acknowledged.has(index) || edited.has(index);
     },
@@ -689,6 +880,41 @@ export function ParsedResults({
     });
   }, []);
 
+  /** Mark a row as "skipped" — the trust gate drops it with reason
+   * "clinician skipped". The row is no longer engine input but the
+   * card history retains its visible position. */
+  const handleSkip = useCallback(
+    (rowIndex: number) => {
+      const next = [...rows];
+      next[rowIndex] = {
+        ...next[rowIndex],
+        clinician_action: "skipped",
+        clinician_action_at: new Date().toISOString(),
+      };
+      onRowsChanged(next);
+    },
+    [rows, onRowsChanged],
+  );
+
+  /** Mark a row as "rejected" — definitively absent. The trust gate
+   * routes this to the definitively_absent channel, NOT the engine.
+   * `reason` is non-empty (the modal disables Confirm otherwise). */
+  const handleReject = useCallback(
+    (rowIndex: number, reason: string) => {
+      const trimmed = reason.trim();
+      if (trimmed === "") return;
+      const next = [...rows];
+      next[rowIndex] = {
+        ...next[rowIndex],
+        clinician_action: "rejected",
+        clinician_action_at: new Date().toISOString(),
+        clinician_reason: trimmed,
+      };
+      onRowsChanged(next);
+    },
+    [rows, onRowsChanged],
+  );
+
   // Evidence merge runs on every render — it's a pure pass-through on
   // rows, so the cost is negligible and the warnings stay in sync with
   // the latest clinician edits. We surface the merge warnings inside
@@ -711,13 +937,14 @@ export function ParsedResults({
   );
   const templateDisplayName = useMemo(() => {
     if (!documentIntelligence) return null;
-    if (
-      documentIntelligence.recognized_template_id ===
-      "egypt_mohp_mandatory_childhood_immunization"
-    ) {
-      return 'Egyptian MoHP mandatory childhood immunization (التطعيمات الإجبارية)';
+    switch (documentIntelligence.recognized_template_id) {
+      case "egypt_mohp_mandatory_childhood_immunization":
+        return "Egyptian MoHP mandatory childhood immunization (التطعيمات الإجبارية)";
+      case "who_icvp_international_certificate":
+        return "WHO/IHR International Certificate of Vaccination or Prophylaxis (ICVP)";
+      default:
+        return null;
     }
-    return null;
   }, [documentIntelligence]);
 
   // Re-parse guard: if the clinician has corrections in flight, warn
@@ -898,13 +1125,15 @@ export function ParsedResults({
         )}
         {rows.map((r, i) => (
           <RowCard
-            key={i}
+            key={r.row_id ?? i}
             index={i}
             row={r}
             imageUrl={imageUrl}
             resolved={isResolved(i, r)}
             onEdit={(field, value) => handleEdit(i, field, value)}
             onAcknowledge={() => handleAcknowledge(i)}
+            onSkip={() => handleSkip(i)}
+            onReject={(reason) => handleReject(i, reason)}
           />
         ))}
       </div>
