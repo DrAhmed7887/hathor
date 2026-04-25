@@ -1,0 +1,32 @@
+{
+  "name": "HATHOR-DOSE-002 fail — Hexavalent dose 2 with 36-day interval below 56-day minimum",
+  "description": "Hex dose 1 at 63 days, Hex dose 2 at 99 days. Interval 36 days; Egypt minimum 56; shortfall 20 days exceeds 4-day grace, so DOSE-003 must NOT supersede.",
+  "context": {
+    "child_dob": "2025-01-01",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "Hexavalent", "date_administered": "2025-03-05", "dose_number": 1},
+      {"antigen": "Hexavalent", "date_administered": "2025-04-10", "dose_number": 2}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "Hexavalent",
+      "dose_number": 2,
+      "agent_rationale": "Verdict on Hexavalent dose 2 — interval check.",
+      "reasoning": "Dose 1 at 63d, Dose 2 at 99d — interval 36d.",
+      "agent_confidence": 0.95,
+      "source_dose_indices": [0, 1]
+    }
+  ],
+  "expects": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-DOSE-002", "severity": "fail"}
+  ],
+  "forbids": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-DOSE-003"}
+  ]
+}

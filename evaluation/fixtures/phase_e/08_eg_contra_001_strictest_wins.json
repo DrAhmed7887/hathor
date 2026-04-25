@@ -1,0 +1,32 @@
+{
+  "name": "EG-CONTRA-001 fail — strictest-wins when EgyptMoH says contraindicated and WHO-DAK disagrees",
+  "description": "Contradiction recommendation with conflicting source verdicts. Egypt MoH marks BCG as contraindicated (severe combined immunodeficiency), WHO-DAK does not. Strictest-wins: any source==True triggers fail; rationale uses Egypt MoH per precedence ordering.",
+  "context": {
+    "child_dob": "2025-01-01",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": []
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "contra",
+      "antigen": "BCG",
+      "agent_rationale": "Possible contraindication — verify clinical status.",
+      "reasoning": "Two sources disagree on whether BCG is contraindicated for this clinical context.",
+      "agent_confidence": 0.85,
+      "source_dose_indices": [],
+      "source_verdicts": [
+        {"source": "EgyptMoH", "verdict": true, "reason": "Severe combined immunodeficiency — live attenuated BCG contraindicated."},
+        {"source": "WHO-DAK", "verdict": false, "reason": "Not contraindicated in immunocompetent infants."}
+      ]
+    }
+  ],
+  "expects": [
+    {"recommendation_id": "rec-1", "rule_id": "EG-CONTRA-001", "severity": "fail"}
+  ],
+  "forbids": [
+    {"recommendation_id": "rec-1", "rule_id": "EG-CONTRA-001", "severity": "pass"}
+  ]
+}

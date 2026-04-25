@@ -1,0 +1,30 @@
+{
+  "name": "HATHOR-EPI-002 fail — Varicella 14 days after MMR violates 28-day inter-live window",
+  "description": "MMR dose 1 at 366d, then Varicella dose 1 at 380d (14 days later). Both are live parenteral vaccines administered on different days with interval < 28 days. ACIP 4-day grace does NOT apply to this 28-day window.",
+  "context": {
+    "child_dob": "2024-04-15",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "MMR", "date_administered": "2025-04-15", "dose_number": 1},
+      {"antigen": "Varicella", "date_administered": "2025-04-29", "dose_number": 1}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "Varicella",
+      "dose_number": 1,
+      "agent_rationale": "Verdict on Varicella dose 1 — inter-live spacing.",
+      "reasoning": "Varicella given 14 days after MMR; both live parenteral.",
+      "agent_confidence": 0.95,
+      "source_dose_indices": [1]
+    }
+  ],
+  "expects": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-EPI-002", "severity": "fail"}
+  ],
+  "forbids": []
+}
