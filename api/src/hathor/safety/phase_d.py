@@ -79,9 +79,16 @@ class DroppedDose:
 
 @dataclass
 class ConfirmedDoseFilterResult:
-    """Output of :func:`filter_confirmed_doses` — the trust gate."""
+    """Output of :func:`filter_confirmed_doses` — the trust gate.
+
+    PR 2 adds the ``definitively_absent`` channel (design note §6.5):
+    rows the clinician REJECTED — i.e. asserted the visit definitively
+    did not occur — are routed here, not dropped. The reconciler reads
+    this channel so catch-up scheduling can suppress the dose.
+    """
 
     confirmed: list[ExtractedDose]
+    definitively_absent: list[ExtractedDose]
     dropped: list[DroppedDose]
 
 
@@ -132,8 +139,41 @@ def filter_confirmed_doses(
     because the Python pipeline only ever sees vision-origin doses.
     """
     confirmed: list[ExtractedDose] = []
+    definitively_absent: list[ExtractedDose] = []
     dropped: list[DroppedDose] = []
+
+    # Orientation block applies indiscriminately, before any other
+    # check (design note §7). A card with an unacknowledged
+    # orientation warning produces zero confirmed rows.
+    if not extraction.orientation_acknowledged:
+        for i, _ in enumerate(extraction.extracted_doses):
+            dropped.append(
+                DroppedDose(dose_index=i, reason="orientation unconfirmed")
+            )
+        return ConfirmedDoseFilterResult(
+            confirmed=confirmed,
+            definitively_absent=definitively_absent,
+            dropped=dropped,
+        )
+
     for i, dose in enumerate(extraction.extracted_doses):
+        action = dose.clinician_action
+
+        # Clinician decisions short-circuit the source/confidence
+        # checks (design note §6.5).
+        if action == "rejected":
+            definitively_absent.append(dose)
+            continue
+        if action == "skipped":
+            dropped.append(
+                DroppedDose(dose_index=i, reason="clinician skipped")
+            )
+            continue
+        if action in ("confirmed", "edited"):
+            confirmed.append(dose)
+            continue
+
+        # action == "none" — fall through to vision-confidence checks.
         if not _field_is_confirmed(dose.transcribed_antigen):
             dropped.append(
                 DroppedDose(
@@ -151,7 +191,11 @@ def filter_confirmed_doses(
             )
             continue
         confirmed.append(dose)
-    return ConfirmedDoseFilterResult(confirmed=confirmed, dropped=dropped)
+    return ConfirmedDoseFilterResult(
+        confirmed=confirmed,
+        definitively_absent=definitively_absent,
+        dropped=dropped,
+    )
 
 
 def gate(extraction: CardExtractionOutput) -> PhaseDResult:

@@ -87,13 +87,19 @@ export function wireDoseKind(kind: DoseKind): DoseKind {
  * `trust-gate.test.ts::"buildValidationRecords runs the trust gate"`
  * asserts this can never be bypassed at the funnel.
  *
+ * The optional third argument forwards orientation-blocking context
+ * to the trust gate (design note §7). When the parse output had an
+ * `orientation_warning` and the clinician has not yet acknowledged
+ * it, no records are produced regardless of row state.
+ *
  * Returned `indices` reference the ORIGINAL input array, so callers
  * can correlate engine output back to the displayed rows. */
 export function buildValidationRecords(
   rows: ParsedCardRow[],
   childDob: string,
+  options: { orientation_blocked?: boolean } = {},
 ): { records: ValidateScheduleRecord[]; indices: number[] } {
-  const gated = filterConfirmedDoses(rows);
+  const gated = filterConfirmedDoses(rows, options);
   const eligibleIndices = gated.confirmed
     .map((r, idx) => ({ r, i: gated.confirmedIndices[idx] }))
     .filter((x) => isEngineEligible(x.r));

@@ -162,7 +162,12 @@ interface ParityCase {
    * it and default to "vision". */
   row_source?: ParsedCardRow["source"];
   row_confidence: number;
-  expected: "admit" | "drop";
+  /** PR 2: parity cases can specify a clinician action so both
+   * implementations exercise the routing for skip/reject/confirm. */
+  clinician_action?: ParsedCardRow["clinician_action"];
+  clinician_reason?: string;
+  row_confidence_field?: number;
+  expected: "admit" | "drop" | "definitively_absent";
   expected_reason_substring?: string;
 }
 
@@ -214,6 +219,8 @@ function caseToRow(c: ParityCase): ParsedCardRow {
       antigen: c.antigen.confidence,
       date: c.date.confidence,
     },
+    clinician_action: c.clinician_action ?? "none",
+    clinician_reason: c.clinician_reason ?? null,
   };
 }
 
@@ -226,12 +233,23 @@ function assertParityCase(c: ParityCase) {
       `case "${c.id}" expected admit but TS dropped: ${out.dropped[0]?.reason}`,
     );
     assert.equal(out.dropped.length, 0);
+    assert.equal(out.definitively_absent.length, 0);
+  } else if (c.expected === "definitively_absent") {
+    assert.equal(
+      out.definitively_absent.length,
+      1,
+      `case "${c.id}" expected definitively_absent but TS routed elsewhere ` +
+        `(confirmed=${out.confirmed.length} dropped=${out.dropped.length})`,
+    );
+    assert.equal(out.confirmed.length, 0);
+    assert.equal(out.dropped.length, 0);
   } else {
     assert.equal(
       out.confirmed.length,
       0,
       `case "${c.id}" expected drop but TS admitted`,
     );
+    assert.equal(out.definitively_absent.length, 0);
     assert.equal(out.dropped.length, 1);
     if (c.expected_reason_substring) {
       assert.match(
@@ -327,4 +345,158 @@ test("buildValidationRecords gate runs BEFORE engine-eligibility", () => {
   ];
   const { records } = buildValidationRecords(rows, "2024-01-01");
   assert.equal(records.length, 0);
+});
+
+// ── PR 2: clinician action routing ──────────────────────────────────────────
+
+test("filter: clinician confirmed admits even when underlying source is AMBER", () => {
+  const r = row({
+    confidence: 0.55,
+    source: "vision_low_confidence",
+    clinician_action: "confirmed",
+  });
+  const out = filterConfirmedDoses([r]);
+  assert.equal(out.confirmed.length, 1);
+  assert.equal(out.dropped.length, 0);
+  assert.equal(out.definitively_absent.length, 0);
+});
+
+test("filter: clinician edited admits with no source/confidence check", () => {
+  const r = row({
+    confidence: 0.4,
+    source: "template_inferred",
+    clinician_action: "edited",
+  });
+  const out = filterConfirmedDoses([r]);
+  assert.equal(out.confirmed.length, 1);
+});
+
+test("filter: clinician skipped is dropped with explicit reason", () => {
+  const r = row({
+    confidence: 0.95,
+    source: "vision",
+    clinician_action: "skipped",
+  });
+  const out = filterConfirmedDoses([r]);
+  assert.equal(out.confirmed.length, 0);
+  assert.equal(out.dropped.length, 1);
+  assert.match(out.dropped[0].reason, /clinician skipped/i);
+});
+
+test("filter: clinician rejected routes to definitively_absent (NOT dropped)", () => {
+  const r = row({
+    confidence: 0.95,
+    source: "vision",
+    clinician_action: "rejected",
+    clinician_reason: "Mother confirmed visit was missed.",
+  });
+  const out = filterConfirmedDoses([r]);
+  assert.equal(out.confirmed.length, 0);
+  assert.equal(out.dropped.length, 0);
+  assert.equal(out.definitively_absent.length, 1);
+});
+
+test("filter: definitively_absent and dropped are independent channels", () => {
+  // Mix all four actions plus a vanilla vision row.
+  const rows: ParsedCardRow[] = [
+    row({ antigen: "BCG", date: "2024-01-01", clinician_action: "none" }),
+    row({ antigen: "MMR", date: "2025-01-01", clinician_action: "confirmed" }),
+    row({ antigen: "OPV", date: "2024-04-01", clinician_action: "skipped" }),
+    row({
+      antigen: "DTP",
+      date: "2024-05-01",
+      clinician_action: "rejected",
+      clinician_reason: "Mother confirmed visit was missed.",
+    }),
+    row({ antigen: "HepB", date: "2024-01-01", clinician_action: "edited" }),
+  ];
+  const out = filterConfirmedDoses(rows);
+  assert.equal(out.confirmed.length, 3, "BCG (none/confident) + MMR (confirmed) + HepB (edited)");
+  assert.equal(out.dropped.length, 1, "OPV (skipped)");
+  assert.equal(out.definitively_absent.length, 1, "DTP (rejected)");
+});
+
+// ── PR 2: orientation blocking ──────────────────────────────────────────────
+
+test("filter: orientation_blocked drops every row indiscriminately", () => {
+  const rows: ParsedCardRow[] = [
+    row({ confidence: 0.99 }),
+    row({ confidence: 0.99 }),
+    row({ confidence: 0.5, source: "vision_low_confidence" }),
+  ];
+  const out = filterConfirmedDoses(rows, { orientation_blocked: true });
+  assert.equal(out.confirmed.length, 0);
+  assert.equal(out.definitively_absent.length, 0);
+  assert.equal(out.dropped.length, 3);
+  for (const d of out.dropped) {
+    assert.match(d.reason, /orientation unconfirmed/i);
+  }
+});
+
+test("buildValidationRecords blocks records when orientation unacknowledged", () => {
+  const rows: ParsedCardRow[] = [
+    row({
+      antigen: "BCG",
+      doseNumber: 1,
+      doseKind: "birth",
+      date: "2024-01-01",
+      confidence: 0.99,
+    }),
+  ];
+  // No orientation context → records build normally.
+  const { records: ok } = buildValidationRecords(rows, "2024-01-01");
+  assert.equal(ok.length, 1);
+  // Orientation blocked → zero records, regardless of row state.
+  const { records: blocked } = buildValidationRecords(rows, "2024-01-01", {
+    orientation_blocked: true,
+  });
+  assert.equal(blocked.length, 0);
+});
+
+// ── PR 2: schema-enforced reject reason ─────────────────────────────────────
+
+test("assertClinicianAction throws when reject lacks reason", async () => {
+  const { assertClinicianAction } = await import("./types.ts");
+  const r = row({ clinician_action: "rejected", clinician_reason: null });
+  assert.throws(() => assertClinicianAction(r), /requires a non-empty/i);
+});
+
+test("assertClinicianAction throws when reject reason is whitespace-only", async () => {
+  const { assertClinicianAction } = await import("./types.ts");
+  const r = row({ clinician_action: "rejected", clinician_reason: "   " });
+  assert.throws(() => assertClinicianAction(r), /requires a non-empty/i);
+});
+
+test("assertClinicianAction passes for non-reject actions with null reason", async () => {
+  const { assertClinicianAction } = await import("./types.ts");
+  for (const action of ["none", "confirmed", "edited", "skipped"] as const) {
+    const r = row({ clinician_action: action, clinician_reason: null });
+    assertClinicianAction(r); // must not throw
+  }
+});
+
+test("assertAuditEntry throws when reject entry lacks reason", async () => {
+  const { assertAuditEntry } = await import("./types.ts");
+  const entry = {
+    audit_entry_id: "a1",
+    row_id: "r1",
+    clinician_id: "demo-clinician",
+    clinician_display_name: null,
+    timestamp: "2026-04-25T10:00:00Z",
+    action: "reject" as const,
+    slot_state_at_action: "ambiguous" as const,
+    predicted_value: {
+      antigen: "DTP",
+      date: "2024-05-01",
+      dose_number: 1,
+      dose_kind: "primary" as const,
+      lot_number: null,
+      source: "vision" as const,
+      confidence: 0.95,
+    },
+    confirmed_value: null,
+    reason: null,
+    predicted_subkind: null,
+  };
+  assert.throws(() => assertAuditEntry(entry), /requires a non-empty/i);
 });

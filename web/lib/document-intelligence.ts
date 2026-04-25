@@ -682,26 +682,57 @@ export function inferRowsFromTemplate(
   // the first unfilled template spec with the same antigen key. A
   // row that matches nothing (antigen not in this template) stays
   // in parsedRows but claims no slot.
+  //
+  // PR 2: the matcher annotates each parsed row with its claimed
+  // template_spec_index (or null for unmatched rows) so the
+  // downstream visit-first grouping in slot-state.ts can group rows
+  // by age point without re-running the matcher.
   const filledSpecIndices = new Set<number>();
+  const visionRowSpecAssignments = new Map<ParsedCardRow, number | null>();
   for (const row of parsedRows) {
     const key = antigenKey(row.antigen);
+    let assigned: number | null = null;
     for (let i = 0; i < template.row_specs.length; i++) {
       if (filledSpecIndices.has(i)) continue;
       if (antigenKey(template.row_specs[i].primary_antigen) !== key) continue;
       filledSpecIndices.add(i);
+      assigned = i;
       break;
     }
+    visionRowSpecAssignments.set(row, assigned);
   }
+
+  // Annotate each vision row with its template_spec_index (or null)
+  // and a vision prediction_id. We do not mutate the input; we copy.
+  const annotatedVisionRows: ParsedCardRow[] = parsedRows.map((row) => {
+    const idx = visionRowSpecAssignments.get(row) ?? null;
+    const fragId = row.sourceEvidenceFragmentId ?? row.row_id ?? "(no-id)";
+    return {
+      ...row,
+      template_spec_index: idx,
+      prediction_id: row.prediction_id ?? `V:${fragId}`,
+    };
+  });
 
   const unfilledSpecIndices: number[] = [];
   for (let i = 0; i < template.row_specs.length; i++) {
     if (!filledSpecIndices.has(i)) unfilledSpecIndices.push(i);
   }
 
+  // Predicted-subkind discriminator (design note §3): zero vision
+  // rows means the whole schedule is template-inferred; otherwise
+  // any predictions are gap-fills on an otherwise-legible card.
+  const predictedSubkind:
+    | "predicted_missing_visit"
+    | "predicted_zero_vision_template" =
+    parsedRows.length === 0
+      ? "predicted_zero_vision_template"
+      : "predicted_missing_visit";
+
   if (unfilledSpecIndices.length === 0) {
     return {
       inferred: false,
-      rows: parsedRows,
+      rows: annotatedVisionRows,
       warnings: [],
       template_id: templateId,
       unmapped_date_texts: [],
@@ -774,7 +805,15 @@ export function inferRowsFromTemplate(
         height: Math.min(0.2, 1 / template.row_specs.length),
       },
       source: "template_inferred",
+      // Kept for one cycle for backward compat; PR 3 strips this from
+      // predicted rows in favor of `prediction_id` exclusively.
       sourceEvidenceFragmentId: frag?.fragment_id ?? null,
+      // PR 2 schema (design note §6.1):
+      slot_state: "predicted",
+      predicted_subkind: predictedSubkind,
+      template_spec_index: specIdx,
+      prediction_id: `T:${specIdx}`,
+      clinician_action: "none",
     });
   }
 
@@ -788,7 +827,7 @@ export function inferRowsFromTemplate(
 
   return {
     inferred: inferredRows.length > 0,
-    rows: [...parsedRows, ...inferredRows],
+    rows: [...annotatedVisionRows, ...inferredRows],
     warnings,
     template_id: templateId,
     unmapped_date_texts: unmappedDateTexts,

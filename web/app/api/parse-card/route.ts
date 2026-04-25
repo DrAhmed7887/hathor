@@ -38,13 +38,21 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { randomUUID } from "node:crypto";
 import type { DoseKind, ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 import { CARD_EXTRACTION_SYSTEM_PROMPT } from "@/lib/card-extraction-prompt";
 import {
   inferRowsFromTemplate,
   normalizeDocumentIntelligence,
+  VACCINE_CARD_TEMPLATES,
   type LayoutAnalysisResult,
 } from "@/lib/document-intelligence";
+import {
+  buildVisits,
+  predictedSubkindOf,
+  predictionIdOf,
+  slotStateOf,
+} from "@/lib/slot-state";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -463,8 +471,57 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    // PR 2 wire-boundary finalization (design note §6.1, §6.2):
+    //   - generate row_id (UUID v4) per row
+    //   - derive slot_state and predicted_subkind
+    //   - generate prediction_id (V:<frag> | T:<spec_idx>)
+    //   - default clinician_action to "none"
+    //   - build visits[] grouped by template_spec_index
+    //   - init audit_log to []
+    //   - init orientation_acknowledged from layout's orientation_warning
+    const totalVisionRows = finalRows.filter((r) => {
+      const src = r.source ?? "vision";
+      return src === "vision" || src === "vision_low_confidence";
+    }).length;
+
+    const finalizedRows: ParsedCardRow[] = finalRows.map((r) => {
+      const withId: ParsedCardRow = {
+        ...r,
+        row_id: r.row_id ?? randomUUID(),
+        clinician_action: r.clinician_action ?? "none",
+      };
+      const state = slotStateOf(withId);
+      const subkind =
+        state === "predicted"
+          ? r.predicted_subkind ?? predictedSubkindOf(withId, totalVisionRows)
+          : null;
+      return {
+        ...withId,
+        slot_state: state,
+        predicted_subkind: subkind,
+        prediction_id: r.prediction_id ?? predictionIdOf(withId),
+      };
+    });
+
+    const templateAgeLabels: Record<number, string> =
+      documentIntelligence
+        ? Object.fromEntries(
+            VACCINE_CARD_TEMPLATES[
+              documentIntelligence.recognized_template_id
+            ].row_specs.map((spec) => [spec.row_index, spec.age_label]),
+          )
+        : {};
+
+    const visits = buildVisits(finalizedRows, templateAgeLabels);
+
+    const orientationWarning = documentIntelligence?.orientation_warning ?? null;
+    const orientation_acknowledged = orientationWarning === null;
+
     const body: ParsedCardOutput = {
-      rows: finalRows,
+      rows: finalizedRows,
+      visits,
+      orientation_acknowledged,
+      audit_log: [],
       ...(documentIntelligence ? { documentIntelligence } : {}),
       model: MODEL,
       parsedAt: new Date().toISOString(),

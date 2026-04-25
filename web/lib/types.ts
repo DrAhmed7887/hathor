@@ -110,12 +110,179 @@ export interface ParsedCardRow {
     | "predicted_from_schedule";
   /** The EvidenceFragment.fragment_id that seeded a template-inferred
    * row. Null for vision rows. Lets the trace UI correlate inferred
-   * rows back to their source evidence. */
+   * rows back to their source evidence.
+   *
+   * **DEPRECATED for predicted rows when PR 3 lands.** Use
+   * `prediction_id` instead. Today PR 2 emits both for one cycle so
+   * existing callers continue to work; PR 3 strips this field from
+   * predicted rows. Vision rows continue to carry it. */
   sourceEvidenceFragmentId?: string | null;
+
+  // ── PR 2 schema additions (see docs/hitl-ui-design.md §6.1) ──────────────
+
+  /** Stable UUID v4 generated at parse time. The audit log keys off
+   * this; React reconciliation keys off this. Indexes are not safe
+   * keys because edits and re-renders shift positions. Optional in
+   * the type so existing test fixtures compile without churn — the
+   * wire boundary in /api/parse-card/route.ts populates it
+   * unconditionally. */
+  row_id?: string;
+
+  /** Three-state discriminator the UI keys on. Computed
+   * deterministically from `source` and confidence at parse time:
+   *   - source === "vision" AND confidence >= 0.85 → "extracted"
+   *   - source === "vision" or "vision_low_confidence" with
+   *     confidence < 0.85 → "ambiguous"
+   *   - source === "template_inferred" → "predicted"
+   * Helper: `slotStateOf(row)` in `web/lib/slot-state.ts`. */
+  slot_state?: "extracted" | "ambiguous" | "predicted";
+
+  /** Sub-flavor of `slot_state="predicted"`. Discriminates between a
+   * predicted slot on an otherwise-legible card and a predicted slot
+   * on a card where vision returned nothing. The two get separate
+   * visual treatments per design note §3.
+   *
+   * Rule: `predicted_zero_vision_template` iff total vision rows on
+   * the parse output is zero AND this row is predicted.
+   * `predicted_missing_visit` otherwise (when slot_state="predicted").
+   *
+   * Null for non-predicted rows. */
+  predicted_subkind?:
+    | "predicted_missing_visit"
+    | "predicted_zero_vision_template"
+    | null;
+
+  /** Index into the recognized template's `row_specs[]`. Non-null
+   * when the row is paired with a template age point: vision rows
+   * via greedy antigen match, predicted rows by construction.
+   * Null for vision rows whose antigen has no template spec. */
+  template_spec_index?: number | null;
+
+  /** What the clinician decided about this row. "none" until the
+   * clinician acts; the audit log carries the full action history.
+   *   - "confirmed" / "edited" → reaches reconciliation (engine wire)
+   *   - "skipped"              → held back; visit treated as unreviewed
+   *   - "rejected"             → routed to definitively_absent channel
+   *
+   * `clinician_reason` is required (non-null) when this is
+   * "rejected" — schema-enforced via `assertClinicianAction(row)`
+   * at the wire boundary. */
+  clinician_action?: "none" | "confirmed" | "edited" | "skipped" | "rejected";
+
+  /** ISO 8601 timestamp of the most recent clinician action on this
+   * row. Cached from the audit log for cheap UI rendering. */
+  clinician_action_at?: string | null;
+
+  /** Free-text clinician note. Required (non-null) when
+   * `clinician_action === "rejected"`. */
+  clinician_reason?: string | null;
+
+  /** Stable identity for predictions. Format:
+   *   - "V:<fragment_id>"        for vision rows
+   *   - "T:<template_spec_index>" for template-predicted rows
+   * The structural prefix means downstream logs and FHIR exports can
+   * tell predicted from vision rows without consulting copy.
+   * (Limitation 3 fix from PR 1.) */
+  prediction_id?: string | null;
 }
 
-export interface ParsedCardOutput {
+/** A clinical visit at one age point. Egyptian MoHP cards have nine
+ * age points (the template's row_specs); a visit groups every row
+ * the parser produced for that age point — vision-extracted,
+ * ambiguous, or predicted alike. PR 2 introduces this as the
+ * visit-first schema; PR 3 builds the UI on top of it.
+ *
+ * Vision rows whose antigen has no template spec land in their own
+ * Visit with `template_spec_index = null`. */
+export interface Visit {
+  visit_id: string;
+  template_spec_index: number | null;
+  /** Display label like "2 months / شهرين", carried verbatim from the
+   * template row spec when known. Null for non-template visits. */
+  age_label: string | null;
   rows: ParsedCardRow[];
+}
+
+/** Snapshot of a row's clinically load-bearing values at the moment
+ * a clinician action was committed. Stored verbatim in the audit
+ * log so the audit trail can reconstruct what the clinician saw. */
+export interface SlotValueSnapshot {
+  antigen: string;
+  date: string | null;
+  dose_number: number | null;
+  dose_kind: DoseKind;
+  lot_number: string | null;
+  source: ParsedCardRow["source"];
+  confidence: number;
+  field_confidences?: ParsedCardRow["fieldConfidences"];
+}
+
+/** One immutable audit entry per clinician action. Append-only —
+ * editing a previously-confirmed row appends a new entry; the most
+ * recent per `row_id` is the authoritative state. See design note §5.
+ *
+ * `clinician_id = "demo-clinician"` is the sentinel value in
+ * unauthenticated demo sessions per the resolved open question. */
+export interface AuditEntry {
+  audit_entry_id: string;
+  row_id: string;
+  clinician_id: string;
+  clinician_display_name: string | null;
+  timestamp: string;
+  action: "confirm" | "edit" | "skip" | "reject";
+  slot_state_at_action:
+    | "extracted"
+    | "ambiguous"
+    | "predicted_missing_visit"
+    | "predicted_zero_vision_template";
+  predicted_value: SlotValueSnapshot;
+  /** Null for `skip` and `reject` actions. */
+  confirmed_value: SlotValueSnapshot | null;
+  /** Required (non-null) for `reject`. Optional otherwise.
+   * Enforced at the wire boundary by `assertAuditEntry()`. */
+  reason: string | null;
+  predicted_subkind:
+    | "predicted_missing_visit"
+    | "predicted_zero_vision_template"
+    | null;
+}
+
+/** Sentinel clinician identity for unauthenticated demo sessions.
+ * The audit log carries this so FHIR Provenance shape stays stable
+ * when a real auth layer lands. */
+export const DEMO_CLINICIAN_ID = "demo-clinician";
+
+export interface ParsedCardOutput {
+  /** **DERIVED ALIAS — removed when PR 3 lands.**
+   *
+   * Maintained for one cycle so existing consumers (ParsedResults,
+   * the demo page, validation.ts) continue to compile while PR 3
+   * migrates them to `visits[].rows[]`. After PR 3 merges, delete
+   * this field from the interface and from the route handler's
+   * response payload. The PR 2 commit message records the deletion
+   * deadline, and the route's response is documented at
+   * web/app/api/parse-card/route.ts. */
+  rows: ParsedCardRow[];
+
+  /** Visit-first schema (PR 2). One Visit per age point: rows are
+   * grouped by `template_spec_index`, with vision rows that match no
+   * spec landing in their own untyped visits at the end. The UI in
+   * PR 3 renders this directly; `rows[]` above is a flattened alias
+   * for backward compat only. */
+  visits: Visit[];
+
+  /** Card-level orientation acknowledgement (design note §7).
+   * Defaults to `true` when `documentIntelligence?.orientation_warning`
+   * is null; defaults to `false` otherwise. The trust gate refuses
+   * to admit any row from a card with an unacknowledged orientation
+   * warning. The clinician acknowledges via a full-card modal. */
+  orientation_acknowledged: boolean;
+
+  /** Append-only clinician action history. Never mutated; new
+   * actions push new entries. The trust gate consults the latest
+   * entry per `row_id` to determine `clinician_action`. */
+  audit_log: AuditEntry[];
+
   /** Lightweight, CrossBeam-inspired layout + evidence trace from the
    * staged extraction pipeline. Optional — if the model omits it or
    * returns a malformed object, the route falls back to direct parse
@@ -126,6 +293,34 @@ export interface ParsedCardOutput {
   /** Model-level metadata for the agent-reasoning audit trail. */
   model: string;
   parsedAt: string; // ISO timestamp
+}
+
+/** Wire-boundary validator. Throws if a row's clinician_action is
+ * "rejected" without a non-empty clinician_reason. Pairs with the
+ * Pydantic `model_validator` on the Python side
+ * (`api/src/hathor/schemas/extraction.py`). */
+export function assertClinicianAction(row: ParsedCardRow): void {
+  if (row.clinician_action === "rejected") {
+    if (!row.clinician_reason || row.clinician_reason.trim() === "") {
+      throw new Error(
+        `Row ${row.row_id ?? "(no row_id)"}: clinician_action="rejected" ` +
+          `requires a non-empty clinician_reason.`,
+      );
+    }
+  }
+}
+
+/** Wire-boundary validator for an AuditEntry. Throws if a `reject`
+ * entry lacks a non-empty `reason`. */
+export function assertAuditEntry(entry: AuditEntry): void {
+  if (entry.action === "reject") {
+    if (!entry.reason || entry.reason.trim() === "") {
+      throw new Error(
+        `Audit entry ${entry.audit_entry_id} (row ${entry.row_id}): ` +
+          `action="reject" requires a non-empty reason.`,
+      );
+    }
+  }
 }
 
 // ── Redaction (bounding boxes drawn in the browser before upload) ─────────────
