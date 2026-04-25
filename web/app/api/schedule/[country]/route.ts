@@ -16,6 +16,9 @@ const ALLOWED: Record<string, string> = {
   EG: "egypt.json",
   NG: "nigeria.json",
   SD: "sudan.json",
+  SY: "syria.json",
+  SS: "south_sudan.json",
+  ER: "eritrea.json",
   ET: "ethiopia.json",
   WHO: "who.json",
 };

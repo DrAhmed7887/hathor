@@ -31,9 +31,12 @@ test("Egypt is the sole partial_ready destination", () => {
   assert.equal(canRunReconciliation("EG"), true);
 });
 
-test("Sudan, South Sudan, Eritrea, Ethiopia are needs_review", () => {
-  const refugeeCodes: CountryCode[] = ["SD", "SS", "ER", "ET"];
-  for (const code of refugeeCodes) {
+test("Top-5 UNHCR-Egypt source countries + WHO baseline are needs_review", () => {
+  // Sudan, Syria, South Sudan, Eritrea, Ethiopia + the generic WHO
+  // baseline. None of these has a clinically-signed-off schedule for
+  // this demo; engine reconciliation must NOT run against them.
+  const sourceCodes: CountryCode[] = ["SD", "SY", "SS", "ER", "ET", "WHO"];
+  for (const code of sourceCodes) {
     assert.equal(
       COUNTRIES[code].readiness,
       "needs_review",
@@ -47,19 +50,24 @@ test("Sudan, South Sudan, Eritrea, Ethiopia are needs_review", () => {
   }
 });
 
-test("Nigeria is included as needs_review and not labelled partial_ready", () => {
+test("Nigeria is retained in the registry as needs_review (eval continuity)", () => {
   assert.equal(COUNTRIES.NG.readiness, "needs_review");
   assert.equal(canRunReconciliation("NG"), false);
 });
 
-test("source selector lists every African country plus Egypt", () => {
+test("source selector lists top-5 UNHCR-Egypt countries plus WHO baseline", () => {
+  // Picker order matters in the UI but the contract here is set
+  // membership: Sudan, Syria, South Sudan, Eritrea, Ethiopia, WHO.
+  // Egypt is NOT a source option (it is the destination); Nigeria is
+  // intentionally omitted as it is not a top-by-number UNHCR-Egypt
+  // source population.
   const codes = SELECTABLE_SOURCE_COUNTRIES.map((c) => c.code).sort();
-  assert.deepEqual(codes, ["EG", "ER", "ET", "NG", "SD", "SS"]);
+  assert.deepEqual(codes, ["ER", "ET", "SD", "SS", "SY", "WHO"]);
 });
 
-test("destination selector lists Egypt + needs_review African countries", () => {
+test("destination selector lists Egypt + the top-5 source set + WHO baseline", () => {
   const codes = SELECTABLE_DESTINATION_COUNTRIES.map((c) => c.code).sort();
-  assert.deepEqual(codes, ["EG", "ER", "ET", "NG", "SD", "SS"]);
+  assert.deepEqual(codes, ["EG", "ER", "ET", "SD", "SS", "SY", "WHO"]);
 });
 
 test("readiness banner copy clearly says no due/overdue verdicts for needs_review", () => {
@@ -77,8 +85,27 @@ test("country selector disclosure mentions Egypt as partial-ready and others und
 
 test("Nigeria blurb does NOT claim it is a top migration group to Egypt", () => {
   const text = COUNTRIES.NG.blurb.toLowerCase();
-  // The hackathon prompt is explicit: NG is included as an
-  // English-language demo only, NOT as a top-by-number migration group.
+  // Hackathon prompt: NG is NOT a top-by-number migration group to Egypt.
+  // The blurb must not falsely imply it is.
   assert.doesNotMatch(text, /top\s+(migration|refugee)/);
-  assert.match(text, /english/);
+  // Nigeria is now retained for clinical-eval continuity rather than
+  // shown as a public source option, so the blurb should say so.
+  assert.match(text, /reference|continuity|registry|not.*public/);
+});
+
+test("WHO baseline blurb explains it is a generic fall-back, not a national schedule", () => {
+  const text = COUNTRIES.WHO.blurb.toLowerCase();
+  assert.match(text, /who/);
+  // Must signal "generic / baseline / fall-back" so a clinician does
+  // not mistake it for a real national programme.
+  assert.match(text, /generic|baseline|fall-?back/);
+});
+
+test("Syria is needs_review and surfaces the 2/4/6-month schedule note", () => {
+  // Syria's primary series is age-based (2/4/6 months) rather than
+  // WHO 6/10/14-week — the picker blurb should make that visible to
+  // the clinician picking an upload context.
+  assert.equal(COUNTRIES.SY.readiness, "needs_review");
+  const text = COUNTRIES.SY.blurb.toLowerCase();
+  assert.match(text, /2\/4\/6|2-4-6/);
 });

@@ -184,6 +184,17 @@ export interface ParsedCardRow {
    * tell predicted from vision rows without consulting copy.
    * (Limitation 3 fix from PR 1.) */
   prediction_id?: string | null;
+
+  /** Canonical antigens this row's trade-name covers, derived by a
+   * Haiku-4.5 sub-agent that runs after the Opus 4.7 vision pass.
+   * Example: "Hexyon" → ["DTP", "HepB", "Hib", "IPV"]; "BCG" → ["BCG"].
+   * Optional and additive: the deterministic
+   * `lookup_vaccine_equivalence` tool in `api/src/hathor/tools/`
+   * remains the authoritative mapper. This field exists so the
+   * downstream agent / UI can short-circuit obvious cases without
+   * spending an Opus tool call. CrossBeam-style task-specific model:
+   * Haiku for label-to-antigen lookup, Opus for clinical synthesis. */
+  canonicalAntigens?: string[];
 }
 
 /** A clinical visit at one age point. Egyptian MoHP cards have nine
@@ -409,7 +420,7 @@ export interface ReconciledDose {
  * under verification and reconciliation is gated. NG is included as an
  * optional English-language demo source country; it is NOT presented as
  * a top-by-number migration group to Egypt. */
-export type CountryCode = "EG" | "SD" | "SS" | "ER" | "ET" | "NG";
+export type CountryCode = "EG" | "SD" | "SY" | "SS" | "ER" | "ET" | "NG" | "WHO";
 export type CardLanguage = "en" | "ar" | "fr" | "ti" | "am" | "mixed";
 export type WritingDirection = "ltr" | "rtl";
 
