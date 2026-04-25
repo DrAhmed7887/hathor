@@ -39,6 +39,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "node:crypto";
+import sharp from "sharp";
 import type { DoseKind, ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 import { CARD_EXTRACTION_SYSTEM_PROMPT } from "@/lib/card-extraction-prompt";
 import {
@@ -53,11 +54,29 @@ import {
   predictionIdOf,
   slotStateOf,
 } from "@/lib/slot-state";
+import {
+  mergeRoiIntoVisionRows,
+  shouldRunEgyptMohpRoi,
+} from "@/lib/roi-merge";
+import {
+  runRoiExtraction,
+  type Cropper,
+  type RoiExtractionResult,
+  type RoiReadResult,
+  type RoiVisionCall,
+} from "@/lib/roi-extraction";
+import {
+  ROI_EXTRACTION_SYSTEM_PROMPT,
+  ROI_EXTRACTION_TOOL,
+  ROI_EXTRACTION_TOOL_NAME,
+} from "@/lib/roi-extraction-prompt";
+import { loadEgyptMohpTemplate } from "@/lib/templates/egypt-mohp";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
 const MODEL = process.env.HATHOR_CARD_MODEL ?? "claude-opus-4-7";
+const ROI_MODEL = process.env.HATHOR_ROI_MODEL ?? MODEL;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 // System prompt lives in lib/card-extraction-prompt.ts so its rules can be
@@ -289,6 +308,100 @@ function toParsedRow(row: ToolRow): ParsedCardRow {
   };
 }
 
+// ── Egypt MoHP per-row ROI extraction ───────────────────────────────────────
+//
+// Fires only when the whole-image trace recognises the Egyptian MoHP
+// mandatory-immunizations card. Crops each canonical date ROI with sharp
+// and runs a tiny per-cell vision call against it. The deterministic
+// cross-checks live in `runRoiExtraction`; this helper is the I/O side.
+//
+// The route catches any error this raises and falls back to the existing
+// inferRowsFromTemplate path — ROI is an additive accuracy lift, never a
+// hard dependency.
+
+async function runEgyptMohpRoi(
+  imageBuffer: Buffer,
+  client: Anthropic,
+): Promise<RoiExtractionResult> {
+  const meta = await sharp(imageBuffer).metadata();
+  if (!meta.width || !meta.height) {
+    throw new Error("sharp could not read image dimensions");
+  }
+  const template = loadEgyptMohpTemplate();
+
+  const cropper: Cropper = async (img, rect) => {
+    return sharp(img)
+      .extract({
+        left: rect.x,
+        top: rect.y,
+        width: rect.width,
+        height: rect.height,
+      })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+  };
+
+  const roiVision: RoiVisionCall = async (cropBytes) => {
+    const base64 = cropBytes.toString("base64");
+    const response = await client.messages.create({
+      model: ROI_MODEL,
+      max_tokens: 512,
+      system: [
+        {
+          type: "text",
+          text: ROI_EXTRACTION_SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      tools: [
+        {
+          ...(ROI_EXTRACTION_TOOL as unknown as Anthropic.Messages.Tool),
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      tool_choice: { type: "tool", name: ROI_EXTRACTION_TOOL_NAME },
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/jpeg",
+                data: base64,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const tu = response.content.find((b) => b.type === "tool_use");
+    if (!tu || tu.type !== "tool_use") {
+      // Treat a missing tool call as a blank cell — the merger will not
+      // patch a confident whole-image row from a blank ROI read.
+      return {
+        raw_text: null,
+        normalized_date_candidate: null,
+        confidence: 0,
+        blank_or_illegible: true,
+        reasoning_if_uncertain: "ROI vision call returned no tool_use block",
+      } satisfies RoiReadResult;
+    }
+    return tu.input as RoiReadResult;
+  };
+
+  return runRoiExtraction({
+    imageBuffer,
+    mimeType: "image/jpeg",
+    imageDimensions: { width: meta.width, height: meta.height },
+    template,
+    cropper,
+    roiVision,
+    concurrency: 4,
+  });
+}
+
 // ── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(request: Request): Promise<Response> {
@@ -435,16 +548,49 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    // Egypt MoHP ROI pass — primary fill for blanks and low-confidence
+    // dates on this template. Sequenced AFTER the whole-image pass so
+    // we only spend ROI compute on cards that recognised as Egypt
+    // MoHP. Errors here NEVER degrade the whole-image rows: a thrown
+    // ROI call is caught and folded into trace warnings, then the
+    // existing inferRowsFromTemplate fallback runs as today.
+    let mergedRows = parsedRows;
+    const roiWarnings: string[] = [];
+    if (
+      documentIntelligence &&
+      shouldRunEgyptMohpRoi(documentIntelligence.recognized_template_id)
+    ) {
+      try {
+        const arrayBufferForRoi = arrayBuf;
+        const roiBuffer = Buffer.from(arrayBufferForRoi);
+        const roiResult = await runEgyptMohpRoi(roiBuffer, client);
+        const merged = mergeRoiIntoVisionRows({
+          template: loadEgyptMohpTemplate(),
+          visionRows: parsedRows,
+          roiRows: roiResult.rows,
+        });
+        mergedRows = merged.rows;
+        roiWarnings.push(...merged.warnings);
+      } catch (roiErr) {
+        // Safe fallback: ROI failure leaves whole-image rows intact and
+        // surfaces the reason in the trace so the clinician/judge can
+        // see why ROI did not contribute on this card.
+        const reason =
+          roiErr instanceof Error ? roiErr.message : String(roiErr);
+        roiWarnings.push(`Egypt MoHP ROI extraction failed: ${reason}`);
+      }
+    }
+
     // Narrow, safe template inference. Runs only when (a) the vision
     // pass returned zero rows AND (b) the normaliser recognised a
     // known template AND (c) there is date-cell evidence to map.
     // Produces AMBER-tagged rows the clinician must review before the
     // engine sees anything. Existing vision rows are NEVER overwritten.
-    let finalRows = parsedRows;
+    let finalRows = mergedRows;
     if (documentIntelligence) {
       const inference = inferRowsFromTemplate(
         documentIntelligence,
-        parsedRows,
+        mergedRows,
       );
       if (inference.inferred) {
         finalRows = inference.rows;
@@ -455,6 +601,16 @@ export async function POST(request: Request): Promise<Response> {
         documentIntelligence = {
           ...documentIntelligence,
           warnings: [...documentIntelligence.warnings, ...inference.warnings],
+        };
+      }
+      // Fold ROI per-row decisions into the same warnings stream — the
+      // trace panel already renders this list, so judges and clinicians
+      // see "Row N: date upgraded from ROI re-read" alongside any
+      // template-inference notes.
+      if (roiWarnings.length > 0) {
+        documentIntelligence = {
+          ...documentIntelligence,
+          warnings: [...documentIntelligence.warnings, ...roiWarnings],
         };
       }
       // Emit any unmapped date texts into the trace warnings as well —
