@@ -33,6 +33,7 @@ import os
 import pathlib
 import re
 import time
+import uuid
 from collections import defaultdict
 from typing import AsyncGenerator, Literal
 
@@ -141,6 +142,40 @@ class OverrideSubmissionRequest(BaseModel):
 def _sse(event_type: str, data: dict) -> bytes:
     """Format a single SSE event as UTF-8 bytes."""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n".encode()
+
+
+# PHI-safe response headers — applied to every SSE stream that carries
+# reconciliation data. `no-store` keeps PHI out of intermediate caches;
+# `X-Content-Classification` flags the payload for downstream consumers
+# (proxies, logging shippers) that honour content classification.
+_PHI_STREAM_HEADERS: dict[str, str] = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, private",
+    "Pragma": "no-cache",
+    "X-Accel-Buffering": "no",
+    "X-Content-Classification": "PHI",
+    "Connection": "keep-alive",
+}
+
+
+def _sanitized_error_event(exc: BaseException, code: str) -> bytes:
+    """Emit a client-safe SSE `error` event.
+
+    The full exception is logged server-side via `_log.exception` for
+    debugging; the client receives only an opaque error code and a
+    generic message. Exception text from the vision pipeline can include
+    parsed antigen names, dates, or filenames — never let it reach the
+    browser. Operators correlate `error_id` to the server log.
+    """
+    error_id = uuid.uuid4().hex[:12]
+    _log.exception("SSE error code=%s id=%s", code, error_id, exc_info=exc)
+    return _sse(
+        "error",
+        {
+            "code": code,
+            "error_id": error_id,
+            "message": "The request could not be completed. Reference this error_id with operations.",
+        },
+    )
 
 
 _DOSE_PATH_RE = re.compile(r"^extracted_doses\[(\d+)\]\.(\w+)$")
@@ -696,7 +731,7 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
                     break
 
     except Exception as exc:
-        yield _sse("error", {"message": str(exc)})
+        yield _sanitized_error_event(exc, code="ERR_AGENT_STREAM")
         return
 
     if final_plan_text:
@@ -813,11 +848,7 @@ async def reconcile_stream(req: ReconcileRequest) -> StreamingResponse:
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers=_PHI_STREAM_HEADERS,
     )
 
 
@@ -830,10 +861,10 @@ async def _card_reconciliation_stream(
     try:
         extraction = await extract_card(str(validated_path))
     except FileNotFoundError as exc:
-        yield _sse("error", {"message": f"extraction failed: {exc}"})
+        yield _sanitized_error_event(exc, code="ERR_EXTRACTION_NOT_FOUND")
         return
     except Exception as exc:
-        yield _sse("error", {"message": f"extraction failed: {exc}"})
+        yield _sanitized_error_event(exc, code="ERR_EXTRACTION_FAILED")
         return
 
     result = phase_d.gate(extraction)
@@ -864,7 +895,7 @@ async def _card_reconciliation_stream(
                 result.auto_committed, result.hitl_queue, session.corrections or []
             )
         except Exception as exc:
-            yield _sse("error", {"message": f"correction merge failed: {exc}"})
+            yield _sanitized_error_event(exc, code="ERR_CORRECTION_MERGE")
             return
         finally:
             SESSIONS.drop(session.session_id)
@@ -909,11 +940,7 @@ async def reconcile_card(req: ReconcileCardRequest) -> StreamingResponse:
     return StreamingResponse(
         _card_reconciliation_stream(validated_path, req),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers=_PHI_STREAM_HEADERS,
     )
 
 
