@@ -1,118 +1,218 @@
 /**
- * Nigeria and Egypt metadata for the HATHOR Phase 1.0 demo.
+ * Country metadata for the HATHOR Phase 1.0 demo.
  *
- * Scope discipline (PRD §8.2): Nigeria → Egypt is the ONE validated country
- * pair. The UI must not pretend to support arbitrary countries. Adding
- * another country here without PRD approval is out of scope.
+ * Hackathon scope (per CLAUDE.md, intra-Africa Phase 1):
+ *   - Egypt is the validated destination schedule (partial_ready).
+ *   - Sudan, South Sudan, Eritrea, Ethiopia are surfaced as
+ *     needs_review countries motivated by the most relevant African
+ *     refugee/asylum-seeker groups in Egypt (UNHCR Egypt operational
+ *     data). Their schedules and synonym maps are NOT clinically
+ *     verified for definitive reconciliation; the UI gates that
+ *     accordingly.
+ *   - Nigeria is OPTIONALLY included as an English-language demo
+ *     source country. It is NOT claimed to be a top migration group
+ *     into Egypt by number — the README and the UI must reflect that.
  *
- * Deliberate non-duplication: the interval and minimum-age logic lives in
- * the Python engine (api/src/hathor/tools/dose_validation.py —
- * MIN_AGE_DAYS, MAX_AGE_DAYS, INTERVAL_RULES). The frontend does NOT
- * re-encode those rules here. This file holds only:
- *   - display metadata (name, code, language, writing direction)
- *   - the canonical list of antigens the UI should expect on a card from
- *     that country (for parse-card schema hints + ScheduleView labels)
- *   - PRD-linked notes for ambiguities flagged in §9 Open Questions
+ * Engine support is independent of this file. The /validate-schedule
+ * engine carries a ground-truth Egypt schedule today; calling it for a
+ * needs_review destination would yield Egypt-rules verdicts mislabeled
+ * as that country's recommendations. The selector enforces the gate.
  *
- * The engine remains the single source of truth for schedule correctness.
+ * Deliberate non-duplication: interval rules and minimum ages live in
+ * api/src/hathor/tools/dose_validation.py. This file holds only display
+ * metadata and the readiness flag.
  */
 
-import type { CardLanguage, CountryCode, WritingDirection } from "./types";
+import type {
+  CardLanguage,
+  CountryCode,
+  CountryReadiness,
+  WritingDirection,
+} from "./types";
 
 export interface CountryProfile {
   code: CountryCode;
+  /** Human-readable name in English. */
   name: string;
+  /** Localised name (Arabic / Tigrinya / Amharic / etc.) for the
+   * bilingual selector label. Optional — falls back to `name`. */
+  nameLocal?: string;
   /** Primary card language(s) the vision pass should expect. Used as a
-   * hint to /api/parse-card, not as a filter — a Nigerian card presented
-   * in a Cairo clinic may contain Arabic annotations. */
+   * hint to /api/parse-card; does not constrain the model. */
   cardLanguages: readonly CardLanguage[];
-  /** Writing direction of the PRIMARY card layout. Drives RTL toggles in
-   * ParsedResults (PRD §6 point 5). */
+  /** Writing direction of the PRIMARY card layout. */
   writingDirection: WritingDirection;
-  /** Canonical routine-card antigens observed at the target age range
-   * (0–6y). Must be a subset of antigens the engine covers; adding an
-   * antigen here that the engine does not have an INTERVAL_RULE for
-   * silently de-risks validation. */
+  /** Whether the schedule under data/schedules/<code>.json is
+   * clinically verified for this demo. See CountryReadiness. */
+  readiness: CountryReadiness;
+  /** Canonical routine-card antigens observed at 0–6y, scoped to what
+   * the engine knows. needs_review countries still expose this for the
+   * review UI to label rows but do NOT drive engine reconciliation. */
   routineAntigens: readonly string[];
-  /** Open-question notes to surface in the UI audit trail. Keep short. */
+  /** Short demo-facing description; rendered next to the selector. */
+  blurb: string;
+  /** Optional notes surfaced in the audit-trail UI. Keep short. */
   notes?: readonly string[];
 }
 
-/**
- * Engine coverage (as of commit d2cccc7):
- *   BCG, HepB, bOPV/OPV, IPV, DTP-containing (pentavalent), Hib, PCV,
- *   Rotavirus, MMR/Measles.
- *
- * Antigens the engine does NOT cover (PRD §8.2, explicitly out of scope):
- *   DT, HepA, MenA, MenACWY, MenC, Mumps, Rubella, YellowFever.
- *
- * Only engine-covered antigens are listed in routineAntigens below.
- */
+const ENGINE_ANTIGENS_AFRICA = [
+  "BCG",
+  "HepB",
+  "OPV",
+  "IPV",
+  "DTP",
+  "Hib",
+  "PCV",
+  "Rotavirus",
+  "Measles",
+  "MMR",
+] as const;
+
+const EGYPT: CountryProfile = {
+  code: "EG",
+  name: "Egypt",
+  nameLocal: "مصر",
+  cardLanguages: ["ar", "en", "mixed"],
+  writingDirection: "rtl",
+  readiness: "partial_ready",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA],
+  blurb:
+    "Phase 1 destination schedule. Egyptian MoHP mandatory childhood immunizations (التطعيمات الإجبارية), clinically reviewed for the demo.",
+  notes: [
+    "Hexavalent at 2/4/6 months covers IPV. Egypt EPI exact measles first-dose age (9 vs 12 months), HPV dose count, and TCV inclusion remain open and follow engine defaults until clinician confirmation.",
+  ],
+};
+
+const SUDAN: CountryProfile = {
+  code: "SD",
+  name: "Sudan",
+  nameLocal: "السودان",
+  cardLanguages: ["ar", "en", "mixed"],
+  writingDirection: "rtl",
+  readiness: "needs_review",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever", "MenA"],
+  blurb:
+    "Surfaced for the review-workflow demonstration (UNHCR-relevant population in Egypt). Schedule under verification — no auto-reconciliation.",
+};
+
+const SOUTH_SUDAN: CountryProfile = {
+  code: "SS",
+  name: "South Sudan",
+  cardLanguages: ["en", "ar", "mixed"],
+  writingDirection: "ltr",
+  readiness: "needs_review",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever", "MenA"],
+  blurb:
+    "Surfaced for the review-workflow demonstration (UNHCR-relevant population in Egypt). Schedule under verification — no auto-reconciliation.",
+};
+
+const ERITREA: CountryProfile = {
+  code: "ER",
+  name: "Eritrea",
+  nameLocal: "ኤርትራ",
+  cardLanguages: ["ti", "en", "ar", "mixed"],
+  writingDirection: "ltr",
+  readiness: "needs_review",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever"],
+  blurb:
+    "Surfaced for the review-workflow demonstration (UNHCR-relevant population in Egypt). Schedule under verification — no auto-reconciliation.",
+};
+
+const ETHIOPIA: CountryProfile = {
+  code: "ET",
+  name: "Ethiopia",
+  nameLocal: "ኢትዮጵያ",
+  cardLanguages: ["am", "en", "mixed"],
+  writingDirection: "ltr",
+  readiness: "needs_review",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever", "MenA"],
+  blurb:
+    "Surfaced for the review-workflow demonstration (UNHCR-relevant population in Egypt). Schedule under verification — no auto-reconciliation.",
+};
 
 const NIGERIA: CountryProfile = {
   code: "NG",
   name: "Nigeria",
   cardLanguages: ["en"],
   writingDirection: "ltr",
-  routineAntigens: [
-    "BCG",
-    "HepB",
-    "OPV",
-    "IPV",
-    "DTP",
-    "Hib",
-    "PCV",
-    "Rotavirus",
-    "Measles",
-  ],
+  readiness: "needs_review",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever"],
+  blurb:
+    "Optional English-language demo source country. NOT presented as a top-by-number African migration group to Egypt — included for English-card demonstration only.",
   notes: [
-    // PRD §1.1 — validated source country for Phase 1.
-    "Phase 1 validated source country. Cards typically printed in English.",
-  ],
-};
-
-const EGYPT: CountryProfile = {
-  code: "EG",
-  name: "Egypt",
-  // Cairo / Alexandria MCH clinics see a mix: Arabic-primary cards from
-  // Egypt itself, English cards from Nigeria, and bilingual or
-  // Arabic-only refugee cards from Sudan, Syria, Gaza (PRD §1.2, §3.1).
-  cardLanguages: ["ar", "en", "mixed"],
-  writingDirection: "rtl",
-  routineAntigens: [
-    "BCG",
-    "HepB",
-    "OPV",
-    "IPV",
-    "DTP",
-    "Hib",
-    "PCV",
-    "Rotavirus",
-    "MMR",
-  ],
-  notes: [
-    // PRD §1.1 — validated destination country for Phase 1.
-    "Phase 1 validated destination country. Egyptian EPI exact measles " +
-      "first-dose age (9 vs. 12 months), HPV dose count, TCV / HepA / " +
-      "yellow fever inclusion all flagged as PRD §9.1 open questions — " +
-      "engine defaults apply until confirmed.",
+    "Engine seed is present in the repo; reconciliation gating defers to the same needs_review banner as the other African countries until clinical sign-off.",
   ],
 };
 
 export const COUNTRIES: Readonly<Record<CountryCode, CountryProfile>> = {
-  NG: NIGERIA,
   EG: EGYPT,
+  SD: SUDAN,
+  SS: SOUTH_SUDAN,
+  ER: ERITREA,
+  ET: ETHIOPIA,
+  NG: NIGERIA,
 };
 
-export const VALIDATED_SOURCE: CountryCode = "NG";
+/** Egypt is the only partial-ready destination for this hackathon. */
 export const VALIDATED_DESTINATION: CountryCode = "EG";
+
+/** Source-country options shown in the selector, in the order the demo
+ * narrates them: Egypt first (the host), then the four UNHCR-relevant
+ * African countries, then optional Nigeria as an English-card demo. */
+export const SELECTABLE_SOURCE_COUNTRIES: readonly CountryProfile[] = [
+  EGYPT,
+  SUDAN,
+  SOUTH_SUDAN,
+  ERITREA,
+  ETHIOPIA,
+  NIGERIA,
+];
+
+/** Destination options — Egypt is the only partial-ready schedule.
+ * needs_review entries appear so a clinician can pick them, but the
+ * UI gates reconciliation downstream. */
+export const SELECTABLE_DESTINATION_COUNTRIES: readonly CountryProfile[] = [
+  EGYPT,
+  SUDAN,
+  SOUTH_SUDAN,
+  ERITREA,
+  ETHIOPIA,
+  NIGERIA,
+];
+
+/** @deprecated Kept for source-compat with earlier call sites that
+ * imported a single SELECTABLE_COUNTRIES list. New code should pick
+ * SELECTABLE_SOURCE_COUNTRIES or SELECTABLE_DESTINATION_COUNTRIES. */
+export const SELECTABLE_COUNTRIES: readonly CountryProfile[] =
+  SELECTABLE_SOURCE_COUNTRIES;
 
 export function getCountry(code: CountryCode): CountryProfile {
   return COUNTRIES[code];
 }
 
-/** For dropdown / selector UIs. Order: source first, destination second. */
-export const SELECTABLE_COUNTRIES: readonly CountryProfile[] = [
-  NIGERIA,
-  EGYPT,
-];
+/** True when the destination schedule is clinically verified for this
+ * demo and `/validate-schedule` may run. Anything else MUST surface
+ * the "Schedule under review" banner instead of due/overdue verdicts. */
+export function canRunReconciliation(destination: CountryCode): boolean {
+  return COUNTRIES[destination].readiness === "partial_ready";
+}
+
+/** Single source of truth for the readiness banner copy used on the
+ * selector and the schedule view. Keeps wording consistent. */
+export const READINESS_BANNER = {
+  partial_ready: {
+    label: "Partial-ready schedule",
+    body:
+      "Schedule has been clinician-reviewed for the Phase 1 demo. Recommendations require clinician confirmation before any clinical action.",
+  },
+  needs_review: {
+    label: "Schedule under review",
+    body:
+      "This country's schedule and synonym map are not clinically verified for the demo. Hathor will extract and review the card, but will NOT produce definitive due / overdue / catch-up verdicts. Confirm with public-health guidance.",
+  },
+} as const;
+
+/** Disclosure shown on the country picker. Kept short so it can sit
+ * underneath the dropdowns without dominating the page. */
+export const COUNTRY_SELECTOR_DISCLOSURE =
+  "Country schedules are source-backed where available and require clinician/public-health confirmation. Egypt is the current partial-ready schedule. Other country schedules are included for review-workflow demonstration and remain under verification.";

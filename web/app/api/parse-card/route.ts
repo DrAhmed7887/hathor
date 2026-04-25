@@ -94,6 +94,7 @@ const CARD_EXTRACTION_TOOL: Anthropic.Messages.Tool = {
             type: "string",
             enum: [
               "egypt_mohp_mandatory_childhood_immunization",
+              "who_icvp_international_certificate",
               "unknown_vaccine_card",
             ],
             description:
@@ -103,6 +104,7 @@ const CARD_EXTRACTION_TOOL: Anthropic.Messages.Tool = {
             type: "string",
             enum: [
               "egypt_mohp_mandatory_childhood_immunization",
+              "who_icvp_international_certificate",
               "unknown_vaccine_card",
             ],
             description:

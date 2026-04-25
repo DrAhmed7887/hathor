@@ -83,6 +83,7 @@ export interface EvidenceFragment {
  * Egyptian" is not how clinical data pipelines stay safe. */
 export type RecognizedTemplateId =
   | "egypt_mohp_mandatory_childhood_immunization"
+  | "who_icvp_international_certificate"
   | "unknown_vaccine_card";
 
 /** Parallel enum for the model's first-pass classification. Today the
@@ -133,6 +134,7 @@ export interface EvidenceMergeResult {
 
 const VALID_TEMPLATE_IDS: ReadonlySet<RecognizedTemplateId> = new Set([
   "egypt_mohp_mandatory_childhood_immunization",
+  "who_icvp_international_certificate",
   "unknown_vaccine_card",
 ]);
 
@@ -416,11 +418,30 @@ const UNKNOWN_TEMPLATE: VaccineCardTemplate = {
   row_specs: [],
 };
 
+/** WHO / IHR International Certificate of Vaccination or Prophylaxis.
+ *
+ * Deliberately empty row_specs — unlike the Egyptian MoHP childhood
+ * card, the ICVP carries an unbounded list of traveller-vaccine entries
+ * (yellow fever, polio, meningococcal, COVID-19, etc.) keyed by
+ * disease and date rather than fixed age slots. There is no template
+ * inference for missing rows; the card is whatever the traveller has
+ * been given. The vision pass emits one row per filled vaccine entry,
+ * the trust gate routes low-confidence rows to clinician review, and
+ * unknown disease/vaccine names surface for review rather than being
+ * mapped or dropped. */
+const WHO_ICVP_TEMPLATE: VaccineCardTemplate = {
+  template_id: "who_icvp_international_certificate",
+  display_name:
+    "WHO/IHR International Certificate of Vaccination or Prophylaxis (ICVP)",
+  row_specs: [],
+};
+
 export const VACCINE_CARD_TEMPLATES: Record<
   RecognizedTemplateId,
   VaccineCardTemplate
 > = {
   egypt_mohp_mandatory_childhood_immunization: EGYPT_MOHP_TEMPLATE,
+  who_icvp_international_certificate: WHO_ICVP_TEMPLATE,
   unknown_vaccine_card: UNKNOWN_TEMPLATE,
 };
 
@@ -429,11 +450,36 @@ export const VACCINE_CARD_TEMPLATES: Record<
 /** Content-based template recognition — runs over source_text in the
  * layout's regions + the label fields. Deterministic, narrow,
  * defaults to "unknown_vaccine_card" on ambiguity. No heuristics that
- * could false-positive onto the wrong card. */
+ * could false-positive onto the wrong card.
+ *
+ * Order matters: WHO/ICVP is checked FIRST because traveller cards
+ * sometimes carry "vaccination" / "immunization" wording that could
+ * coincidentally hit the Egyptian markers if relaxed. The WHO markers
+ * are the official IHR title text in EN/FR/ES — a hard signal. */
 export function recognizeTemplate(
   layout: LayoutAnalysisResult | null,
 ): RecognizedTemplateId {
   if (!layout) return "unknown_vaccine_card";
+
+  // WHO / ICVP — official IHR (2005) title strings, in the three
+  // working languages of the certificate. Stamps and disclosures the
+  // synthetic generator places ("SYNTHETIC TEST RECORD — NOT VALID FOR
+  // TRAVEL") also identify a WHO-shaped card.
+  const whoIcvpMarkers = [
+    "international certificate of vaccination or prophylaxis",
+    "certificat international de vaccination ou de prophylaxie",
+    "certificado internacional de vacunación o profilaxis",
+    "icvp",
+    "synthetic test record",
+  ];
+  for (const region of layout.regions) {
+    const haystack = `${region.source_text ?? ""} ${region.label ?? ""}`.toLowerCase();
+    for (const marker of whoIcvpMarkers) {
+      if (haystack.includes(marker)) {
+        return "who_icvp_international_certificate";
+      }
+    }
+  }
 
   // The Egyptian MoHP card's mandatory-immunizations title is the most
   // reliable signal. It is printed, high-contrast, and unique.

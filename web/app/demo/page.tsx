@@ -48,7 +48,14 @@ import { ScheduleView } from "@/components/ScheduleView";
 import { ExportPanel } from "@/components/ExportPanel";
 import { ExplainerParsePlayer } from "@/components/ExplainerParsePlayer";
 
-import { COUNTRIES, SELECTABLE_COUNTRIES } from "@/lib/countries";
+import {
+  COUNTRIES,
+  COUNTRY_SELECTOR_DISCLOSURE,
+  READINESS_BANNER,
+  SELECTABLE_DESTINATION_COUNTRIES,
+  SELECTABLE_SOURCE_COUNTRIES,
+  canRunReconciliation,
+} from "@/lib/countries";
 import type {
   CountryCode,
   IntakeContext,
@@ -270,9 +277,10 @@ function IntakeMetaForm({
               borderRadius: 0,
             }}
           >
-            {SELECTABLE_COUNTRIES.map((c) => (
+            {SELECTABLE_SOURCE_COUNTRIES.map((c) => (
               <option key={c.code} value={c.code}>
-                {c.name}
+                {c.nameLocal ? `${c.name} · ${c.nameLocal}` : c.name}
+                {c.readiness === "needs_review" ? "  (needs review)" : ""}
               </option>
             ))}
           </select>
@@ -308,9 +316,10 @@ function IntakeMetaForm({
               borderRadius: 0,
             }}
           >
-            {SELECTABLE_COUNTRIES.map((c) => (
+            {SELECTABLE_DESTINATION_COUNTRIES.map((c) => (
               <option key={c.code} value={c.code}>
-                {c.name}
+                {c.nameLocal ? `${c.name} · ${c.nameLocal}` : c.name}
+                {c.readiness === "needs_review" ? "  (needs review)" : ""}
               </option>
             ))}
           </select>
@@ -334,18 +343,160 @@ function IntakeMetaForm({
           Continue →
         </button>
       </div>
+      <CountryReadinessLine
+        sourceCode={value.sourceCountry}
+        destinationCode={value.destinationCountry}
+      />
+      <p
+        style={{
+          fontFamily: F.serif,
+          fontSize: 12,
+          color: H.faint,
+          margin: 0,
+          lineHeight: 1.55,
+        }}
+      >
+        {COUNTRY_SELECTOR_DISCLOSURE}
+      </p>
+    </section>
+  );
+}
+
+function NeedsReviewSchedulePanel({
+  destinationCode,
+  confirmedRowCount,
+}: {
+  destinationCode: CountryCode;
+  confirmedRowCount: number;
+}) {
+  const dest = COUNTRIES[destinationCode];
+  const banner = READINESS_BANNER.needs_review;
+  return (
+    <section
+      role="status"
+      aria-live="polite"
+      style={{
+        padding: "16px 20px",
+        background: H.amberSoft,
+        border: `1px solid ${H.amber}`,
+        borderLeft: `3px solid ${H.amber}`,
+        fontFamily: F.sans,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: H.amber,
+        }}
+      >
+        Phase E · {dest.name} · {banner.label}
+      </div>
+      <h3
+        style={{
+          fontFamily: F.serif,
+          fontSize: 18,
+          fontWeight: 400,
+          color: H.ink,
+          margin: 0,
+          letterSpacing: "-0.01em",
+        }}
+      >
+        Hathor will not produce due/overdue verdicts against the {dest.name} schedule
+      </h3>
       <p
         style={{
           fontFamily: F.serif,
           fontSize: 13,
-          color: H.faint,
+          color: H.amber,
+          margin: 0,
+          lineHeight: 1.55,
+        }}
+      >
+        {banner.body}
+      </p>
+      <p
+        style={{
+          fontFamily: F.serif,
+          fontSize: 13,
+          color: H.meta,
+          margin: 0,
+          lineHeight: 1.55,
+        }}
+      >
+        {confirmedRowCount === 0
+          ? "No clinician-confirmed doses cleared the trust gate; the extracted history above is what would be carried forward to the destination clinic for clinician/public-health review."
+          : `${confirmedRowCount} clinician-confirmed dose${confirmedRowCount === 1 ? "" : "s"} cleared the trust gate and would be carried forward as the patient's documented immunization history. Confirm the destination schedule with public-health guidance before suggesting catch-up.`}
+      </p>
+    </section>
+  );
+}
+
+function CountryReadinessLine({
+  sourceCode,
+  destinationCode,
+}: {
+  sourceCode: CountryCode;
+  destinationCode: CountryCode;
+}) {
+  const source = COUNTRIES[sourceCode];
+  const destination = COUNTRIES[destinationCode];
+  const destBanner = READINESS_BANNER[destination.readiness];
+  const destAmber = destination.readiness !== "partial_ready";
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        padding: "10px 12px",
+        background: destAmber ? H.amberSoft : H.paper2,
+        border: `1px solid ${destAmber ? H.amber : H.rule}`,
+        borderLeft: `3px solid ${destAmber ? H.amber : H.copper}`,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: destAmber ? H.amber : H.copperInk,
+        }}
+      >
+        Destination · {destination.name} · {destBanner.label}
+      </div>
+      <p
+        style={{
+          fontFamily: F.serif,
+          fontSize: 13,
+          color: destAmber ? H.amber : H.meta,
           margin: 0,
           lineHeight: 1.5,
         }}
       >
-        {COUNTRIES[value.sourceCountry].notes?.[0]}
+        {destBanner.body}
       </p>
-    </section>
+      {source.code !== destination.code && (
+        <p
+          style={{
+            fontFamily: F.serif,
+            fontSize: 12,
+            color: H.meta,
+            margin: 0,
+            lineHeight: 1.5,
+          }}
+        >
+          Source: {source.name}
+          {source.nameLocal ? ` (${source.nameLocal})` : ""} — {source.blurb}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -719,8 +870,20 @@ export default function DemoPage() {
             prior engine verdicts and sends the clinician back through
             the Reasoning Loop on the next Proceed. key={rowsSignature}
             forces ScheduleView to re-mount on row changes so its
-            internal autoRun useEffect fires again cleanly. */}
-        {parsed && phaseEReady && validationRecords.length > 0 && (
+            internal autoRun useEffect fires again cleanly.
+
+            Country gate: needs_review destinations never reach the
+            engine — Hathor cannot produce due/overdue verdicts against
+            an unverified schedule. The card review still happened; the
+            clinician sees the extracted history in ParsedResults above
+            and the readiness banner below in place of ScheduleView. */}
+        {parsed && phaseEReady && !canRunReconciliation(meta.destinationCountry) && (
+          <NeedsReviewSchedulePanel
+            destinationCode={meta.destinationCountry}
+            confirmedRowCount={validationRecords.length}
+          />
+        )}
+        {parsed && phaseEReady && canRunReconciliation(meta.destinationCountry) && validationRecords.length > 0 && (
           <ScheduleView
             key={rowsSignature}
             records={validationRecords}
@@ -729,7 +892,7 @@ export default function DemoPage() {
             onValidated={setValidationResults}
           />
         )}
-        {parsed && phaseEReady && validationRecords.length === 0 && (
+        {parsed && phaseEReady && canRunReconciliation(meta.destinationCountry) && validationRecords.length === 0 && (
           <div
             role="status"
             style={{

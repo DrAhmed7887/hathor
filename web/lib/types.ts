@@ -401,6 +401,26 @@ export interface ReconciledDose {
 
 // ── Country metadata ─────────────────────────────────────────────────────────
 
-export type CountryCode = "NG" | "EG";
-export type CardLanguage = "en" | "ar" | "fr" | "mixed";
+/** Codes covered by the demo's country selector.
+ *
+ * Phase 1 hackathon scope (per CLAUDE.md): EG is the partial-ready
+ * destination schedule. SD/SS/ER/ET are needs_review countries surfaced
+ * for the review-workflow demonstration only — their schedules remain
+ * under verification and reconciliation is gated. NG is included as an
+ * optional English-language demo source country; it is NOT presented as
+ * a top-by-number migration group to Egypt. */
+export type CountryCode = "EG" | "SD" | "SS" | "ER" | "ET" | "NG";
+export type CardLanguage = "en" | "ar" | "fr" | "ti" | "am" | "mixed";
 export type WritingDirection = "ltr" | "rtl";
+
+/** Readiness of a country's schedule for AUTO reconciliation:
+ *   - "partial_ready"  the schedule has been clinician-reviewed and the
+ *                      validate-schedule engine may run against it.
+ *                      Demo can produce due/overdue verdicts.
+ *   - "needs_review"   the schedule and synonym map are NOT clinically
+ *                      verified for this country. The demo extracts and
+ *                      reviews the card but MUST NOT produce definitive
+ *                      due/overdue clinical recommendations against this
+ *                      country's schedule — the UI shows a
+ *                      "Schedule under review" banner instead. */
+export type CountryReadiness = "partial_ready" | "needs_review";
