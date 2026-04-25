@@ -45,6 +45,7 @@ import { CARD_EXTRACTION_SYSTEM_PROMPT } from "@/lib/card-extraction-prompt";
 import {
   inferRowsFromTemplate,
   normalizeDocumentIntelligence,
+  promoteUnknownTemplateFragments,
   VACCINE_CARD_TEMPLATES,
   type LayoutAnalysisResult,
 } from "@/lib/document-intelligence";
@@ -355,6 +356,11 @@ async function runEgyptMohpRoi(
       ],
       tools: [
         {
+          // Cast: ROI_EXTRACTION_TOOL is declared in roi-extraction-prompt.ts
+          // with a local interface that intentionally avoids importing the
+          // Anthropic SDK so the prompt module stays narrow and snapshot-
+          // testable. The shape is wire-compatible with Messages.Tool;
+          // the cast acknowledges that boundary.
           ...(ROI_EXTRACTION_TOOL as unknown as Anthropic.Messages.Tool),
           cache_control: { type: "ephemeral" },
         },
@@ -561,8 +567,7 @@ export async function POST(request: Request): Promise<Response> {
       shouldRunEgyptMohpRoi(documentIntelligence.recognized_template_id)
     ) {
       try {
-        const arrayBufferForRoi = arrayBuf;
-        const roiBuffer = Buffer.from(arrayBufferForRoi);
+        const roiBuffer = Buffer.from(arrayBuf);
         const roiResult = await runEgyptMohpRoi(roiBuffer, client);
         const merged = mergeRoiIntoVisionRows({
           template: loadEgyptMohpTemplate(),
@@ -626,6 +631,39 @@ export async function POST(request: Request): Promise<Response> {
               .join(", ")}.`,
           ],
         };
+      }
+    }
+
+    // Unknown-template fragment-to-row bridge. Fires only when:
+    //   (a) finalRows is still empty after vision + template inference,
+    //   (b) the layout was classified as unknown_vaccine_card,
+    //   (c) the trace contains ≥ 3 vaccine_cell fragments paired with
+    //       both vaccine_text and raw_date_text.
+    // Promoted rows are AMBER (source="vision_low_confidence",
+    // confidence ≤ 0.6); the trust gate refuses them until clinician
+    // confirmation. See `promoteUnknownTemplateFragments` for the
+    // design rationale. This bridge does NOT run on known templates —
+    // those have their own (template-anchored) inference path.
+    if (
+      finalRows.length === 0 &&
+      documentIntelligence &&
+      documentIntelligence.recognized_template_id === "unknown_vaccine_card"
+    ) {
+      const promotion = promoteUnknownTemplateFragments(
+        documentIntelligence,
+        finalRows,
+      );
+      if (promotion.promoted) {
+        finalRows = promotion.rows;
+        if (promotion.warnings.length > 0) {
+          documentIntelligence = {
+            ...documentIntelligence,
+            warnings: [
+              ...documentIntelligence.warnings,
+              ...promotion.warnings,
+            ],
+          };
+        }
       }
     }
 

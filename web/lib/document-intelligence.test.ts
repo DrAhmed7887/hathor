@@ -26,6 +26,7 @@ import {
   mergeEvidenceIntoRows,
   normalizeDocumentIntelligence,
   parseRawDate,
+  promoteUnknownTemplateFragments,
   recognizeTemplate,
   VACCINE_CARD_TEMPLATES,
   type DocumentRegion,
@@ -448,6 +449,41 @@ test("parseRawDate: rejects ambiguous/unrecognised text", () => {
   assert.equal(parseRawDate(undefined), null);
 });
 
+test("parseRawDate: 'DD Mmm YYYY' English-month form (Nigerian-style card)", () => {
+  // The synthetic Amina Bello card (cards/synthetic-amina-bello-nigeria-
+  // handwritten.jpg) uses "10 Jan 2025"-style dates throughout. The
+  // parser must round-trip both 3-letter and full English month names,
+  // case-insensitively, with single- or double-digit days.
+  assert.equal(parseRawDate("10 Jan 2025"), "2025-01-10");
+  assert.equal(parseRawDate("21 Feb 2025"), "2025-02-21");
+  assert.equal(parseRawDate("21 Mar 2025"), "2025-03-21");
+  assert.equal(parseRawDate("18 Apr 2025"), "2025-04-18");
+  assert.equal(parseRawDate("10 Oct 2025"), "2025-10-10");
+  assert.equal(parseRawDate("9 May 2024"), "2024-05-09");
+  assert.equal(parseRawDate("10 January 2025"), "2025-01-10");
+  assert.equal(parseRawDate("1 September 2025"), "2025-09-01");
+  assert.equal(parseRawDate("1 Sept 2025"), "2025-09-01");
+  // Case-insensitive month name.
+  assert.equal(parseRawDate("10 JAN 2025"), "2025-01-10");
+  assert.equal(parseRawDate("10 january 2025"), "2025-01-10");
+});
+
+test("parseRawDate: 'Mmm DD, YYYY' English-month form is NOT supported (US-style)", () => {
+  // We deliberately keep US-style month-first parsing OFF — adding it
+  // would conflict with DD/MM/YYYY in cards where the month and day
+  // are both ≤ 12. Cards that need month-first should be handled at
+  // the card-template layer, not the date parser.
+  assert.equal(parseRawDate("May 10, 2024"), null);
+  assert.equal(parseRawDate("Jan 10 2025"), null);
+});
+
+test("parseRawDate: rejects unknown month name in 'DD Mmm YYYY' shape", () => {
+  // The shape is regexp-correct but the month name is gibberish — the
+  // parser must return null rather than throwing or guessing.
+  assert.equal(parseRawDate("10 Foo 2025"), null);
+  assert.equal(parseRawDate("10 Decmber 2025"), null);
+});
+
 // Drive every synthetic_egypt_handwritten case through the parser. The
 // Python parity test (api/tests/test_date_parser.py) walks the same
 // JSON, so the two implementations stay aligned by construction.
@@ -818,4 +854,300 @@ test("merge: Arabic ordinal row labels are understood for conflict detection", (
     out.warnings.some((w) => /suggests dose 3/.test(w)),
     `expected Arabic "ثالثة" to interpret as dose 3 conflict, got: ${JSON.stringify(out.warnings)}`,
   );
+});
+
+// ── promoteUnknownTemplateFragments ─────────────────────────────────────────
+//
+// Bridge for the Nigerian-style EPI card failure mode: vision reads
+// every cell into evidence_fragments but emits zero rows[], because
+// the template is unknown and the model never promoted fragments to
+// structured rows. The bridge fires only when rows.length === 0 AND
+// template === unknown_vaccine_card AND ≥3 vaccine_cell fragments
+// have paired vaccine_text + raw_date_text. Promoted rows are AMBER:
+// source = "vision_low_confidence", confidence ≤ 0.6, slot_state =
+// "ambiguous", clinician_action = "none". The trust gate refuses
+// them until the clinician confirms in HITL.
+
+const aminaCardFragments: EvidenceFragment[] = [
+  fragment({
+    fragment_id: "f1",
+    kind: "vaccine_cell",
+    source_text: "10 Jan 2025 | Birth | BCG | 1 | scar seen",
+    row_label: "Birth",
+    raw_date_text: "10 Jan 2025",
+    vaccine_text: "BCG",
+    confidence: 0.97,
+  }),
+  fragment({
+    fragment_id: "f2",
+    kind: "vaccine_cell",
+    source_text: "10 Jan 2025 | Birth | OPV | 0 | birth dose",
+    row_label: "Birth",
+    raw_date_text: "10 Jan 2025",
+    vaccine_text: "OPV",
+    confidence: 0.97,
+  }),
+  fragment({
+    fragment_id: "f3",
+    kind: "vaccine_cell",
+    source_text: "21 Feb 2025 | 6 weeks | Pentavalent | 1 | given",
+    row_label: "6 weeks",
+    raw_date_text: "21 Feb 2025",
+    vaccine_text: "Pentavalent",
+    confidence: 0.96,
+  }),
+  fragment({
+    fragment_id: "f13",
+    kind: "vaccine_cell",
+    source_text: "10 Oct 2025 | 9 months | Measles | 1 | campaign clinic",
+    row_label: "9 months",
+    raw_date_text: "10 Oct 2025",
+    vaccine_text: "Measles",
+    confidence: 0.95,
+  }),
+  fragment({
+    fragment_id: "f14",
+    kind: "vaccine_cell",
+    source_text: "10 Oct 2025 | 9 months | Yellow Fever | 1 | travel record",
+    row_label: "9 months",
+    raw_date_text: "10 Oct 2025",
+    vaccine_text: "Yellow Fever",
+    confidence: 0.95,
+  }),
+  // Footer note — must NOT be promoted to a row.
+  fragment({
+    fragment_id: "f15",
+    kind: "note",
+    source_text: "Needs review after relocation - MMR status not confirmed.",
+    row_label: null,
+    raw_date_text: null,
+    vaccine_text: null,
+    confidence: 0.95,
+  }),
+];
+
+test("promote: unknown template + 0 rows + 5 vaccine fragments → 5 AMBER rows", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: aminaCardFragments,
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  assert.equal(result.promoted, true);
+  assert.equal(result.rows.length, 5, "footer note must not be promoted");
+  assert.equal(result.qualifyingFragmentCount, 5);
+  for (const r of result.rows) {
+    assert.equal(r.source, "vision_low_confidence", `row ${r.antigen} must be vision_low_confidence`);
+    assert.ok(r.confidence < 0.85, `row ${r.antigen} confidence ${r.confidence} must be below AMBER threshold`);
+    assert.equal(r.slot_state, "ambiguous");
+    assert.equal(r.clinician_action, "none");
+    assert.equal(r.template_spec_index, null);
+    assert.ok(r.prediction_id?.startsWith("V:"), "promoted rows carry vision prefix prediction_id");
+    assert.ok(r.sourceEvidenceFragmentId, "promoted rows must preserve fragment id provenance");
+  }
+});
+
+test("promote: vaccine names + dates preserved verbatim", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: aminaCardFragments,
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  const byAntigen = new Map(result.rows.map((r) => [r.antigen, r]));
+  assert.deepEqual(
+    [...byAntigen.keys()].sort(),
+    ["BCG", "Measles", "OPV", "Pentavalent", "Yellow Fever"],
+    "antigen text preserved verbatim from vaccine_text — Measles is NOT promoted to MMR",
+  );
+  // Critical clinical check: Measles must remain Measles, not MMR.
+  const measles = byAntigen.get("Measles");
+  assert.ok(measles, "Measles row present");
+  assert.equal(measles.antigen, "Measles");
+  assert.notEqual(measles.antigen, "MMR");
+  // Yellow Fever preserved.
+  assert.ok(byAntigen.get("Yellow Fever"), "Yellow Fever row present");
+  // Date round-trips through parseRawDate's English-month support.
+  assert.equal(byAntigen.get("BCG")!.date, "2025-01-10");
+  assert.equal(byAntigen.get("Pentavalent")!.date, "2025-02-21");
+  assert.equal(byAntigen.get("Measles")!.date, "2025-10-10");
+});
+
+test("promote: dose numbers extracted from source_text, including OPV birth dose 0", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: aminaCardFragments,
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  const byAntigen = new Map(result.rows.map((r) => [r.antigen, r]));
+  assert.equal(byAntigen.get("BCG")!.doseNumber, 1);
+  // OPV birth dose is conventionally numbered 0 — must round-trip.
+  assert.equal(byAntigen.get("OPV")!.doseNumber, 0);
+  assert.equal(byAntigen.get("Pentavalent")!.doseNumber, 1);
+  assert.equal(byAntigen.get("Measles")!.doseNumber, 1);
+});
+
+test("promote: dose_kind = birth when row_label says 'Birth', else primary", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: aminaCardFragments,
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  const byAntigen = new Map(result.rows.map((r) => [r.antigen, r]));
+  assert.equal(byAntigen.get("BCG")!.doseKind, "birth");
+  assert.equal(byAntigen.get("OPV")!.doseKind, "birth");
+  assert.equal(byAntigen.get("Pentavalent")!.doseKind, "primary");
+  assert.equal(byAntigen.get("Measles")!.doseKind, "primary");
+});
+
+test("promote: known template (Egypt MoHP) → no promotion, parsedRows passthrough", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "egypt_mohp_mandatory_childhood_immunization",
+    evidence_fragments: aminaCardFragments,
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  assert.equal(result.promoted, false);
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.warnings.length, 0);
+});
+
+test("promote: vision rows present → no promotion (never overwrites vision)", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: aminaCardFragments,
+  });
+  const visionRows: ParsedCardRow[] = [
+    row({ antigen: "BCG", date: "2025-01-10", doseNumber: 1, doseKind: "birth" }),
+  ];
+  const result = promoteUnknownTemplateFragments(layout, visionRows);
+  assert.equal(result.promoted, false);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0], visionRows[0], "input row reference is preserved");
+});
+
+test("promote: fewer than 3 qualifying fragments → no promotion", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: [
+      fragment({
+        fragment_id: "fa",
+        kind: "vaccine_cell",
+        raw_date_text: "10 Jan 2025",
+        vaccine_text: "BCG",
+        confidence: 0.95,
+      }),
+      fragment({
+        fragment_id: "fb",
+        kind: "vaccine_cell",
+        raw_date_text: "10 Jan 2025",
+        vaccine_text: "OPV",
+        confidence: 0.95,
+      }),
+    ],
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  assert.equal(result.promoted, false);
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.qualifyingFragmentCount, 2);
+});
+
+test("promote: only note fragments → no promotion (footer-only card)", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: [
+      fragment({ fragment_id: "n1", kind: "note", source_text: "one" }),
+      fragment({ fragment_id: "n2", kind: "note", source_text: "two" }),
+      fragment({ fragment_id: "n3", kind: "note", source_text: "three" }),
+    ],
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  assert.equal(result.promoted, false);
+  assert.equal(result.rows.length, 0);
+});
+
+test("promote: vaccine_cell missing raw_date_text → that fragment is skipped", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: [
+      fragment({
+        fragment_id: "ok1",
+        kind: "vaccine_cell",
+        raw_date_text: "10 Jan 2025",
+        vaccine_text: "BCG",
+        confidence: 0.95,
+      }),
+      fragment({
+        fragment_id: "ok2",
+        kind: "vaccine_cell",
+        raw_date_text: "10 Jan 2025",
+        vaccine_text: "OPV",
+        confidence: 0.95,
+      }),
+      fragment({
+        fragment_id: "ok3",
+        kind: "vaccine_cell",
+        raw_date_text: "10 Jan 2025",
+        vaccine_text: "PCV",
+        confidence: 0.95,
+      }),
+      // Missing raw_date_text — must not become a row.
+      fragment({
+        fragment_id: "skip1",
+        kind: "vaccine_cell",
+        raw_date_text: null,
+        vaccine_text: "Hib",
+        confidence: 0.9,
+      }),
+      // Missing vaccine_text — must not become a row.
+      fragment({
+        fragment_id: "skip2",
+        kind: "vaccine_cell",
+        raw_date_text: "10 Jan 2025",
+        vaccine_text: null,
+        confidence: 0.9,
+      }),
+    ],
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  assert.equal(result.promoted, true);
+  assert.equal(result.rows.length, 3);
+  assert.equal(result.qualifyingFragmentCount, 3);
+  for (const r of result.rows) {
+    assert.notEqual(r.antigen, "Hib", "fragment without date must not become a row");
+  }
+});
+
+test("promote: warning text is informative and references the AMBER posture", () => {
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: aminaCardFragments,
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  assert.equal(result.warnings.length, 1);
+  const w = result.warnings[0];
+  assert.match(w, /Unknown-template fragment promotion/);
+  assert.match(w, /AMBER/);
+  assert.match(w, /vision_low_confidence/);
+  assert.match(w, /clinician must confirm/i);
+});
+
+test("promote: layout=null → no promotion, no throw", () => {
+  const result = promoteUnknownTemplateFragments(null, []);
+  assert.equal(result.promoted, false);
+  assert.equal(result.rows.length, 0);
+});
+
+test("promote: confidence cap floors fragment confidence at 0.6 even when fragment was high", () => {
+  // Even a 0.99-confidence fragment must be capped — the AMBER posture
+  // is structural (no template anchor), not a measure of OCR quality.
+  const layout = layoutFixture({
+    recognized_template_id: "unknown_vaccine_card",
+    evidence_fragments: [
+      fragment({ fragment_id: "h1", kind: "vaccine_cell", raw_date_text: "10 Jan 2025", vaccine_text: "BCG", confidence: 0.99 }),
+      fragment({ fragment_id: "h2", kind: "vaccine_cell", raw_date_text: "10 Jan 2025", vaccine_text: "OPV", confidence: 0.99 }),
+      fragment({ fragment_id: "h3", kind: "vaccine_cell", raw_date_text: "10 Jan 2025", vaccine_text: "PCV", confidence: 0.99 }),
+    ],
+  });
+  const result = promoteUnknownTemplateFragments(layout, []);
+  for (const r of result.rows) {
+    assert.ok(r.confidence <= 0.6 + 1e-9, `confidence ${r.confidence} must be capped at 0.6`);
+  }
 });

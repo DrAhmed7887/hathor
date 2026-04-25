@@ -636,8 +636,46 @@ export function parseRawDate(raw: string | null | undefined): string | null {
     return buildIso(year, month, day);
   }
 
+  // "DD Mmm YYYY" / "DD Mmmm YYYY" (English month names — common on
+  // anglophone EPI cards, e.g. Nigerian "Child Immunization Record":
+  // "10 Jan 2025", "21 February 2025"). Case-insensitive on the
+  // month name. Single-digit day allowed. No two-digit-year support
+  // here — handwritten cards using month names typically print the
+  // full year.
+  const dmnY = trimmed.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$/);
+  if (dmnY) {
+    const [, dRaw, monthName, yRaw] = dmnY;
+    const month = ENGLISH_MONTH_NUMBER[monthName.toLowerCase()];
+    if (month === undefined) return null;
+    return buildIso(Number(yRaw), month, Number(dRaw));
+  }
+
   return null;
 }
+
+/** Map English month names (full + 3-letter abbreviations) to their
+ * 1..12 number. Used by `parseRawDate` to handle handwritten dates of
+ * the form "10 Jan 2025" — the format the synthetic Nigerian card
+ * uses, and the format the WHO/ICVP English face uses. Lower-case
+ * keys; the caller is expected to lower-case the month name before
+ * lookup. Both 3-letter ("Jan") and full ("January") forms are
+ * accepted; "Sept" (4-letter) is also accepted because some cards
+ * use it. No locale-specific aliases; non-English month names go
+ * through the dedicated synonym layer if/when they need to. */
+const ENGLISH_MONTH_NUMBER: Readonly<Record<string, number>> = Object.freeze({
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+});
 
 // ── Template inference ─────────────────────────────────────────────────────
 
@@ -877,6 +915,241 @@ export function inferRowsFromTemplate(
     warnings,
     template_id: templateId,
     unmapped_date_texts: unmappedDateTexts,
+  };
+}
+
+// ── Unknown-template fragment promotion ─────────────────────────────────────
+//
+// Why this exists:
+//   When a card does not match a registered template
+//   (`recognized_template_id === "unknown_vaccine_card"`), the registry-
+//   driven `inferRowsFromTemplate` short-circuits and emits zero rows
+//   even when the vision pass HAS read every cell into evidence
+//   fragments — the staged extraction's "fragments" half does its job,
+//   but the "rows" half is empty because no template anchors them.
+//
+//   On a Nigerian-style EPI card the visible failure is: the demo UI
+//   renders "no rows extracted" while the trace shows fourteen perfectly
+//   transcribed vaccine cells. The synthetic Amina Bello card is the
+//   canonical reproducer.
+//
+// What this function does:
+//   When (a) the caller's parsed rows are empty AND (b) the layout was
+//   classified as `unknown_vaccine_card` AND (c) the trace contains at
+//   least three `vaccine_cell` evidence fragments paired with vaccine
+//   AND date text, promote each qualifying fragment to one
+//   ParsedCardRow.
+//
+//   Promoted rows are AMBER. We use `source = "vision_low_confidence"`
+//   with confidence capped well below `CONFIDENCE_THRESHOLD = 0.85`,
+//   `clinician_action = "none"`, and `template_spec_index = null`.
+//   That choice makes the trust gate (`filterConfirmedDoses`) drop
+//   them automatically until the clinician confirms in HITL — exactly
+//   the same posture as `template_inferred` rows on known templates,
+//   minus the template anchor.
+//
+//   This is intentionally a narrow bridge, not a fallback agent:
+//
+//     - Footer notes (`kind === "note"`) are never promoted to rows.
+//     - Fragments without BOTH `vaccine_text` and `raw_date_text` are
+//       skipped; we do not invent a vaccine name from `source_text`.
+//     - We do not normalise the antigen string. The clinician sees the
+//       card's verbatim wording (e.g. "Pentavalent", "Yellow Fever")
+//       and confirms before anything reaches the engine. The engine's
+//       synonym layer is downstream.
+//     - We never overwrite vision rows. If the vision pass produced
+//       even one row, this function returns the input unchanged.
+//
+//   Promoted rows preserve provenance via `sourceEvidenceFragmentId`
+//   so the trace UI can correlate each row back to its fragment, and
+//   `prediction_id` is `V:<fragment_id>` (vision prefix — these were
+//   read by vision, not synthesised from a template spec).
+
+export interface UnknownTemplatePromotionResult {
+  /** The full set of rows the route should hand to the finalisation
+   * step: caller's rows when no promotion fired, otherwise the
+   * promoted AMBER rows. Never partial — either we promoted all
+   * qualifying fragments or none. */
+  rows: ParsedCardRow[];
+  /** True when at least one fragment was promoted. */
+  promoted: boolean;
+  /** Free-text trace warnings the route folds into
+   * documentIntelligence.warnings so the trust panel surfaces them. */
+  warnings: string[];
+  /** Number of fragments that qualified (vaccine_cell with both
+   * vaccine_text and raw_date_text). Reported in the warning so the
+   * audit trail records what the bridge saw. */
+  qualifyingFragmentCount: number;
+}
+
+/** Minimum number of qualifying vaccine fragments required before the
+ * bridge fires. Three is the floor: a single fragment could be a
+ * spurious read; three rows look like a vaccine table. */
+const UNKNOWN_TEMPLATE_PROMOTION_MIN_FRAGMENTS = 3;
+
+/** Confidence cap for promoted rows. Strictly below
+ * `CONFIDENCE_THRESHOLD = 0.85` so the trust gate cannot admit a
+ * promoted row without explicit clinician confirmation. The cap is a
+ * structural decision (no template anchor), not a measure of OCR
+ * quality — fragment confidences may have been ≥ 0.95. */
+const UNKNOWN_TEMPLATE_PROMOTION_CONFIDENCE_CAP = 0.6;
+
+/** Extract a small integer dose number from a fragment's source_text
+ * by looking for the first integer token that follows the vaccine
+ * label. Returns null when nothing parseable is present.
+ *
+ * Cards in this format have source_text like
+ *   "10 Jan 2025 | Birth | BCG | 1 | scar seen"
+ * or
+ *   "21 Feb 2025 | 6 weeks | Pentavalent | 1 | given"
+ * — the dose number is in the cell after the vaccine. The OPV birth
+ * dose is conventionally numbered 0 ("OPV | 0 | birth dose"); 0 is a
+ * legitimate value and must round-trip. Negative numbers are rejected
+ * (no real dose number is negative); values above 9 are rejected as
+ * implausible for any pediatric primary or booster series. */
+function extractDoseNumberFromFragment(
+  sourceText: string | null,
+  vaccineText: string | null,
+): number | null {
+  if (!sourceText || !vaccineText) return null;
+  const idx = sourceText.indexOf(vaccineText);
+  if (idx === -1) return null;
+  const after = sourceText.slice(idx + vaccineText.length);
+  const m = after.match(/(?:^|[|,;\s])\s*(\d{1,2})\b/);
+  if (!m) return null;
+  const value = Number(m[1]);
+  if (!Number.isInteger(value) || value < 0 || value > 9) return null;
+  return value;
+}
+
+/** Best-effort dose_kind from the fragment's row label. Cards label
+ * birth doses explicitly ("Birth", "ولادة", "naissance"); anything
+ * else falls through to `"primary"` because the unknown-template
+ * fragments we promote here are children's primary-series rows in
+ * practice. The clinician can correct in HITL. */
+function inferDoseKindFromRowLabel(rowLabel: string | null): DoseKind {
+  if (!rowLabel) return "primary";
+  const lower = rowLabel.toLowerCase();
+  if (lower.includes("birth") || lower.includes("ولادة") || lower.includes("naissance")) {
+    return "birth";
+  }
+  return "primary";
+}
+
+/** Promote unknown-template `vaccine_cell` fragments to AMBER rows.
+ * See module-level comment above for design rationale and constraints.
+ * Pure: does not mutate `parsedRows` or `layout`.
+ *
+ * Returns `parsedRows` unchanged (with `promoted: false`) when any of
+ * the preconditions fail. Otherwise returns a new array of promoted
+ * rows. The route is responsible for splicing the result into the
+ * pipeline and forwarding `warnings` into the trace. */
+export function promoteUnknownTemplateFragments(
+  layout: LayoutAnalysisResult | null,
+  parsedRows: ParsedCardRow[],
+): UnknownTemplatePromotionResult {
+  // Vision rows always win — never replace them.
+  if (parsedRows.length > 0) {
+    return {
+      rows: parsedRows,
+      promoted: false,
+      warnings: [],
+      qualifyingFragmentCount: 0,
+    };
+  }
+  // Bridge is unknown-template only. Known templates have their own
+  // `inferRowsFromTemplate` path; running here would double-handle.
+  if (!layout || layout.recognized_template_id !== "unknown_vaccine_card") {
+    return {
+      rows: parsedRows,
+      promoted: false,
+      warnings: [],
+      qualifyingFragmentCount: 0,
+    };
+  }
+
+  const qualifying = layout.evidence_fragments.filter(
+    (f) =>
+      f.kind === "vaccine_cell" &&
+      typeof f.vaccine_text === "string" &&
+      f.vaccine_text.trim().length > 0 &&
+      typeof f.raw_date_text === "string" &&
+      f.raw_date_text.trim().length > 0,
+  );
+
+  if (qualifying.length < UNKNOWN_TEMPLATE_PROMOTION_MIN_FRAGMENTS) {
+    return {
+      rows: parsedRows,
+      promoted: false,
+      warnings: [],
+      qualifyingFragmentCount: qualifying.length,
+    };
+  }
+
+  const total = qualifying.length;
+  const promotedRows: ParsedCardRow[] = qualifying.map((frag, idx) => {
+    const parsedDate = parseRawDate(frag.raw_date_text);
+    const doseNumber = extractDoseNumberFromFragment(
+      frag.source_text,
+      frag.vaccine_text,
+    );
+    const doseKind = inferDoseKindFromRowLabel(frag.row_label);
+    const ageHint = frag.row_label
+      ? ` Card row label: "${frag.row_label}".`
+      : "";
+    const dateNote = parsedDate
+      ? ""
+      : ` Date "${frag.raw_date_text}" did not parse to ISO; clinician must confirm or enter manually.`;
+    const cappedConfidence = Math.min(
+      UNKNOWN_TEMPLATE_PROMOTION_CONFIDENCE_CAP,
+      frag.confidence,
+    );
+
+    return {
+      antigen: frag.vaccine_text!,
+      date: parsedDate,
+      doseNumber,
+      doseKind,
+      lotNumber: null,
+      confidence: cappedConfidence,
+      reasoningIfUncertain:
+        `Promoted from unknown-template evidence fragment ${frag.fragment_id}. ` +
+        `The card layout did not match a registered template (Egypt MoHP / WHO ICVP), ` +
+        `so vision did not emit this row in the structured rows[] array; the bridge ` +
+        `synthesised it from the trace's vaccine_cell fragment.${ageHint}${dateNote} ` +
+        `Clinician MUST confirm the antigen, dose number, and date before reconciliation.`,
+      imageCropRegion: {
+        x: 0,
+        y: Math.min(1, idx / Math.max(1, total)),
+        width: 1,
+        height: Math.min(0.2, 1 / Math.max(1, total)),
+      },
+      // Trust-gate posture: vision_low_confidence is dropped by
+      // filterConfirmedDoses unless clinician_action escalates the
+      // row. This is the AMBER-without-template-anchor posture.
+      source: "vision_low_confidence",
+      sourceEvidenceFragmentId: frag.fragment_id,
+      // Slot-state for unknown-template promotion is "ambiguous" (HITL
+      // table), not "predicted" (template-anchored visit panel).
+      slot_state: "ambiguous",
+      predicted_subkind: null,
+      template_spec_index: null,
+      prediction_id: `V:${frag.fragment_id}`,
+      clinician_action: "none",
+    };
+  });
+
+  return {
+    rows: promotedRows,
+    promoted: true,
+    warnings: [
+      `Unknown-template fragment promotion: vision returned 0 rows but the trace contained ` +
+        `${qualifying.length} vaccine_cell fragments with paired vaccine + date evidence. ` +
+        `Each was promoted to an AMBER row (source="vision_low_confidence", ` +
+        `confidence ≤ ${UNKNOWN_TEMPLATE_PROMOTION_CONFIDENCE_CAP}); clinician must confirm ` +
+        `before any row reaches the engine.`,
+    ],
+    qualifyingFragmentCount: qualifying.length,
   };
 }
 
