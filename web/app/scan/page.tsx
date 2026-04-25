@@ -94,6 +94,19 @@ interface TrailItem {
   finishedAt?: number;
 }
 
+// Per-image status row shown above the live trail when more than one
+// image is uploaded. Lets the user see at a glance which image is still
+// running while the chronological trail interleaves their events.
+interface ImageProgress {
+  index: number;
+  filename: string;
+  state: "pending" | "running" | "done" | "error";
+  rowCount?: number;
+  error?: string;
+}
+
+const MAX_FILES = 3;
+
 // ── Source-country resolver ─────────────────────────────────────────────────
 //
 // The "Card from" field is free-text. The user types whatever country
@@ -172,14 +185,18 @@ export default function ScanPage() {
     [sourceCountry],
   );
 
-  // File
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Files — up to MAX_FILES uploaded in one batch and processed in
+  // parallel, with their dose rows merged into a single reconciliation.
+  // Common use cases: front + back of a single card, multi-page EPI
+  // booklets, or multiple cards from different clinics.
+  const [files, setFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
   // Parse state
   const [running, setRunning] = useState(false);
   const [trail, setTrail] = useState<TrailItem[]>([]);
   const [parsed, setParsed] = useState<ParsedCardOutput | null>(null);
+  const [imageProgress, setImageProgress] = useState<ImageProgress[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
 
@@ -226,12 +243,12 @@ export default function ScanPage() {
     };
   }, [sourceScheduleCode]);
 
-  // Revoke object URL on swap.
+  // Revoke object URLs on swap so we don't leak blob handles.
   useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrls.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [previewUrl]);
+  }, [previewUrls]);
 
   // Read ?scenario=<id> on mount: prefill DOB + source country and fetch the
   // demo card image as a File so it goes through the same code path as a
@@ -257,7 +274,7 @@ export default function ScanPage() {
         const f = new File([blob], filename, {
           type: blob.type || "image/jpeg",
         });
-        onFile(f);
+        addFiles([f]);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -275,34 +292,73 @@ export default function ScanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onFile = useCallback(
-    (f: File) => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setFile(f);
-      setPreviewUrl(URL.createObjectURL(f));
+  const addFiles = useCallback(
+    (incoming: File[]) => {
+      // Filter to images only and respect the MAX_FILES cap. Existing
+      // files are preserved so the user can build a 1-3-image set
+      // across multiple drops/clicks.
+      const images = incoming.filter((f) => f.type.startsWith("image/"));
+      if (images.length === 0) return;
+      setFiles((prev) => {
+        const room = Math.max(0, MAX_FILES - prev.length);
+        const accepted = images.slice(0, room);
+        if (accepted.length === 0) return prev;
+        const nextFiles = [...prev, ...accepted];
+        const newUrls = accepted.map((f) => URL.createObjectURL(f));
+        setPreviewUrls((prevUrls) => [...prevUrls, ...newUrls]);
+        return nextFiles;
+      });
       setParsed(null);
       setError(null);
       setTrail([]);
+      setImageProgress([]);
       setElapsedMs(null);
     },
-    [previewUrl],
+    [],
+  );
+
+  const removeFile = useCallback(
+    (index: number) => {
+      setFiles((prev) => prev.filter((_, i) => i !== index));
+      setPreviewUrls((prev) => {
+        const removed = prev[index];
+        if (removed) URL.revokeObjectURL(removed);
+        return prev.filter((_, i) => i !== index);
+      });
+      setParsed(null);
+      setError(null);
+      setTrail([]);
+      setImageProgress([]);
+      setElapsedMs(null);
+    },
+    [],
   );
 
   const start = useCallback(async () => {
-    if (!file) return;
+    if (files.length === 0) return;
     setRunning(true);
     setError(null);
     setParsed(null);
     setElapsedMs(null);
+    setImageProgress(
+      files.map((f, i) => ({
+        index: i,
+        filename: f.name,
+        state: "pending",
+      })),
+    );
     startedAtRef.current = Date.now();
+
+    // Trail helpers — when more than one image is uploaded, every step
+    // is namespaced with "Image N/M:" so the chronological feed stays
+    // legible even though the per-image SSE events interleave.
+    const multi = files.length > 1;
+    const tag = (i: number, label: string) =>
+      multi ? `Image ${i + 1}/${files.length}: ${label}` : label;
+    const stepId = (i: number, key: string) => `i${i}-${key}`;
 
     const startStep = (id: string, label: string, detail?: string) => {
       setTrail((prev) => {
-        const closed: TrailItem[] = prev.map((p) =>
-          p.state === "running"
-            ? { ...p, state: "done" as const, finishedAt: Date.now() }
-            : p,
-        );
         const next: TrailItem = {
           id,
           label,
@@ -310,6 +366,15 @@ export default function ScanPage() {
           state: "running",
           startedAt: Date.now(),
         };
+        // Only close the previous step belonging to the same image — in
+        // multi-image mode, each image owns an independent stream so we
+        // must not auto-close steps that belong to other images.
+        const prefix = id.split("-")[0];
+        const closed: TrailItem[] = prev.map((p) =>
+          p.state === "running" && p.id.startsWith(prefix + "-")
+            ? { ...p, state: "done" as const, finishedAt: Date.now() }
+            : p,
+        );
         return [...closed, next];
       });
     };
@@ -326,12 +391,34 @@ export default function ScanPage() {
             : p,
         ),
       );
+    const setImageState = (
+      i: number,
+      state: ImageProgress["state"],
+      patch: Partial<ImageProgress> = {},
+    ) => {
+      setImageProgress((prev) =>
+        prev.map((p) => (p.index === i ? { ...p, state, ...patch } : p)),
+      );
+    };
 
-    startStep("upload", "Uploading card", `${(file.size / 1024).toFixed(0)} KB`);
+    // Fire all uploads in parallel and merge their per-image
+    // ParsedCardOutputs into a single one for downstream reconciliation.
+    // Each call has its own SSE stream — we walk them concurrently via
+    // Promise.allSettled so a single image failing surfaces as an
+    // image-scoped error rather than killing the batch.
+    const uploadOne = async (
+      f: File,
+      idx: number,
+    ): Promise<ParsedCardOutput | null> => {
+      setImageState(idx, "running");
+      startStep(
+        stepId(idx, "upload"),
+        tag(idx, "Uploading card"),
+        `${(f.size / 1024).toFixed(0)} KB`,
+      );
 
-    try {
       const form = new FormData();
-      form.append("file", file, file.name);
+      form.append("file", f, f.name);
       form.append("source_country", sourceCountry);
       if (dob) form.append("child_dob", dob);
 
@@ -346,6 +433,7 @@ export default function ScanPage() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
+      let perImageResult: ParsedCardOutput | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -358,32 +446,44 @@ export default function ScanPage() {
           const data = ev.data as ProgressEvent;
           if (data.kind === "vision_start") {
             startStep(
-              "vision",
-              "Reading the card with Claude vision",
+              stepId(idx, "vision"),
+              tag(idx, "Reading the card with Claude vision"),
               `Opus 4.7 · whole-image pass`,
             );
           } else if (data.kind === "vision_done") {
             updateStep(
-              "vision",
+              stepId(idx, "vision"),
               `${data.rows} row${data.rows === 1 ? "" : "s"} extracted`,
             );
           } else if (data.kind === "template") {
-            const friendly = templateLabel(data.id);
-            startStep("template", "Card layout", friendly);
-          } else if (data.kind === "status") {
-            startStep(`status-${ev.type}`, data.label, data.detail);
-          } else if (data.kind === "result") {
-            const n = data.body.rows.length;
             startStep(
-              "done",
-              `Reconciling ${n} dose${n === 1 ? "" : "s"} against the destination schedule`,
+              stepId(idx, "template"),
+              tag(idx, "Card layout"),
+              templateLabel(data.id),
             );
-            setParsed(data.body);
+          } else if (data.kind === "status") {
+            startStep(
+              stepId(idx, `status-${ev.type}`),
+              tag(idx, data.label),
+              data.detail,
+            );
+          } else if (data.kind === "result") {
+            perImageResult = data.body;
+            setImageState(idx, "done", { rowCount: data.body.rows.length });
+            startStep(
+              stepId(idx, "done"),
+              tag(
+                idx,
+                `${data.body.rows.length} dose${
+                  data.body.rows.length === 1 ? "" : "s"
+                } extracted`,
+              ),
+            );
           } else if (data.kind === "error") {
-            setError(data.message);
+            setImageState(idx, "error", { error: data.message });
             setTrail((prev) =>
               prev.map((p) =>
-                p.state === "running"
+                p.state === "running" && p.id.startsWith(`i${idx}-`)
                   ? {
                       ...p,
                       state: "error",
@@ -393,8 +493,51 @@ export default function ScanPage() {
                   : p,
               ),
             );
+            throw new Error(data.message);
           }
         }
+      }
+      return perImageResult;
+    };
+
+    try {
+      const settled = await Promise.allSettled(
+        files.map((f, i) => uploadOne(f, i)),
+      );
+      const perImageOutputs: ParsedCardOutput[] = [];
+      const errors: string[] = [];
+      settled.forEach((r, i) => {
+        if (r.status === "fulfilled" && r.value) {
+          perImageOutputs.push(r.value);
+        } else if (r.status === "rejected") {
+          errors.push(`Image ${i + 1}: ${r.reason?.message ?? r.reason}`);
+        }
+      });
+
+      if (perImageOutputs.length === 0) {
+        throw new Error(
+          errors.length > 0
+            ? errors.join(" · ")
+            : "No images returned a result.",
+        );
+      }
+
+      // Merge: concatenate all rows from each per-image output. Row IDs
+      // are server-issued UUIDs so collisions are not a concern. We keep
+      // the metadata block from the first successful response (it's
+      // image-level: language, legibility, card_template, etc. — primarily
+      // a per-image attribute and we don't combine those).
+      const mergedRows: ParsedCardRow[] = perImageOutputs.flatMap(
+        (o) => o.rows,
+      );
+      const mergedOutput: ParsedCardOutput = {
+        ...perImageOutputs[0],
+        rows: mergedRows,
+      };
+      setParsed(mergedOutput);
+
+      if (errors.length > 0) {
+        setError(errors.join(" · "));
       }
       finishAll();
       if (startedAtRef.current) {
@@ -406,17 +549,17 @@ export default function ScanPage() {
     } finally {
       setRunning(false);
     }
-  }, [file, sourceCountry, dob]);
+  }, [files, sourceCountry, dob]);
 
   // Auto-start once a scenario has been prefilled and schedules are ready.
   // The ref guard means a manual re-run from a scenario URL still works
   // (clicking "Read & reconcile" after the auto-run completes).
   useEffect(() => {
     if (!activeScenario || autoStartedRef.current) return;
-    if (!file || running || !destSchedule || !sourceSchedule) return;
+    if (files.length === 0 || running || !destSchedule || !sourceSchedule) return;
     autoStartedRef.current = true;
     void start();
-  }, [activeScenario, file, running, destSchedule, sourceSchedule, start]);
+  }, [activeScenario, files, running, destSchedule, sourceSchedule, start]);
 
   // Reconciliation
   const reconciliation = useMemo(() => {
@@ -611,8 +754,18 @@ export default function ScanPage() {
             </Field>
           </div>
 
-          <SectionHeader title="Vaccination card" eyebrow="Step 2" />
-          <Dropzone file={file} previewUrl={previewUrl} onFile={onFile} disabled={running} />
+          <SectionHeader
+            title="Vaccination card(s)"
+            eyebrow={`Step 2 · up to ${MAX_FILES} images`}
+          />
+          <Dropzone
+            files={files}
+            previewUrls={previewUrls}
+            onAdd={addFiles}
+            onRemove={removeFile}
+            disabled={running}
+            max={MAX_FILES}
+          />
 
           <div
             style={{
@@ -627,10 +780,16 @@ export default function ScanPage() {
             <button
               type="button"
               onClick={start}
-              disabled={!file || !dob || running}
-              style={primaryButton(!file || !dob || running)}
+              disabled={files.length === 0 || !dob || running}
+              style={primaryButton(files.length === 0 || !dob || running)}
             >
-              {running ? "Reading card…" : "Read & reconcile →"}
+              {running
+                ? files.length > 1
+                  ? `Reading ${files.length} cards…`
+                  : "Reading card…"
+                : files.length > 1
+                  ? `Read ${files.length} cards & reconcile →`
+                  : "Read & reconcile →"}
             </button>
           </div>
         </Card>
@@ -643,6 +802,9 @@ export default function ScanPage() {
               eyebrow={running ? "Live" : elapsedMs ? `Done in ${(elapsedMs / 1000).toFixed(1)}s` : "Trace"}
               tone={running ? "running" : "ok"}
             />
+            {imageProgress.length > 1 && (
+              <ImageProgressStrip items={imageProgress} />
+            )}
             <ThinkingTrail items={trail} />
             {error && (
               <div
@@ -1125,46 +1287,55 @@ function CountryCombobox({
 // ── Dropzone ─────────────────────────────────────────────────────────────────
 
 function Dropzone({
-  file,
-  previewUrl,
-  onFile,
+  files,
+  previewUrls,
+  onAdd,
+  onRemove,
   disabled,
+  max,
 }: {
-  file: File | null;
-  previewUrl: string | null;
-  onFile: (f: File) => void;
+  files: File[];
+  previewUrls: string[];
+  onAdd: (fs: File[]) => void;
+  onRemove: (index: number) => void;
   disabled: boolean;
+  max: number;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
 
-  const handle = (f: File | null | undefined) => {
-    if (!f) return;
-    if (!f.type.startsWith("image/")) return;
-    onFile(f);
+  const handle = (incoming: FileList | File[] | null | undefined) => {
+    if (!incoming) return;
+    const arr = Array.from(incoming);
+    if (arr.length === 0) return;
+    onAdd(arr);
   };
+
+  const remaining = Math.max(0, max - files.length);
+  const isFull = remaining === 0;
+  const empty = files.length === 0;
 
   return (
     <div
       onDragOver={(e) => {
         e.preventDefault();
-        if (!disabled) setOver(true);
+        if (!disabled && !isFull) setOver(true);
       }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
         e.preventDefault();
         setOver(false);
-        if (disabled) return;
-        handle(e.dataTransfer.files[0]);
+        if (disabled || isFull) return;
+        handle(e.dataTransfer.files);
       }}
-      onClick={() => !disabled && inputRef.current?.click()}
+      onClick={() => !disabled && !isFull && inputRef.current?.click()}
       style={{
         border: `1.5px dashed ${over ? C.teal : C.rule}`,
         borderRadius: 8,
-        padding: previewUrl ? 14 : 32,
+        padding: empty ? 32 : 14,
         background: over ? C.tealWash : C.bg,
         textAlign: "center",
-        cursor: disabled ? "not-allowed" : "pointer",
+        cursor: disabled || isFull ? "not-allowed" : "pointer",
         transition: "all 0.15s ease",
       }}
     >
@@ -1172,59 +1343,245 @@ function Dropzone({
         ref={inputRef}
         type="file"
         accept="image/*"
-        onChange={(e) => handle(e.target.files?.[0])}
+        multiple
+        onChange={(e) => {
+          handle(e.target.files);
+          // Reset so re-selecting the same file fires onChange again.
+          if (e.target) e.target.value = "";
+        }}
         style={{ display: "none" }}
       />
-      {previewUrl ? (
-        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={previewUrl}
-            alt="Card preview"
-            style={{
-              width: 120,
-              height: 84,
-              objectFit: "cover",
-              borderRadius: 6,
-              border: `1px solid ${C.rule}`,
-            }}
-          />
-          <div style={{ textAlign: "left" }}>
-            <div style={{ fontSize: 14, color: C.ink }}>{file?.name}</div>
-            <div
-              style={{
-                fontFamily: F.mono,
-                fontSize: 11,
-                color: C.mute,
-                marginTop: 4,
-              }}
-            >
-              {file ? `${(file.size / 1024).toFixed(0)} KB · ${file.type}` : ""}
-            </div>
-            <div
-              style={{
-                fontFamily: F.mono,
-                fontSize: 11,
-                color: C.teal,
-                marginTop: 6,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-              }}
-            >
-              Click or drop a different image to replace
-            </div>
-          </div>
-        </div>
-      ) : (
+      {empty ? (
         <>
           <div style={{ fontFamily: F.serif, fontSize: 17, color: C.ink, marginBottom: 4 }}>
-            Drop a vaccination card here, or click to choose one
+            Drop up to {max} vaccination cards here, or click to choose
           </div>
           <div style={{ fontFamily: F.mono, fontSize: 11, color: C.mute, letterSpacing: "0.05em" }}>
-            JPG · PNG · WEBP · up to 5 MB
+            JPG · PNG · WEBP · up to 5 MB each · processed in parallel
           </div>
         </>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${Math.min(files.length, max)}, 1fr)`,
+              gap: 10,
+            }}
+          >
+            {files.map((f, i) => (
+              <FileThumb
+                key={`${f.name}-${i}`}
+                file={f}
+                previewUrl={previewUrls[i]}
+                index={i}
+                onRemove={(e) => {
+                  e.stopPropagation();
+                  if (!disabled) onRemove(i);
+                }}
+                disabled={disabled}
+              />
+            ))}
+          </div>
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11,
+              color: isFull ? C.mute : C.teal,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              marginTop: 4,
+            }}
+          >
+            {isFull
+              ? `${files.length} of ${max} images — remove one to swap`
+              : `Add up to ${remaining} more — click or drop`}
+          </div>
+        </div>
       )}
+    </div>
+  );
+}
+
+function FileThumb({
+  file,
+  previewUrl,
+  index,
+  onRemove,
+  disabled,
+}: {
+  file: File;
+  previewUrl: string | undefined;
+  index: number;
+  onRemove: (e: React.MouseEvent) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        background: C.card,
+        border: `1px solid ${C.rule}`,
+        borderRadius: 6,
+        padding: 8,
+        textAlign: "left",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      {previewUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={previewUrl}
+          alt={`Card ${index + 1} preview`}
+          style={{
+            width: "100%",
+            aspectRatio: "4 / 3",
+            objectFit: "cover",
+            borderRadius: 4,
+            border: `1px solid ${C.ruleSoft}`,
+          }}
+        />
+      )}
+      <div
+        style={{
+          fontSize: 12,
+          color: C.ink,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={file.name}
+      >
+        <span style={{ color: C.teal, fontFamily: F.mono, marginRight: 6 }}>
+          {index + 1}.
+        </span>
+        {file.name}
+      </div>
+      <div style={{ fontFamily: F.mono, fontSize: 10.5, color: C.mute }}>
+        {(file.size / 1024).toFixed(0)} KB
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={disabled}
+        aria-label={`Remove image ${index + 1}`}
+        style={{
+          position: "absolute",
+          top: 4,
+          right: 4,
+          width: 22,
+          height: 22,
+          borderRadius: "50%",
+          border: `1px solid ${C.rule}`,
+          background: C.card,
+          color: C.mute,
+          cursor: disabled ? "not-allowed" : "pointer",
+          fontSize: 14,
+          lineHeight: 1,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 0,
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+function ImageProgressStrip({ items }: { items: ImageProgress[] }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${items.length}, 1fr)`,
+        gap: 8,
+        marginBottom: 14,
+        paddingBottom: 14,
+        borderBottom: `1px solid ${C.ruleSoft}`,
+      }}
+    >
+      {items.map((it) => {
+        const tone =
+          it.state === "done"
+            ? { bg: C.okWash, fg: C.ok, border: C.ok }
+            : it.state === "error"
+              ? { bg: C.badWash, fg: C.bad, border: C.bad }
+              : it.state === "running"
+                ? { bg: C.tealWash, fg: C.teal, border: C.teal }
+                : { bg: C.bg, fg: C.mute, border: C.rule };
+        const label =
+          it.state === "done"
+            ? `${it.rowCount ?? 0} dose${it.rowCount === 1 ? "" : "s"}`
+            : it.state === "error"
+              ? "failed"
+              : it.state === "running"
+                ? "reading…"
+                : "queued";
+        return (
+          <div
+            key={it.index}
+            style={{
+              padding: "8px 10px",
+              border: `1px solid ${tone.border}`,
+              borderLeft: `3px solid ${tone.border}`,
+              borderRadius: 6,
+              background: tone.bg,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: F.mono,
+                fontSize: 10,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: tone.fg,
+              }}
+            >
+              Image {it.index + 1}
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: C.ink,
+                marginTop: 2,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={it.filename}
+            >
+              {it.filename}
+            </div>
+            <div
+              style={{
+                fontFamily: F.mono,
+                fontSize: 11,
+                color: tone.fg,
+                marginTop: 2,
+              }}
+            >
+              {label}
+            </div>
+            {it.error && (
+              <div
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 10.5,
+                  color: C.bad,
+                  marginTop: 2,
+                  whiteSpace: "normal",
+                }}
+              >
+                {it.error}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
