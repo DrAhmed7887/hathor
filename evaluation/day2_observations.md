@@ -28,7 +28,7 @@ Opus used 5 fewer tool calls and produced less than half the output tokens — m
 - Sonnet run 2 called `validate_dose` for every individual antigen (DTaP, IPV, Hib, HepB — all three doses each = 12 calls), whereas Opus validated only the critical doses (D1, D2, D3-DTaP, D3-HepB, D3-Hib, D3-IPV, Measles = 7 calls). Different efficiency, same conclusions.
 
 ### ToolSearch
-All runs used 1 ToolSearch call at the start to load MCP tool schemas (Claude Code deferred tool loading behaviour — expected, not a Hathor tool).
+All runs used 1 ToolSearch call at the start to load MCP tool schemas (agent runtime deferred tool loading behaviour — expected, not a Hathor tool).
 
 ---
 
