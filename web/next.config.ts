@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 // Baseline security headers — applied to every response. See
-// docs/HIPAA_ASSESSMENT.md, finding #10/#11. A strict Content-Security-Policy
-// is intentionally NOT added here; Next 16 + Turbopack + Tailwind 4 require
-// case-by-case CSP tuning and that lands in a separate, tested PR.
+// docs/PII_HARDENING.md. A strict Content-Security-Policy is intentionally
+// NOT added here; Next 16 + Turbopack + Tailwind 4 require case-by-case
+// CSP tuning and that lands in a separate, tested PR.
 //
 // HSTS is included but only takes effect when the page is served over
 // HTTPS — in dev (HTTP) browsers ignore it. The header on /api/* adds

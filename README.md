@@ -154,27 +154,19 @@ This is a research prototype, not a medical device. All outputs are clinical dec
 
 ---
 
-## Data handling and privacy
+## PII discipline
 
-Hathor is a **research prototype, not a HIPAA-compliant medical device.** Do not point it at real patient data in its current form. The repository contains synthetic fixtures only — real cards never enter version control (see `.gitignore` for the `cards/private/` defence-in-depth rule).
+Hathor is a hackathon prototype, not a HIPAA-compliant medical device. Fixtures are synthetic; real patient cards never enter version control (`.gitignore` carries a `cards/private/` defence-in-depth rule).
 
-What the prototype already does:
+The code is still written with PII discipline as a habit:
 
-- Per-field confidence gate (Phase D, AMBER) blocks low-confidence rows from auto-committing.
-- Deterministic rules engine (Phase E, RED) re-validates every recommendation before it reaches the FHIR bundle or the clinician.
-- Clinician overrides write a FHIR R4 Provenance record with rule ID, original agent proposal, free-text reason, and timestamp.
-- Vaccination card images and reconciliation streams are served with `Cache-Control: no-store` and an `X-Content-Classification: PHI` flag so caches and proxies treat them uniformly.
-- Form-field hints (`source_country`, `card_language`, `child_dob`) are validated to reject free-text input that could carry PII (e.g., a child's name pasted into the country field).
-- Server-side errors are logged in full but only an opaque `error_id` reaches the browser; raw exception text is never echoed to the client.
+- **Form hints validated at the boundary.** `source_country`, `card_language`, and `child_dob` are checked against strict patterns. A name pasted into the country field is rejected with `400 invalid_hint` — the offending value is never echoed back.
+- **Errors don't leak.** SSE and JSON error responses carry an opaque `error_id`; the full exception is logged server-side. Vision-pipeline exceptions can echo parsed antigens, dates, or filenames — those stay on the server.
+- **No-store on PHI-bearing responses.** Reconciliation streams and `parse-card` responses set `Cache-Control: no-store` and an `X-Content-Classification: PHI` flag.
+- **Baseline security headers.** HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (camera/mic/geolocation off).
+- **Diagnostic logs carry counts only**, never card-derived text.
 
-What the prototype does **not** yet do, and must do before any real PHI handling:
-
-- No Business Associate Agreement with Anthropic — every vision call and agent step today transmits PHI to a third party that is not contracted as a HIPAA business associate.
-- No authentication or identity binding — the `clinician_id` is a placeholder.
-- No durable, encrypted storage for HITL or override sessions; restart loses all in-flight clinician corrections.
-- No rate limiting, no PHI-access audit log, no data-deletion API, no tamper-evident provenance.
-
-The full gap analysis and remediation roadmap is in [`docs/HIPAA_ASSESSMENT.md`](docs/HIPAA_ASSESSMENT.md). Until those items land, treat every screenshot, log line, and demo run as if it were real patient data — and use only the synthetic fixtures shipped with the repository.
+Authentication, BAAs, encryption-at-rest, audit logging, rate limiting — all out of scope for the hackathon and explicitly not claimed. Full notes in [`docs/PII_HARDENING.md`](docs/PII_HARDENING.md).
 
 ---
 
