@@ -34,7 +34,7 @@
  * step 14 if the smoke test surfaces a need.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { ChatIntake } from "@/components/ChatIntake";
@@ -80,6 +80,7 @@ const H = {
   stone:     "#CFC4B1",
   ink:       "#1C1917",
   ink2:      "#292524",
+  mute:      "#44403C",
   meta:      "#6B6158",
   faint:     "#A8A29E",
   amber:     "#B8833B",
@@ -362,6 +363,102 @@ function IntakeMetaForm({
   );
 }
 
+function ParsingIndicator() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        background: H.card,
+        border: `1px solid ${H.rule}`,
+        borderLeft: `3px solid ${H.copper}`,
+        padding: "14px 18px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        fontFamily: F.sans,
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: 999,
+          background: H.copper,
+          animation: "hathorPulse 1.4s ease-in-out infinite",
+        }}
+      />
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div
+          style={{
+            fontFamily: F.mono,
+            fontSize: 10.5,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: H.copperInk,
+          }}
+        >
+          Phase D · vision pass in flight
+        </div>
+        <div style={{ fontFamily: F.serif, fontSize: 13.5, color: H.mute }}>
+          Reading every row off the card with per-cell confidence…
+        </div>
+      </div>
+      <style>
+        {`@keyframes hathorPulse { 0%,100% { opacity: 0.35 } 50% { opacity: 1 } }`}
+      </style>
+    </div>
+  );
+}
+
+function ParseErrorPanel({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      style={{
+        padding: "14px 18px",
+        background: H.amberSoft,
+        border: `1px solid ${H.amber}`,
+        borderLeft: `3px solid ${H.amber}`,
+        fontFamily: F.sans,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: H.amber,
+        }}
+      >
+        Phase D · parse failed
+      </div>
+      <div style={{ fontFamily: F.serif, fontSize: 14, color: H.ink }}>
+        Hathor could not finish reading the card. The card and intake details
+        are preserved — try re-uploading or re-parsing.
+      </div>
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 11.5,
+          color: H.amber,
+          background: "rgba(184,131,59,0.08)",
+          padding: "8px 10px",
+          border: `1px dashed ${H.amber}`,
+          wordBreak: "break-word",
+        }}
+      >
+        {message}
+      </div>
+    </div>
+  );
+}
+
 function NeedsReviewSchedulePanel({
   destinationCode,
   confirmedRowCount,
@@ -448,36 +545,52 @@ function CountryReadinessLine({
   const destination = COUNTRIES[destinationCode];
   const destBanner = READINESS_BANNER[destination.readiness];
   const destAmber = destination.readiness !== "partial_ready";
+  const accent = destAmber ? H.amber : H.copper;
+  const accentText = destAmber ? H.amber : H.copperInk;
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 6,
-        padding: "10px 12px",
+        gap: 10,
+        padding: "14px 16px",
         background: destAmber ? H.amberSoft : H.paper2,
         border: `1px solid ${destAmber ? H.amber : H.rule}`,
-        borderLeft: `3px solid ${destAmber ? H.amber : H.copper}`,
+        borderLeft: `4px solid ${accent}`,
       }}
     >
       <div
         style={{
-          fontFamily: F.mono,
-          fontSize: 10.5,
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          color: destAmber ? H.amber : H.copperInk,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          justifyContent: "space-between",
         }}
       >
-        Destination · {destination.name} · {destBanner.label}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ReadinessIcon kind={destAmber ? "needs_review" : "partial_ready"} />
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: accentText,
+            }}
+          >
+            Destination · {destination.name} · {destBanner.label}
+          </div>
+        </div>
+        <ReconciliationStatusPill canRun={!destAmber} />
       </div>
       <p
         style={{
           fontFamily: F.serif,
-          fontSize: 13,
-          color: destAmber ? H.amber : H.meta,
+          fontSize: 13.5,
+          color: destAmber ? H.amber : H.mute,
           margin: 0,
-          lineHeight: 1.5,
+          lineHeight: 1.55,
         }}
       >
         {destBanner.body}
@@ -486,16 +599,385 @@ function CountryReadinessLine({
         <p
           style={{
             fontFamily: F.serif,
-            fontSize: 12,
+            fontSize: 12.5,
             color: H.meta,
             margin: 0,
-            lineHeight: 1.5,
+            lineHeight: 1.55,
+            paddingTop: 6,
+            borderTop: `1px dashed ${destAmber ? H.amber : H.rule}`,
           }}
         >
-          Source: {source.name}
+          <span style={{ fontFamily: F.mono, fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: H.meta, marginRight: 8 }}>
+            Source
+          </span>
+          {source.name}
           {source.nameLocal ? ` (${source.nameLocal})` : ""} — {source.blurb}
         </p>
       )}
+    </div>
+  );
+}
+
+function ReadinessIcon({ kind }: { kind: "partial_ready" | "needs_review" }) {
+  const partial = kind === "partial_ready";
+  const stroke = partial ? H.copperInk : H.amber;
+  if (partial) {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <path
+          d="M9 1.6L15.4 4.2v4.6c0 3.6-2.7 6.6-6.4 7.6C5.3 15.4 2.6 12.4 2.6 8.8V4.2L9 1.6z"
+          fill="none"
+          stroke={stroke}
+          strokeWidth="1.4"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M5.6 9.2 7.8 11.4 12.4 6.6"
+          fill="none"
+          stroke={stroke}
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+      <path
+        d="M9 1.6L15.4 4.2v4.6c0 3.6-2.7 6.6-6.4 7.6C5.3 15.4 2.6 12.4 2.6 8.8V4.2L9 1.6z"
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <line x1="9" y1="5.6" x2="9" y2="10" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="9" cy="12.4" r="0.95" fill={stroke} />
+    </svg>
+  );
+}
+
+function ReconciliationStatusPill({ canRun }: { canRun: boolean }) {
+  const label = canRun ? "Reconciliation ON" : "Reconciliation OFF · review only";
+  const fg = canRun ? H.ok : H.amber;
+  const bg = canRun ? "rgba(95,122,82,0.10)" : "rgba(184,131,59,0.12)";
+  return (
+    <span
+      title={
+        canRun
+          ? "Engine will run /validate-schedule against confirmed rows."
+          : "Schedule under review — engine WILL NOT run; the card history is preserved for clinician review only."
+      }
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 10px",
+        background: bg,
+        border: `1px solid ${fg}`,
+        fontFamily: F.mono,
+        fontSize: 10.5,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: fg,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: 999,
+          background: fg,
+          boxShadow: canRun ? "none" : `0 0 0 3px rgba(184,131,59,0.18)`,
+        }}
+      />
+      {label}
+    </span>
+  );
+}
+
+// ── Pipeline strip + safety summary ────────────────────────────────────────
+
+function PipelineStrip() {
+  const steps = [
+    {
+      eyebrow: "Step 1",
+      title: "AI extracts",
+      body: "Claude Opus 4.7 vision reads every row off the card, with per-cell confidence and plain-language reasoning when uncertain.",
+    },
+    {
+      eyebrow: "Step 2",
+      title: "Rules reconcile",
+      body: "The WHO-DAK rules engine validates each confirmed dose against the destination schedule — minimum age, intervals, and series position.",
+    },
+    {
+      eyebrow: "Step 3",
+      title: "Clinicians confirm",
+      body: "Every uncertain row routes to a clinician. Reject, skip, or edit — only confirmed rows reach reconciliation.",
+    },
+  ];
+  return (
+    <section
+      aria-label="How Hathor reads your card"
+      style={{
+        background: H.card,
+        border: `1px solid ${H.rule}`,
+        padding: "18px 20px",
+        fontFamily: F.sans,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: H.copperInk,
+          marginBottom: 12,
+        }}
+      >
+        How Hathor reads your card
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr auto 1fr",
+          gap: 14,
+          alignItems: "stretch",
+        }}
+      >
+        {steps.map((s, i) => (
+          <Fragment key={s.title}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                padding: "4px 2px",
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 10,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  color: H.faint,
+                }}
+              >
+                {s.eyebrow}
+              </div>
+              <div
+                style={{
+                  fontFamily: F.serif,
+                  fontSize: 17,
+                  lineHeight: 1.2,
+                  letterSpacing: "-0.01em",
+                  color: H.ink,
+                }}
+              >
+                {s.title}
+              </div>
+              <p
+                style={{
+                  fontFamily: F.serif,
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                  color: H.mute,
+                  margin: 0,
+                }}
+              >
+                {s.body}
+              </p>
+            </div>
+            {i < steps.length - 1 && (
+              <div
+                aria-hidden
+                style={{
+                  alignSelf: "center",
+                  fontFamily: F.serif,
+                  color: H.copper,
+                  fontSize: 22,
+                  lineHeight: 1,
+                  paddingTop: 18,
+                }}
+              >
+                →
+              </div>
+            )}
+          </Fragment>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SafetySummaryCard() {
+  const items: Array<{
+    accent: "ok" | "amber" | "bad" | "copper";
+    eyebrow: string;
+    title: string;
+    body: string;
+  }> = [
+    {
+      accent: "ok",
+      eyebrow: "Confirmed",
+      title: "Enters reconciliation",
+      body: "Vision rows above 0.85 confidence, plus anything the clinician confirms or edits, reach the WHO-DAK rules engine.",
+    },
+    {
+      accent: "amber",
+      eyebrow: "Amber",
+      title: "Requires clinician review",
+      body: "Rows below the trust threshold pause for review. Reconciliation cannot proceed until every amber row is acted on.",
+    },
+    {
+      accent: "bad",
+      eyebrow: "Rejected",
+      title: "Never enters the engine",
+      body: "Doses the clinician marks as definitively absent are routed to a separate channel with a required reason — never engine input.",
+    },
+    {
+      accent: "copper",
+      eyebrow: "Schedule readiness",
+      title: "Unverified schedules produce no verdicts",
+      body: "Hathor does not emit due/overdue verdicts against country schedules that have not been clinician-verified for this demo.",
+    },
+  ];
+  return (
+    <section
+      aria-label="Safety invariants"
+      style={{
+        background: H.paper2,
+        border: `1px solid ${H.rule}`,
+        padding: "16px 18px 18px",
+        fontFamily: F.sans,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: F.mono,
+            fontSize: 10.5,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: H.copperInk,
+          }}
+        >
+          Safety invariants
+        </div>
+        <div
+          style={{
+            fontFamily: F.serif,
+            fontStyle: "italic",
+            fontSize: 12.5,
+            color: H.meta,
+          }}
+        >
+          Pinned by web/lib/trust-gate.ts — the same rules apply on the
+          TypeScript and Python sides.
+        </div>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 10,
+        }}
+      >
+        {items.map((it) => (
+          <SafetyItem key={it.title} {...it} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SafetyItem({
+  accent,
+  eyebrow,
+  title,
+  body,
+}: {
+  accent: "ok" | "amber" | "bad" | "copper";
+  eyebrow: string;
+  title: string;
+  body: string;
+}) {
+  const color = accent === "ok"
+    ? H.ok
+    : accent === "amber"
+      ? H.amber
+      : accent === "bad"
+        ? "#A3453B"
+        : H.copperInk;
+  const wash = accent === "ok"
+    ? "rgba(95,122,82,0.06)"
+    : accent === "amber"
+      ? H.amberSoft
+      : accent === "bad"
+        ? "rgba(163,69,59,0.07)"
+        : "rgba(204,120,92,0.06)";
+  return (
+    <div
+      style={{
+        background: H.card,
+        border: `1px solid ${H.rule}`,
+        borderLeft: `3px solid ${color}`,
+        padding: "12px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div
+        style={{
+          alignSelf: "flex-start",
+          padding: "2px 8px",
+          background: wash,
+          border: `1px solid ${color}`,
+          fontFamily: F.mono,
+          fontSize: 9.5,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color,
+        }}
+      >
+        {eyebrow}
+      </div>
+      <div
+        style={{
+          fontFamily: F.serif,
+          fontSize: 15,
+          lineHeight: 1.25,
+          color: H.ink,
+          letterSpacing: "-0.005em",
+        }}
+      >
+        {title}
+      </div>
+      <p
+        style={{
+          fontFamily: F.serif,
+          fontSize: 12.5,
+          lineHeight: 1.5,
+          color: H.mute,
+          margin: 0,
+        }}
+      >
+        {body}
+      </p>
     </div>
   );
 }
@@ -787,6 +1269,9 @@ export default function DemoPage() {
           gap: 24,
         }}
       >
+        {/* ── Pipeline overview — the safety story at a glance ── */}
+        <PipelineStrip />
+
         {/* ── Phase A: Intake chat ── */}
         <ChatIntake onComplete={handleIntakeComplete} />
 
@@ -797,6 +1282,9 @@ export default function DemoPage() {
           onConfirm={() => setMetaConfirmed(true)}
           disabled={metaConfirmed}
         />
+
+        {/* ── Safety invariants — what can and cannot reach the engine ── */}
+        <SafetySummaryCard />
 
         {/* ── Phase B: Upload + redact ── */}
         {metaConfirmed && (
@@ -819,37 +1307,8 @@ export default function DemoPage() {
         )}
 
         {/* ── Phase D: Parse + review ── */}
-        {parsing && (
-          <div
-            style={{
-              background: H.card,
-              border: `1px solid ${H.rule}`,
-              borderLeft: `3px solid ${H.copper}`,
-              padding: "16px 20px",
-              fontFamily: F.mono,
-              fontSize: 11,
-              letterSpacing: "0.12em",
-              color: H.copperInk,
-            }}
-          >
-            Parsing card…
-          </div>
-        )}
-        {parseError && (
-          <div
-            role="alert"
-            style={{
-              padding: "12px 14px",
-              background: H.amberSoft,
-              border: `1px solid ${H.amber}`,
-              fontFamily: F.mono,
-              fontSize: 12,
-              color: H.amber,
-            }}
-          >
-            Parse failed: {parseError}
-          </div>
-        )}
+        {parsing && <ParsingIndicator />}
+        {parseError && <ParseErrorPanel message={parseError} />}
         {parsed && (
           <ParsedResults
             rows={rows}
@@ -896,20 +1355,53 @@ export default function DemoPage() {
           <div
             role="status"
             style={{
-              padding: "14px 18px",
+              padding: "16px 20px",
               background: H.amberSoft,
               border: `1px solid ${H.amber}`,
-              fontFamily: F.mono,
-              fontSize: 12,
-              color: H.amber,
-              lineHeight: 1.6,
+              borderLeft: `3px solid ${H.amber}`,
+              fontFamily: F.sans,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
             }}
           >
-            No engine-eligible rows. Every row either has a null date,
-            a null dose number, or an antigen outside Phase-1 engine
-            scope (BCG · HepB · OPV · IPV · DTP · Hib · PCV · Rotavirus ·
-            MMR). Fix a date or dose number above and click Cross-check
-            again.
+            <div
+              style={{
+                fontFamily: F.mono,
+                fontSize: 10.5,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                color: H.amber,
+              }}
+            >
+              Phase E · nothing to reconcile yet
+            </div>
+            <p
+              style={{
+                fontFamily: F.serif,
+                fontSize: 13.5,
+                color: H.amber,
+                margin: 0,
+                lineHeight: 1.55,
+              }}
+            >
+              No engine-eligible rows reached the trust gate. Every row has
+              either a null date, a null dose number, or an antigen outside
+              the Phase-1 engine scope.
+            </p>
+            <p
+              style={{
+                fontFamily: F.serif,
+                fontSize: 13,
+                color: H.mute,
+                margin: 0,
+                lineHeight: 1.55,
+              }}
+            >
+              Engine-covered antigens · BCG · HepB · OPV · IPV · DTP · Hib
+              · PCV · Rotavirus · MMR. Fix a date or dose number above and
+              click <em>Cross-check</em> again.
+            </p>
           </div>
         )}
 
