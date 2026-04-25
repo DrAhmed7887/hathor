@@ -214,6 +214,19 @@ export function ScheduleView({
               ? `${results.length} dose${results.length === 1 ? "" : "s"} cross-checked`
               : "Cross-checking against WHO rules"}
           </h2>
+          <p
+            style={{
+              fontFamily: F.mono,
+              fontSize: 10.5,
+              color: H.meta,
+              margin: "6px 0 0",
+              letterSpacing: "0.04em",
+              lineHeight: 1.5,
+            }}
+          >
+            Schedule guidance requires clinician/public-health confirmation.
+            Based on WHO/UNICEF country-reported schedule sources where available.
+          </p>
         </div>
         {status === "done" && (
           <div

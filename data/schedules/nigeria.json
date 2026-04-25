@@ -9,6 +9,10 @@
     "https://pmc.ncbi.nlm.nih.gov/articles/PMC4139536/"
   ],
   "source_notes": "Public NPI schedule (free at government facilities) composed from UNICEF Nigeria + WHO 2024 country profile + PMC4139536 (Current Trends of Immunization in Nigeria). PAN recommended additions (private uptake) marked with category='recommended'. IPV: Nigeria introduced IPV1 at 14 weeks into routine schedule; IPV2 not yet introduced as of 2024 per WHO country profile.",
+  "verification_status": "needs_reverification",
+  "verification_notes": "Do not treat this seed as fully ready until row-level review against the current WHO/XMart 2024 JRF schedule is complete. Current WHO/XMart rows for NGA include schedule items that require reconciliation with this seed before clinical use, including IPV timing, PCV product label, HPV4 at age 9 years, malaria vaccine subnational introduction, MenA, yellow fever, and Vitamin A as a supplement rather than a vaccine.",
+  "source_year_or_release_date": "2024 WHO/UNICEF JRF schedule data; seed last reviewed 2026-04-22",
+  "last_verified_at": "2026-04-22",
   "last_updated": "2026-04-22",
   "version": "1.0",
   "scope": "Routine childhood immunisation, birth to 72 months (6 years). Compulsory (NPI) and PAN-recommended antigens with category distinction.",
