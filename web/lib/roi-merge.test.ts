@@ -344,6 +344,116 @@ test("merge: ROI tie at confidence does NOT overwrite the whole-image row (whole
   assert.equal(out.rows[0].confidence, 0.7);
 });
 
+test("merge: booster row does NOT claim a primary slot of the same antigen", () => {
+  // Egyptian MoHP card has separate slots: DTP primary 1/2/3 (rows 3-5)
+  // and a DTP booster row ("جرعة منشطة"). Without dose_kind gating, the
+  // greedy matcher would let a booster row claim primary-1 (masking a
+  // missing primary). Asserts the gate works.
+  const t: VaccineCardTemplateJson = {
+    ...fixtureTemplate(),
+    row_specs: [
+      { ...spec(0, "DTP", 1), dose_kind: "primary" },
+      { ...spec(1, "DTP", 2), dose_kind: "primary" },
+      { ...spec(2, "DTP", null), dose_kind: "booster" },
+    ],
+  };
+
+  const vision = [
+    visionRow({
+      antigen: "DTP",
+      date: "2025-06-01",
+      doseKind: "booster",
+      doseNumber: null,
+      confidence: 0.92,
+    }),
+  ];
+
+  const out = mergeRoiIntoVisionRows({
+    template: t,
+    visionRows: vision,
+    roiRows: [],
+  });
+
+  // The single DTP-booster vision row must end up at template_spec_index 2,
+  // not at 0 or 1. Both primary slots stay empty (no row at those indices
+  // means no DTP-primary in the merged output).
+  const merged = out.rows.find((r) => r.template_spec_index === 2);
+  assert.ok(merged, "booster row should claim the booster slot (idx 2)");
+  assert.equal(merged?.doseKind, "booster");
+  assert.equal(merged?.date, "2025-06-01");
+  // The primary slots must NOT have been claimed by the booster row.
+  assert.equal(
+    out.rows.find((r) => r.template_spec_index === 0),
+    undefined,
+  );
+  assert.equal(
+    out.rows.find((r) => r.template_spec_index === 1),
+    undefined,
+  );
+});
+
+test("merge: primary row does NOT claim the booster slot of the same antigen", () => {
+  // Symmetric guard: a primary-DTP row must not slip into the DTP-booster
+  // slot just because it happens to be the only unclaimed DTP spec left.
+  const t: VaccineCardTemplateJson = {
+    ...fixtureTemplate(),
+    row_specs: [
+      { ...spec(0, "DTP", 1), dose_kind: "primary" },
+      { ...spec(1, "DTP", null), dose_kind: "booster" },
+    ],
+  };
+
+  // Two primary DTP rows. The first claims idx 0; the second has no
+  // primary slot left and must NOT claim the booster slot.
+  const vision = [
+    visionRow({ antigen: "DTP", date: "2024-03-01", doseNumber: 1 }),
+    visionRow({ antigen: "DTP", date: "2024-05-01", doseNumber: 2 }),
+  ];
+
+  const out = mergeRoiIntoVisionRows({
+    template: t,
+    visionRows: vision,
+    roiRows: [],
+  });
+
+  const atZero = out.rows.find((r) => r.template_spec_index === 0);
+  const atOne = out.rows.find((r) => r.template_spec_index === 1);
+  assert.equal(atZero?.date, "2024-03-01");
+  assert.equal(atOne, undefined);
+  // The unclaimed primary row is appended at the end (off-template).
+  const offTemplate = out.rows.filter((r) => r.template_spec_index == null);
+  assert.equal(offTemplate.length, 1);
+  assert.equal(offTemplate[0].date, "2024-05-01");
+});
+
+test("merge: unknown dose_kind is permitted into any slot (forgiveness)", () => {
+  // A vision row whose dose_kind is "unknown" should still match a
+  // typed slot — the gate only blocks KNOWN mismatches. This protects
+  // model uncertainty cases from being silently dropped.
+  const t: VaccineCardTemplateJson = {
+    ...fixtureTemplate(),
+    row_specs: [{ ...spec(0, "MMR", 1), dose_kind: "primary" }],
+  };
+
+  const vision = [
+    visionRow({
+      antigen: "MMR",
+      date: "2025-01-15",
+      doseKind: "unknown",
+      confidence: 0.92,
+    }),
+  ];
+
+  const out = mergeRoiIntoVisionRows({
+    template: t,
+    visionRows: vision,
+    roiRows: [],
+  });
+
+  assert.equal(out.rows.length, 1);
+  assert.equal(out.rows[0].template_spec_index, 0);
+});
+
 test("merge: warnings are emitted in template_spec_index order (audit-trail readability)", () => {
   const t = fixtureTemplate();
   // Whole-image missed BCG (idx 0) and DTP (idx 2); ROI fills both.
