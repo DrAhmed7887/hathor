@@ -1,0 +1,225 @@
+{
+  "country": "Ethiopia",
+  "country_code": "ETH",
+  "source": "Ethiopia Federal Ministry of Health (FMOH) Expanded Programme on Immunization (EPI); WHO/UNICEF JRF 2024 country profile; WHO AFRO Ethiopia; Gavi Ethiopia country pages",
+  "source_urls": [
+    "https://www.unicef.org/ethiopia/health",
+    "https://www.afro.who.int/countries/ethiopia/news",
+    "https://immunizationdata.who.int/dashboard/regions/african-region/ETH",
+    "https://www.who.int/publications/m/item/immunization-2024-ethiopia-country-profile",
+    "https://www.gavi.org/programmes-impact/country-hub/africa/ethiopia"
+  ],
+  "source_notes": "Schedule composed from WHO/UNICEF JRF Ethiopia 2024 country profile, WHO AFRO Ethiopia EPI page, Gavi Ethiopia, and the WHO Immunization Data portal for Ethiopia (ETH). WHO-aligned 6/10/14-week primary series. Ethiopia introduced fIPV at 14 weeks (2015), Rotavirus (2013), and a second measles-containing dose (MCV2) at 15 months in 2019. HPV introduced for 9-year-old girls in 2018 (outside 0–6y scope). MenA in selected meningitis-belt areas.",
+  "verification_status": "needs_reverification",
+  "verification_notes": "Phase 1 seed marked needs_review on the country selector. Do NOT treat as clinically authoritative until row-level reconciliation against the current WHO/XMart 2024 JRF schedule and Ethiopia FMOH EPI bulletin is complete. Open items include: HepB birth dose introduction status (not routine as of 2024 in public EPI), MR (Measles-Rubella) integration timing, current PCV product (PCV10 vs PCV13 transition), MenA subnational targeting, and YF subnational risk.",
+  "source_year_or_release_date": "2024 WHO/UNICEF JRF schedule data; seed first added 2026-04-25",
+  "last_verified_at": null,
+  "last_updated": "2026-04-25",
+  "version": "0.1",
+  "scope": "Routine childhood immunisation, birth to 72 months (6 years). Compulsory (Ethiopia EPI) and subnationally-routine antigens.",
+  "context_note": "Source-country schedule. In cross-border reconciliation INTO Egypt, Ethiopia-EPI doses are the reliable signal on an Ethiopian card (which may use Amharic, English, or mixed text). Ethiopia delivers HepB via Pentavalent only (no routine birth dose in public EPI), so an arriving Ethiopian child should NOT be treated as missing HepB if Pentavalent×3 is documented. Yellow Fever (subnational) and Meningococcal A doses (where given) are Ethiopia-routine but are not on the Egyptian schedule — preserve on the record but do not count as 'missing' for Egypt.",
+  "key_differences_vs_egypt": [
+    "Ethiopia uses WHO-aligned 6/10/14-week primary series; Egypt uses 2/4/6-month series",
+    "Ethiopia uses Pentavalent (DTPw-Hib-HepB, 5-in-1, no IPV); Egypt uses Hexavalent (6-in-1, includes IPV)",
+    "Ethiopia public EPI does NOT give a routine HepB birth dose — HepB is delivered via Pentavalent starting at 6 weeks; Egypt gives HepB monovalent at birth",
+    "Ethiopia gives separate fIPV at 14 weeks; Egypt's IPV is bundled in Hexavalent",
+    "Ethiopia gives Measles monovalent at 9 months and a second measles-containing dose at 15 months; Egypt gives MMR at 12 months and 18 months",
+    "Ethiopia has routine Rotavirus (Rota1 6w, Rota2 10w) in EPI; Egypt does not",
+    "Ethiopia has routine PCV (PCV10/PCV13) at 6/10/14 weeks; Egypt PCV is recommended/private only",
+    "Ethiopia gives Meningococcal A (MenAfriVac) at 9 months in meningitis-belt regions; Egypt does not",
+    "Ethiopia gives Yellow Fever in YF-endemic southwestern regions; Egypt does not (YF non-endemic)"
+  ],
+  "doses": [
+    {
+      "antigen": "BCG",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "At birth or as soon as possible after birth.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024; WHO AFRO Ethiopia"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "OPV0 at birth. Ethiopia uses bivalent OPV (bOPV) in routine schedule.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "OPV1 at 6 weeks. Co-administered with Pentavalent, PCV, Rotavirus.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta1 at 6 weeks. 5-in-1 covering DTPw, Hib, HepB. This is also the FIRST HepB exposure in Ethiopian public EPI — no routine HepB birth dose.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "PCV1 at 6 weeks. Ethiopia uses PCV (product label varies by procurement cycle — historically PCV10/Synflorix, transitioning to PCV13).",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "Rota1 at 6 weeks. 2-dose oral series (Rotarix). Series must be initiated by 15 weeks and completed by 24 months per WHO.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "OPV2 at 10 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta2 at 10 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "PCV2 at 10 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "Rota2 at 10 weeks. Series complete after dose 2 (Rotarix).",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 4,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "OPV3 at 14 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta3 at 14 weeks. Primary DTPw-Hib-HepB series complete. HepB course (3 doses via Pentavalent) is now complete.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "IPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "fIPV1 at 14 weeks (introduced 2015 for polio endgame). Single fractional IPV dose — second IPV under WHO consideration.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024; WHO Polio Eradication Initiative"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "PCV3 at 14 weeks. Primary PCV series complete.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "Measles",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Measles first dose (MCV1) at 9 months. Ethiopia public EPI delivers measles-monovalent at 9 months (not MMR).",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    },
+    {
+      "antigen": "MenA",
+      "dose_number": 1,
+      "category": "subnational_routine",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "MenAfriVac at 9 months in meningitis-belt regions of Ethiopia (parts of Amhara, Tigray, Afar, Benishangul-Gumuz). NOT given in non-belt regions.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024; WHO Meningitis Belt"
+    },
+    {
+      "antigen": "YellowFever",
+      "dose_number": 1,
+      "category": "subnational_routine",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Yellow Fever at 9 months in YF-endemic regions of southwestern Ethiopia (Gambella, parts of Southern Nations, Nationalities, and Peoples' Region). NOT a national-routine schedule item. WHO YF certificate is lifetime-valid.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024; WHO YF country list"
+    },
+    {
+      "antigen": "Measles",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 15,
+      "minimum_age_months": 15,
+      "notes": "MCV2 at 15 months (introduced 2019). May appear as 'MR' (Measles-Rubella) on cards in regions where MR has been integrated; verify against the date and label.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Ethiopia 2024"
+    }
+  ],
+  "open_questions": [
+    "HepB birth dose — currently not in routine public EPI; introduction is under discussion. Verify against most recent FMOH bulletin.",
+    "Current PCV product (PCV10/Synflorix vs PCV13/Prevenar 13) — Ethiopia transitioning. Verify against procurement cycle.",
+    "MR (Measles-Rubella) introduction status at MCV2 — varies by region and year.",
+    "MenA subnational targeting — boundaries of meningitis belt vs non-belt regions.",
+    "YF subnational risk classification — exact woreda-level targeting.",
+    "TCV (typhoid conjugate vaccine) introduction status — under WHO consideration."
+  ]
+}
