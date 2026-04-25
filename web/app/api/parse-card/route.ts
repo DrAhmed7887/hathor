@@ -1,17 +1,24 @@
 /**
  * HATHOR card-parse — single vision call, structured output.
  *
- * PRD §5.6 Vision Safety Loop (the EXTRACTION half): one Claude Opus 4.7
- * vision call reads the entire card and emits per-row structured JSON with
- * confidence and plain-language reasoning_if_uncertain. Rows with
- * confidence < 0.85 route to HITL review downstream (ParsedResults +
- * HITLPanel — step 7). This route does NOT gate anything itself; its
- * contract is "extract and report honestly" — the UI owns the threshold.
+ * Posture: TRUST THE MODEL. One Claude Opus 4.7 vision call reads the
+ * entire card and emits per-row structured JSON with confidence and
+ * plain-language reasoning. Row emission is unconditional on template
+ * recognition — Opus reads any vaccination card, in any country, in
+ * any layout. Rows with confidence < 0.85 route to HITL review
+ * downstream (Phase D safety loop); this route does NOT gate anything
+ * itself, its contract is "extract and report honestly."
+ *
+ * No template-anchored ROI cascade, no rescue paths, no fragment
+ * promotion bridges. Those were workarounds for an over-cautious
+ * prompt. The prompt was rewritten to emit rows unconditionally; the
+ * scaffolding is gone.
  *
  * Wire:
  *   Request:  multipart/form-data
  *     - file                   (required)  image blob from RedactionCanvas
- *     - source_country         (optional)  ISO 3166 alpha-2 (hint only)
+ *     - source_country         (optional)  free-text country name or
+ *                                          ISO code (hint only)
  *     - card_language          (optional)  "en" | "ar" | "fr" | "mixed"
  *     - child_dob              (optional)  YYYY-MM-DD (audit context only)
  *   Response: application/json matching lib/types.ts ParsedCardOutput.
@@ -21,9 +28,8 @@
  * post-processing — the model cannot return an object that violates
  * the input_schema and be accepted.
  *
- * Model: claude-opus-4-7 (per build spec). Opus 4.7 stays the default
- * for vision + reasoning; the Haiku 4.5 override applies to chat intake
- * only. HATHOR_CARD_MODEL env override for testing.
+ * Model: claude-opus-4-7 (per build spec). HATHOR_CARD_MODEL env
+ * override for testing.
  *
  * Runtime + duration per CLAUDE.md Next 16 notes:
  *   - runtime = 'nodejs' (Edge breaks Cache Components; SDK needs Node).
@@ -39,14 +45,10 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "node:crypto";
-import sharp from "sharp";
 import type { DoseKind, ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 import { CARD_EXTRACTION_SYSTEM_PROMPT } from "@/lib/card-extraction-prompt";
 import {
-  inferRowsFromTemplate,
   normalizeDocumentIntelligence,
-  promoteUnknownTemplateFragments,
-  VACCINE_CARD_TEMPLATES,
   type LayoutAnalysisResult,
 } from "@/lib/document-intelligence";
 import {
@@ -56,23 +58,6 @@ import {
   slotStateOf,
 } from "@/lib/slot-state";
 import {
-  mergeRoiIntoVisionRows,
-  shouldRunEgyptMohpRoi,
-} from "@/lib/roi-merge";
-import {
-  runRoiExtraction,
-  type Cropper,
-  type RoiExtractionResult,
-  type RoiReadResult,
-  type RoiVisionCall,
-} from "@/lib/roi-extraction";
-import {
-  ROI_EXTRACTION_SYSTEM_PROMPT,
-  ROI_EXTRACTION_TOOL,
-  ROI_EXTRACTION_TOOL_NAME,
-} from "@/lib/roi-extraction-prompt";
-import { loadEgyptMohpTemplate } from "@/lib/templates/egypt-mohp";
-import {
   applyNormalizationsToRows,
   normalizeAntigens,
 } from "@/lib/antigen-normalizer";
@@ -81,7 +66,6 @@ export const runtime = "nodejs";
 export const maxDuration = 90;
 
 const MODEL = process.env.HATHOR_CARD_MODEL ?? "claude-opus-4-7";
-const ROI_MODEL = process.env.HATHOR_ROI_MODEL ?? MODEL;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 // System prompt lives in lib/card-extraction-prompt.ts so its rules can be
@@ -234,9 +218,9 @@ const CARD_EXTRACTION_TOOL: Anthropic.Messages.Tool = {
                 "Concise plain-language reason when confidence < 0.85; null otherwise.",
             },
             image_crop_region: {
-              type: "object",
+              type: ["object", "null"],
               description:
-                "Normalized [0,1] rectangle covering the row on the full image.",
+                "Optional normalized [0,1] rectangle covering the row on the full image. Null when you cannot confidently place a bounding box (e.g. dense table with row-level coordinates you cannot estimate). Do NOT skip a row because you cannot supply this field.",
               properties: {
                 x: { type: "number", minimum: 0, maximum: 1 },
                 y: { type: "number", minimum: 0, maximum: 1 },
@@ -264,7 +248,6 @@ const CARD_EXTRACTION_TOOL: Anthropic.Messages.Tool = {
             "dose_kind",
             "confidence",
             "reasoning_if_uncertain",
-            "image_crop_region",
           ],
         },
       },
@@ -283,7 +266,12 @@ interface ToolRow {
   lot_number?: string | null;
   confidence: number;
   reasoning_if_uncertain: string | null;
-  image_crop_region: { x: number; y: number; width: number; height: number };
+  image_crop_region?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
   field_confidences?: Partial<{
     antigen: number;
     date: number;
@@ -299,6 +287,11 @@ function coerceDoseKind(raw: unknown): DoseKind {
   return "unknown";
 }
 
+// Whole-card fallback crop when the model omits image_crop_region. The
+// HITL UI uses this rect to render the row's image; an over-broad
+// fallback is fine — better than dropping the row.
+const DEFAULT_CROP_REGION = { x: 0, y: 0, width: 1, height: 1 } as const;
+
 function toParsedRow(row: ToolRow): ParsedCardRow {
   return {
     antigen: row.antigen,
@@ -308,112 +301,9 @@ function toParsedRow(row: ToolRow): ParsedCardRow {
     lotNumber: row.lot_number ?? null,
     confidence: row.confidence,
     reasoningIfUncertain: row.reasoning_if_uncertain,
-    imageCropRegion: row.image_crop_region,
+    imageCropRegion: row.image_crop_region ?? { ...DEFAULT_CROP_REGION },
     fieldConfidences: row.field_confidences,
   };
-}
-
-// ── Egypt MoHP per-row ROI extraction ───────────────────────────────────────
-//
-// Fires only when the whole-image trace recognises the Egyptian MoHP
-// mandatory-immunizations card. Crops each canonical date ROI with sharp
-// and runs a tiny per-cell vision call against it. The deterministic
-// cross-checks live in `runRoiExtraction`; this helper is the I/O side.
-//
-// The route catches any error this raises and falls back to the existing
-// inferRowsFromTemplate path — ROI is an additive accuracy lift, never a
-// hard dependency.
-
-async function runEgyptMohpRoi(
-  imageBuffer: Buffer,
-  client: Anthropic,
-  onRoiComplete?: (done: number) => void,
-): Promise<RoiExtractionResult> {
-  const meta = await sharp(imageBuffer).metadata();
-  if (!meta.width || !meta.height) {
-    throw new Error("sharp could not read image dimensions");
-  }
-  const template = loadEgyptMohpTemplate();
-  let completed = 0;
-
-  const cropper: Cropper = async (img, rect) => {
-    return sharp(img)
-      .extract({
-        left: rect.x,
-        top: rect.y,
-        width: rect.width,
-        height: rect.height,
-      })
-      .jpeg({ quality: 92 })
-      .toBuffer();
-  };
-
-  const roiVision: RoiVisionCall = async (cropBytes) => {
-    const base64 = cropBytes.toString("base64");
-    const response = await client.messages.create({
-      model: ROI_MODEL,
-      max_tokens: 512,
-      system: [
-        {
-          type: "text",
-          text: ROI_EXTRACTION_SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      tools: [
-        {
-          // Cast: ROI_EXTRACTION_TOOL is declared in roi-extraction-prompt.ts
-          // with a local interface that intentionally avoids importing the
-          // Anthropic SDK so the prompt module stays narrow and snapshot-
-          // testable. The shape is wire-compatible with Messages.Tool;
-          // the cast acknowledges that boundary.
-          ...(ROI_EXTRACTION_TOOL as unknown as Anthropic.Messages.Tool),
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      tool_choice: { type: "tool", name: ROI_EXTRACTION_TOOL_NAME },
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/jpeg",
-                data: base64,
-              },
-            },
-          ],
-        },
-      ],
-    });
-    const tu = response.content.find((b) => b.type === "tool_use");
-    completed += 1;
-    onRoiComplete?.(completed);
-    if (!tu || tu.type !== "tool_use") {
-      // Treat a missing tool call as a blank cell — the merger will not
-      // patch a confident whole-image row from a blank ROI read.
-      return {
-        raw_text: null,
-        normalized_date_candidate: null,
-        confidence: 0,
-        blank_or_illegible: true,
-        reasoning_if_uncertain: "ROI vision call returned no tool_use block",
-      } satisfies RoiReadResult;
-    }
-    return tu.input as RoiReadResult;
-  };
-
-  return runRoiExtraction({
-    imageBuffer,
-    mimeType: "image/jpeg",
-    imageDimensions: { width: meta.width, height: meta.height },
-    template,
-    cropper,
-    roiVision,
-    concurrency: 4,
-  });
 }
 
 // ── Route handler ────────────────────────────────────────────────────────────
@@ -425,9 +315,6 @@ type ProgressEvent =
   | { kind: "vision_start"; bytes: number; mediaType: string }
   | { kind: "vision_done"; rows: number }
   | { kind: "template"; id: string }
-  | { kind: "roi_start"; total: number }
-  | { kind: "roi_progress"; done: number; total: number }
-  | { kind: "roi_done"; merged: number }
   | { kind: "normalize_start"; labels: number; model: string }
   | { kind: "normalize_done"; mapped: number; ms: number }
   | { kind: "result"; body: ParsedCardOutput }
@@ -491,8 +378,6 @@ export async function POST(request: Request): Promise<Response> {
 
   // ?stream=1 returns SSE progress events ending in `event: result`. The
   // /scan UI uses this; legacy /demo POSTs without it and gets JSON.
-  // ?fast=1 skips the per-row ROI cascade for ~3× speedup at minor
-  // accuracy cost on Egypt MoHP cards. Whole-image vision still runs.
   // Antigen normalizer (Haiku-4.5 sub-agent that maps trade names to
   // canonical antigens) is ON by default. Disable per-deployment with
   // HATHOR_ANTIGEN_NORMALIZER=0 or per-request with ?normalize=0. The
@@ -502,7 +387,6 @@ export async function POST(request: Request): Promise<Response> {
   // falls back to the un-normalized rows.
   const url = new URL(request.url);
   const wantStream = url.searchParams.get("stream") === "1";
-  const fastMode = url.searchParams.get("fast") === "1";
   const normalizeMode =
     url.searchParams.get("normalize") !== "0" &&
     process.env.HATHOR_ANTIGEN_NORMALIZER !== "0";
@@ -609,144 +493,11 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
-    // Egypt MoHP ROI pass — primary fill for blanks and low-confidence
-    // dates on this template. Sequenced AFTER the whole-image pass so
-    // we only spend ROI compute on cards that recognised as Egypt
-    // MoHP. Errors here NEVER degrade the whole-image rows: a thrown
-    // ROI call is caught and folded into trace warnings, then the
-    // existing inferRowsFromTemplate fallback runs as today.
-    //
-    // ?fast=1 skips this path. The whole-image vision call already
-    // returned ParsedCardRow values; ROI is purely an accuracy lift
-    // that costs ~9 extra Opus 4.7 vision calls.
-    let mergedRows = parsedRows;
-    const roiWarnings: string[] = [];
-    if (
-      !fastMode &&
-      documentIntelligence &&
-      shouldRunEgyptMohpRoi(documentIntelligence.recognized_template_id)
-    ) {
-      const template = loadEgyptMohpTemplate();
-      emit({ kind: "roi_start", total: template.row_specs.length });
-      try {
-        const roiBuffer = Buffer.from(arrayBuf);
-        const roiResult = await runEgyptMohpRoi(roiBuffer, client, (done) =>
-          emit({
-            kind: "roi_progress",
-            done,
-            total: template.row_specs.length,
-          }),
-        );
-        const merged = mergeRoiIntoVisionRows({
-          template,
-          visionRows: parsedRows,
-          roiRows: roiResult.rows,
-        });
-        mergedRows = merged.rows;
-        roiWarnings.push(...merged.warnings);
-        emit({ kind: "roi_done", merged: merged.rows.length });
-      } catch (roiErr) {
-        // Safe fallback: ROI failure leaves whole-image rows intact and
-        // surfaces the reason in the trace so the clinician/judge can
-        // see why ROI did not contribute on this card.
-        const reason =
-          roiErr instanceof Error ? roiErr.message : String(roiErr);
-        roiWarnings.push(`Egypt MoHP ROI extraction failed: ${reason}`);
-        emit({ kind: "status", label: "ROI fallback", detail: reason });
-      }
-    } else if (
-      fastMode &&
-      documentIntelligence &&
-      shouldRunEgyptMohpRoi(documentIntelligence.recognized_template_id)
-    ) {
-      emit({
-        kind: "status",
-        label: "ROI cascade skipped (fast mode)",
-        detail:
-          "Whole-image vision rows used as-is. Re-run without fast=1 for the per-row cross-check.",
-      });
-    }
-
-    // Narrow, safe template inference. Runs only when (a) the vision
-    // pass returned zero rows AND (b) the normaliser recognised a
-    // known template AND (c) there is date-cell evidence to map.
-    // Produces AMBER-tagged rows the clinician must review before the
-    // engine sees anything. Existing vision rows are NEVER overwritten.
-    let finalRows = mergedRows;
-    if (documentIntelligence) {
-      const inference = inferRowsFromTemplate(
-        documentIntelligence,
-        mergedRows,
-      );
-      if (inference.inferred) {
-        finalRows = inference.rows;
-      }
-      // Fold inference warnings into the trace's warnings array so the
-      // UI's existing trace panel surfaces them in one place.
-      if (inference.warnings.length > 0) {
-        documentIntelligence = {
-          ...documentIntelligence,
-          warnings: [...documentIntelligence.warnings, ...inference.warnings],
-        };
-      }
-      // Fold ROI per-row decisions into the same warnings stream — the
-      // trace panel already renders this list, so judges and clinicians
-      // see "Row N: date upgraded from ROI re-read" alongside any
-      // template-inference notes.
-      if (roiWarnings.length > 0) {
-        documentIntelligence = {
-          ...documentIntelligence,
-          warnings: [...documentIntelligence.warnings, ...roiWarnings],
-        };
-      }
-      // Emit any unmapped date texts into the trace warnings as well —
-      // the user asked for them to be "listed in the trace", not made
-      // into rows.
-      if (inference.unmapped_date_texts.length > 0) {
-        documentIntelligence = {
-          ...documentIntelligence,
-          warnings: [
-            ...documentIntelligence.warnings,
-            `Unmapped date-cell text: ${inference.unmapped_date_texts
-              .map((t) => `"${t}"`)
-              .join(", ")}.`,
-          ],
-        };
-      }
-    }
-
-    // Unknown-template fragment-to-row bridge. Fires only when:
-    //   (a) finalRows is still empty after vision + template inference,
-    //   (b) the layout was classified as unknown_vaccine_card,
-    //   (c) the trace contains ≥ 3 vaccine_cell fragments paired with
-    //       both vaccine_text and raw_date_text.
-    // Promoted rows are AMBER (source="vision_low_confidence",
-    // confidence ≤ 0.6); the trust gate refuses them until clinician
-    // confirmation. See `promoteUnknownTemplateFragments` for the
-    // design rationale. This bridge does NOT run on known templates —
-    // those have their own (template-anchored) inference path.
-    if (
-      finalRows.length === 0 &&
-      documentIntelligence &&
-      documentIntelligence.recognized_template_id === "unknown_vaccine_card"
-    ) {
-      const promotion = promoteUnknownTemplateFragments(
-        documentIntelligence,
-        finalRows,
-      );
-      if (promotion.promoted) {
-        finalRows = promotion.rows;
-        if (promotion.warnings.length > 0) {
-          documentIntelligence = {
-            ...documentIntelligence,
-            warnings: [
-              ...documentIntelligence.warnings,
-              ...promotion.warnings,
-            ],
-          };
-        }
-      }
-    }
+    // Vision rows are the final rows. No template-anchored ROI pass,
+    // no template-inference rescue, no unknown-template fragment
+    // bridge. The model emits every readable row in one call; per-row
+    // confidence routes uncertain rows to AMBER review downstream.
+    const finalRows = parsedRows;
 
     // PR 2 wire-boundary finalization (design note §6.1, §6.2):
     //   - generate row_id (UUID v4) per row
@@ -780,14 +531,11 @@ export async function POST(request: Request): Promise<Response> {
       };
     });
 
-    const templateAgeLabels: Record<number, string> =
-      documentIntelligence
-        ? Object.fromEntries(
-            VACCINE_CARD_TEMPLATES[
-              documentIntelligence.recognized_template_id
-            ].row_specs.map((spec) => [spec.row_index, spec.age_label]),
-          )
-        : {};
+    // Without template-anchored inference there are no template
+    // age-labels to thread through; visits[] still groups by date and
+    // co-administered antigens, just without the "2 months" / "4
+    // months" pretty-print labels.
+    const templateAgeLabels: Record<number, string> = {};
 
     // Haiku-4.5 antigen normalizer — CrossBeam-style sub-agent. Runs
     // on every row's transcribed antigen and attaches `canonicalAntigens`.
@@ -852,22 +600,18 @@ export async function POST(request: Request): Promise<Response> {
     };
 
     // Diagnostic log — single line per upload so we can see at a glance
-    // why a parse came back empty without scraping the SSE stream.
-    // Counts vision rows separately from template-inferred / promoted
-    // rows so a "0 rows" report is unambiguous about which path ran.
-    const visionRowCount = parsedRows.length;
+    // what came back without scraping the SSE stream. Vision rows ARE
+    // the final rows now; the count is one number.
     const finalRowCount = finalizedRows.length;
     const di = documentIntelligence;
     const warningPreview = di
       ? di.warnings.slice(0, 3).map((w) => w.slice(0, 80)).join(" | ")
       : "";
     console.log(
-      `[parse-card] vision_rows=${visionRowCount} final_rows=${finalRowCount} ` +
+      `[parse-card] rows=${finalRowCount} ` +
         `template=${di?.recognized_template_id ?? "none"} ` +
-        `doc_guess=${di?.document_type_guess ?? "none"} ` +
         `regions=${di?.regions.length ?? 0} fragments=${di?.evidence_fragments?.length ?? 0} ` +
         `orientation_warning=${di?.orientation_warning ? "yes" : "no"} ` +
-        `roi_warnings=${roiWarnings.length} ` +
         `warnings_preview="${warningPreview}"`,
     );
 

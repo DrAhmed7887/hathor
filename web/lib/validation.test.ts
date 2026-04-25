@@ -168,14 +168,17 @@ test("rowsSignature changes when dose_kind changes", () => {
 test("prompt still instructs the model to use printed row labels, not fill order", () => {
   // Bug 4 from commit bcdf3d8 — the model was inferring dose_number
   // from fill order. The fix is a prompt rule. If the rule gets
-  // refactored away by accident, this test fires.
+  // refactored away by accident, this test fires. Phrasing has been
+  // refactored once (template-anchored → general); the regression
+  // guard is "READ THE [...] LABEL and use [it] as dose_number"
+  // plus the explicit prohibition on counting filled rows.
   assert.match(
     CARD_EXTRACTION_SYSTEM_PROMPT,
-    /READ THE ROW LABEL and use THAT as dose_number/,
+    /READ THE [A-Z ]*LABEL/i,
   );
   assert.match(
     CARD_EXTRACTION_SYSTEM_PROMPT,
-    /Do NOT assign[\s\S]*dose_number by counting filled rows/,
+    /(do NOT infer dose_number\s*by counting filled rows|Do NOT infer dose_number[\s\S]*by counting filled rows)/i,
   );
 });
 
