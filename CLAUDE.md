@@ -16,12 +16,7 @@ an Egyptian physician, as a hackathon submission and as the foundation for ongoi
 country is Nigeria; the validated destination country is Egypt. Other African country pairs
 are future work within Phase 1.
 
-**Phase 2 (post-hackathon, may not be reached in hackathon):** Africa → Europe
-reconciliation, starting with Germany/STIKO. The Phase 2 schedule (`germany.json`) and
-tool rules are present in the code for continuity, but they are NOT part of the Phase 1
-public-facing surface. Do not mention Germany, STIKO, Aachen, RWTH, Masernschutzgesetz,
-or Kita in demos, README copy, UI, or new evaluation material. If a user prompt asks
-about Phase 2 work, flag the scope before proceeding.
+**Phase 2 (post-hackathon):** Africa → Europe reconciliation. Phase 2 schedule and tool rules have been removed from the Phase 1 branch to prevent prompt drift and agent confusion.
 
 ---
 

@@ -318,7 +318,7 @@ class TestAntigenInScope(unittest.TestCase):
 
     def test_fails_for_out_of_scope_antigen(self):
         ctx = _ctx()
-        for antigen in ["STIKO-only", "InfluenzaQuadrivalent", "Dengue"]:
+        for antigen in ["Out-of-Scope-Antigen", "InfluenzaQuadrivalent", "Dengue"]:
             with self.subTest(antigen=antigen):
                 rec = _rec(antigen=antigen, kind="due")
                 result = _rule_antigen_in_scope(rec, ctx)

@@ -27,12 +27,12 @@ Registered in `api/src/hathor/tools/__init__.py:10`.
 | `extract_vaccinations_from_card` | — | (OCR — out of DAK scope) |
 
 ### Vocabulary
-- `VACCINE_DB` in `tools/vaccine_lookup.py:9` — lowercase trade-name → `{canonical_name, manufacturer, components[], combination_type, stiko_equivalent, notes, source}`.
+- `VACCINE_DB` in `tools/vaccine_lookup.py:9` — lowercase trade-name → `{canonical_name, manufacturer, components[], combination_type, notes, source}`.
 - Component-to-combined rollup in `tools/coverage.py:14` — e.g. frozenset `{Measles, Mumps, Rubella}` → `MMR`.
 - Canonical antigens are Hathor-internal strings (`"DTaP"`, `"IPV"`, `"Hib"`, `"HepB"`, `"Measles"`, …). **No ICD-11 / SNOMED / LOINC codes today.**
 
 ### Schedules
-`data/schedules/{egypt,nigeria,who,germany}.json`. Hand-curated per-country schedule + interval rules + key-differences metadata. Phase 1 validated pair: Nigeria → Egypt.
+`data/schedules/{egypt,nigeria,who}.json`. Hand-curated per-country schedule + interval rules + key-differences metadata. Phase 1 validated pair: Nigeria → Egypt.
 
 ### Agent instructions
 `api/src/hathor/agent_prompt.py:3` — `SYSTEM_PROMPT`. No hardcoded pipeline; the agent picks its own tool sequence. Rules baked into prompt: antigen equivalence, Egypt EPI specifics, live-vaccine co-admin, ACIP 4-day grace.

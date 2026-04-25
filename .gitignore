@@ -78,3 +78,7 @@ evaluation/provenance_log.jsonl
 # belong in git, and their derived ground truth does not either.
 /cards/private/
 /cards/private/**
+
+# Out-of-tree research scratch from parallel AI tools — kept locally
+# for reference but not committed (proprietary or not Hathor-attributable).
+/Claude Hackathon/

@@ -12,7 +12,6 @@ CATCHUP_MIN_INTERVALS: dict[str, int] = {
     "Hib": 28,
     "IPV": 28,
     "PCV": 56,       # 8 weeks minimum for catch-up doses
-    "MenB": 56,
     "MMR": 28,
     "Varicella": 84, # 3 months preferred between catch-up doses
     "Rotavirus": 28,
@@ -147,16 +146,16 @@ async def build_catchup_schedule(args: dict) -> dict:
         )
 
     rotavirus_doses = [d for d in all_needed if d["antigen"] == "Rotavirus"]
-    if rotavirus_doses and current_age_days > 548:  # > 18 months
+    if rotavirus_doses and current_age_days > 730:  # > 24 months
         paediatrician_flags.append(
-            "Rotavirus catch-up: child is >18 months — STIKO does not recommend starting Rotavirus series after this age. "
+            "Rotavirus catch-up: child is >24 months — series must be completed by 2 years. "
             "Discuss with paediatrician whether catch-up is appropriate."
         )
 
     if current_age_months > 12:
         paediatrician_flags.append(
             "Child is over 12 months: some catch-up rules differ from the infant primary series. "
-            "Verify specific catch-up intervals with a STIKO-certified paediatrician."
+            "Verify specific catch-up intervals with a licensed paediatrician."
         )
 
     result = {
@@ -168,8 +167,7 @@ async def build_catchup_schedule(args: dict) -> dict:
         "paediatrician_flags": paediatrician_flags,
         "disclaimer": (
             "This is a decision-support output, not a prescription. "
-            "Final catch-up schedule must be confirmed by a licensed paediatrician. "
-            "STIKO catch-up guidance: https://www.rki.de"
+            "Final catch-up schedule must be confirmed by a licensed paediatrician."
         ),
     }
 
