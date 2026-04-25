@@ -57,15 +57,27 @@ export interface VaccineCardTemplateJson {
   row_specs: TemplateRowSpec[];
 }
 
-const TEMPLATE_PATH = join(
-  import.meta.dirname,
-  "..", // web/lib/templates → web/lib
-  "..", // web/lib → web
-  "..", // web → repo root
-  "data",
-  "templates",
-  "egypt_mohp_child_card.json",
-);
+// Under bare Node ESM (the package.json `test` script), import.meta.dirname
+// resolves to web/lib/templates. Under Next 16 + Turbopack route bundling
+// it is undefined, so we fall back to process.cwd() — which is `web/` for
+// both `next dev` and the test script.
+const TEMPLATE_PATH = import.meta.dirname
+  ? join(
+      import.meta.dirname,
+      "..", // web/lib/templates → web/lib
+      "..", // web/lib → web
+      "..", // web → repo root
+      "data",
+      "templates",
+      "egypt_mohp_child_card.json",
+    )
+  : join(
+      process.cwd(),
+      "..", // web → repo root
+      "data",
+      "templates",
+      "egypt_mohp_child_card.json",
+    );
 
 let cached: VaccineCardTemplateJson | null = null;
 
