@@ -2,6 +2,7 @@
 
 import json
 from claude_agent_sdk import tool
+from hathor.schedules.vaccine_synonyms import lookup_vaccine_synonym
 
 # Keys are normalised lowercase trade names (and common aliases).
 # components: list of antigen strings the agent uses for schedule matching.
@@ -231,12 +232,29 @@ async def lookup_vaccine_equivalence(args: dict) -> dict:
                 entry = db_val
                 break
 
+    synonym_entry = None
     if entry is None:
+        synonym_entry = lookup_vaccine_synonym(name)
+
+    if entry is None and synonym_entry is None:
         result = {
             "vaccine_name": name,
             "found": False,
             "message": f"'{name}' not found in Hathor vaccine database. The agent should flag this for manual verification.",
             "suggestion": "Check if the trade name is an abbreviation or alternate spelling. Consider looking up the batch number or manufacturer on the card.",
+        }
+    elif synonym_entry is not None:
+        result = {
+            "vaccine_name": name,
+            "found": True,
+            "target_country": target_country,
+            "canonical_name": synonym_entry["canonical_name"],
+            "components": [synonym_entry["canonical_name"]],
+            "combination_type": "synonym",
+            "antigen": synonym_entry["antigen"],
+            "product_label": synonym_entry["product_label"],
+            "source": "Hathor African card synonym mapping",
+            "notes": "Local card synonym match; verify against the country schedule before clinical use.",
         }
     else:
         result = {

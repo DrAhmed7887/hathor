@@ -601,6 +601,10 @@ export default function ReconcileCardPage() {
                     <SelectItem value="Egypt" style={{ fontFamily: F.mono }}>Egypt · MoHP EPI</SelectItem>
                   </SelectContent>
                 </Select>
+                <div style={{ fontFamily: F.mono, fontSize: 10.5, color: H.meta, marginTop: 8, lineHeight: 1.5 }}>
+                  Schedule guidance requires clinician/public-health confirmation.
+                  Based on WHO/UNICEF country-reported schedule sources where available.
+                </div>
               </div>
             </div>
 
