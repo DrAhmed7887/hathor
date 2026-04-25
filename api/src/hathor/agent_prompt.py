@@ -78,10 +78,28 @@ When you call `extract_vaccinations_from_card`, you receive a structured object 
 - Yellow Fever and MenA are NOT part of the Egyptian EPI (Egypt is not yellow-fever-endemic and is outside the meningitis belt). A Yellow Fever dose on an arriving card is lifetime-valid WHO documentation; preserve it on the record but do not count it as an Egyptian EPI requirement.
 - Egypt uses OPV throughout its primary schedule in addition to IPV (bundled in Hexavalent). OPV doses from a source country with a WHO-aligned schedule (such as Nigeria) generally count under Egyptian EPI.
 
+### Sudan EPI (source-country, Phase 1 seed — needs_review)
+- Sudanese cards may be in Arabic (السودان) or English. Schedule is WHO-aligned 6/10/14-week primary series (same skeleton as Nigeria).
+- Sudan gives **HepB monovalent at birth** (HBV0), so a child from Sudan with a documented birth-dose HepB satisfies Egypt's HepB-at-birth requirement.
+- Sudan uses **Pentavalent (DTPw-Hib-HepB) at 6/10/14 weeks** plus **separate IPV at 14 weeks**. Penta does NOT include IPV — credit IPV only if explicitly listed.
+- Sudan gives **PCV and Rotavirus** in routine EPI (6/10/14w PCV; 6/10w Rota). Egypt does not — preserve these on the record but do not flag as Egyptian gaps.
+- Sudan gives **Yellow Fever** at 9 months in YF-endemic states (Darfur, Blue Nile, parts of South Kordofan) — it is subnational, not nationally routine. **MenAfriVac** at 9 months in meningitis-belt states. Both are lifetime-valid documentation under Egypt's schedule but not Egyptian-EPI requirements.
+- Sudan gives **Measles monovalent at 9 months** and a **second measles-containing dose at 18 months** (may appear as "MR2" on newer cards). For Egypt, the 9-month measles dose covers Measles only — Mumps and Rubella remain uncovered, and two MMR doses are still needed at 12 and 18 months.
+- Schedule readiness flag: `needs_review`. Treat Sudan as a source for **review-workflow demonstration**, not authoritative reconciliation; surface the Schedule-under-review banner.
+
+### Ethiopia EPI (source-country, Phase 1 seed — needs_review)
+- Ethiopian cards may be in Amharic (ኢትዮጵያ) or English. Schedule is WHO-aligned 6/10/14-week primary series.
+- **Ethiopia public EPI does NOT give a routine HepB birth dose** — HepB is delivered via Pentavalent only, starting at 6 weeks. A child from Ethiopia with documented Pentavalent ×3 has completed their HepB course (3 doses). Do NOT report HepB-at-birth as missing for an Ethiopian-origin card; the WHO-aligned 6/10/14w HepB schedule is acceptable.
+- Ethiopia uses **Pentavalent (DTPw-Hib-HepB) at 6/10/14 weeks** plus **separate fIPV at 14 weeks** (fractional IPV, introduced 2015). Penta does NOT include IPV — credit IPV only if explicitly listed.
+- Ethiopia gives **PCV and Rotavirus** in routine EPI (6/10/14w PCV; 6/10w Rota). Egypt does not — preserve on record.
+- Ethiopia gives **MenAfriVac at 9 months** in meningitis-belt regions (parts of Amhara, Tigray, Afar, Benishangul-Gumuz). **Yellow Fever at 9 months** in YF-endemic southwestern regions (Gambella, parts of SNNPR). Both are subnational, not national-routine.
+- Ethiopia gives **Measles monovalent at 9 months** and a **second measles-containing dose at 15 months** (MCV2 introduced 2019; may appear as "MR" in regions where Measles-Rubella has been integrated). For Egypt: same logic as Sudan — 9-month Measles covers Measles only; two MMR doses still needed at 12 and 18 months.
+- Schedule readiness flag: `needs_review`. Treat Ethiopia as a source for **review-workflow demonstration**, not authoritative reconciliation; surface the Schedule-under-review banner.
+
 ### Universal rules (apply regardless of target country)
 - **Rotavirus** has strict age windows (contraindication, not preference): Dose 1 must be given before **105 days (15 weeks)** of age. The full series must complete before **240 days (8 months)** for most products (Rotarix: 24 weeks; RotaTeq: 32 weeks). Do not initiate or continue rotavirus catch-up outside these windows — this is due to intussusception risk. If the product is not specified (only "Rotavirus" or "Rota" is written), default to the stricter 24-week age cap to avoid recommending a dose that would be contraindicated under one of the two products. **When the child has no confirmed rotavirus dose, ALWAYS emit a structured `dose_verdict` or `overdue` recommendation for Rotavirus — regardless of whether catch-up is still possible.** Use `source_dose_indices = []` (an explicit empty list) to signal a gap-mode recommendation with no backing dose to index against. Do NOT report rotavirus gaps narratively only ("window closed; no catch-up indicated"). Phase E's HATHOR-AGE-003 rule applies Q6's clinical decision — including the high-burden-origin `override_required` pathway that recovers ~154 preventable rotavirus deaths per intussusception death for migrant children from high-mortality settings. Narrative-only reporting bypasses the Friction by Design safety architecture and the FHIR Provenance audit trail; structured emission is mandatory so Phase E can reason about the clinical decision.
-- **MMR** dose 1 minimum age is 270 days (9 months) for accelerated scenarios only (travel, outbreak, community settings). Routine validity minimum is 12 months per most schedules, 11 months per STIKO. Doses given at 9–10 months in routine contexts require a repeat dose after 12 months to count toward routine validity.
-- **Varicella** dose 1 minimum age is 12 months in most schedules (11 months STIKO). Doses given before 11 months are invalid and must be repeated.
+- **MMR** dose 1 minimum age is 270 days (9 months) for accelerated scenarios only (travel, outbreak, community settings). Routine validity minimum is 12 months per most schedules. Doses given at 9–10 months in routine contexts require a repeat dose after 12 months to count toward routine validity.
+- **Varicella** dose 1 minimum age is 12 months in most schedules. Doses given before 12 months are invalid and must be repeated.
 
 ### Validity decisions
 - A dose is **valid** if: given at or after the minimum age, at or before any maximum age, and with at least the minimum interval from the prior dose of the same antigen.
@@ -105,7 +123,7 @@ After completing your reasoning, present a structured summary to the user with:
 1. **Card summary** — what was found on the card (trade names, dates, inferred antigens)
 2. **Validation results** — dose-by-dose: valid / invalid / needs verification, with reasons
 3. **Coverage against [target country] schedule** — completed, overdue, due-now, upcoming
-4. **Catch-up plan** — visit-by-visit schedule with timing, doses per visit, and clinical notes. Each "visit" represents a single clinic appointment. Bundle all co-administrable vaccines into the same visit. For each visit, specify the minimum interval to the next visit based on the most restrictive rule applicable (e.g., 28 days for live-vaccine separation when any live vaccine is included; 180 days for G2→G3 DTaP/HepB/Hib/IPV/PCV intervals; respective ACIP/STIKO minimum intervals otherwise).
+4. **Catch-up plan** — visit-by-visit schedule with timing, doses per visit, and clinical notes. Each "visit" represents a single clinic appointment. Bundle all co-administrable vaccines into the same visit. For each visit, specify the minimum interval to the next visit based on the most restrictive rule applicable (e.g., 28 days for live-vaccine separation when any live vaccine is included; 180 days for G2→G3 DTaP/HepB/Hib/IPV/PCV intervals; respective ACIP/WHO minimum intervals otherwise).
 5. **Flags for the paediatrician** — anything that requires clinical judgement beyond these rules
 
 Always close with:
