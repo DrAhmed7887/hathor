@@ -1,17 +1,21 @@
 /**
  * Country metadata for the HATHOR Phase 1.0 demo.
  *
- * Hackathon scope (per CLAUDE.md, intra-Africa Phase 1):
+ * Hackathon scope (per CLAUDE.md, intra-Africa Phase 1, with Syria
+ * extending source coverage to the EMRO half of UNHCR Egypt's caseload):
  *   - Egypt is the validated destination schedule (partial_ready).
- *   - Sudan, South Sudan, Eritrea, Ethiopia are surfaced as
- *     needs_review countries motivated by the most relevant African
- *     refugee/asylum-seeker groups in Egypt (UNHCR Egypt operational
- *     data). Their schedules and synonym maps are NOT clinically
- *     verified for definitive reconciliation; the UI gates that
- *     accordingly.
- *   - Nigeria is OPTIONALLY included as an English-language demo
- *     source country. It is NOT claimed to be a top migration group
- *     into Egypt by number — the README and the UI must reflect that.
+ *   - Sudan, Syria, South Sudan, Eritrea, Ethiopia are the top-5
+ *     UNHCR-Egypt source populations (post-2023-conflict caseload
+ *     shape). Each is surfaced as needs_review on the selector — the
+ *     schedules are seeded but not clinician-signed-off for definitive
+ *     reconciliation; the UI gates that accordingly.
+ *   - WHO_BASELINE is exposed as a generic "WHO 6/10/14-week" option
+ *     for cards from countries we have not seeded individually. The
+ *     /api/schedule/WHO route serves data/schedules/who.json.
+ *   - Nigeria remains in the registry as a Phase 1 reference profile
+ *     (validated NPI seed) but is no longer in the public source-
+ *     country picker — it is not in UNHCR Egypt's top migration
+ *     groups by number, and the picker now reflects that.
  *
  * Engine support is independent of this file. The /validate-schedule
  * engine carries a ground-truth Egypt schedule today; calling it for a
@@ -92,7 +96,19 @@ const SUDAN: CountryProfile = {
   readiness: "needs_review",
   routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever", "MenA"],
   blurb:
-    "Surfaced for the review-workflow demonstration (UNHCR-relevant population in Egypt). Schedule under verification — no auto-reconciliation.",
+    "Largest UNHCR-Egypt source population (post-April-2023 conflict). Schedule under verification — no auto-reconciliation.",
+};
+
+const SYRIA: CountryProfile = {
+  code: "SY",
+  name: "Syria",
+  nameLocal: "سوريا",
+  cardLanguages: ["ar", "en", "mixed"],
+  writingDirection: "rtl",
+  readiness: "needs_review",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA],
+  blurb:
+    "Long-standing second-largest UNHCR-Egypt source population. Schedule under verification — no auto-reconciliation. Syrian EPI uses a 2/4/6-month primary series (closer to Egypt than to the WHO 6/10/14-week countries).",
 };
 
 const SOUTH_SUDAN: CountryProfile = {
@@ -138,34 +154,53 @@ const NIGERIA: CountryProfile = {
   readiness: "needs_review",
   routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever"],
   blurb:
-    "Optional English-language demo source country. NOT presented as a top-by-number African migration group to Egypt — included for English-card demonstration only.",
+    "Phase 1 reference profile (validated NPI seed). Not a top UNHCR-Egypt source by number; retained in the registry for clinical-eval continuity but no longer in the public source-country picker.",
   notes: [
     "Engine seed is present in the repo; reconciliation gating defers to the same needs_review banner as the other African countries until clinical sign-off.",
+  ],
+};
+
+const WHO_BASELINE: CountryProfile = {
+  code: "WHO",
+  name: "WHO baseline",
+  cardLanguages: ["en", "ar", "fr", "mixed"],
+  writingDirection: "ltr",
+  readiness: "needs_review",
+  routineAntigens: [...ENGINE_ANTIGENS_AFRICA, "YellowFever", "MenA"],
+  blurb:
+    "Generic WHO 6/10/14-week schedule (IVB / SAGE baseline). Use for cards from countries not seeded individually — e.g. Somalia, Yemen, Iraq, or any other source where the local schedule has not been clinician-reviewed for this demo. No auto-reconciliation.",
+  notes: [
+    "Backed by data/schedules/who.json. This is a fall-back, not a substitute for the real national schedule — flag any divergences in the review pass.",
   ],
 };
 
 export const COUNTRIES: Readonly<Record<CountryCode, CountryProfile>> = {
   EG: EGYPT,
   SD: SUDAN,
+  SY: SYRIA,
   SS: SOUTH_SUDAN,
   ER: ERITREA,
   ET: ETHIOPIA,
   NG: NIGERIA,
+  WHO: WHO_BASELINE,
 };
 
 /** Egypt is the only partial-ready destination for this hackathon. */
 export const VALIDATED_DESTINATION: CountryCode = "EG";
 
 /** Source-country options shown in the selector, in the order the demo
- * narrates them: Egypt first (the host), then the four UNHCR-relevant
- * African countries, then optional Nigeria as an English-card demo. */
+ * narrates them: the top-5 UNHCR-Egypt populations (Sudan, Syria, South
+ * Sudan, Eritrea, Ethiopia) followed by the WHO baseline fall-back for
+ * any other origin. Nigeria is intentionally omitted — it is not a top
+ * UNHCR-Egypt source by number, even though we keep its profile in the
+ * registry for clinical-eval continuity. */
 export const SELECTABLE_SOURCE_COUNTRIES: readonly CountryProfile[] = [
-  EGYPT,
   SUDAN,
+  SYRIA,
   SOUTH_SUDAN,
   ERITREA,
   ETHIOPIA,
-  NIGERIA,
+  WHO_BASELINE,
 ];
 
 /** Destination options — Egypt is the only partial-ready schedule.
@@ -174,10 +209,11 @@ export const SELECTABLE_SOURCE_COUNTRIES: readonly CountryProfile[] = [
 export const SELECTABLE_DESTINATION_COUNTRIES: readonly CountryProfile[] = [
   EGYPT,
   SUDAN,
+  SYRIA,
   SOUTH_SUDAN,
   ERITREA,
   ETHIOPIA,
-  NIGERIA,
+  WHO_BASELINE,
 ];
 
 /** @deprecated Kept for source-compat with earlier call sites that

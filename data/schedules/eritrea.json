@@ -1,0 +1,213 @@
+{
+  "country": "Eritrea",
+  "country_code": "ERI",
+  "source": "Eritrea Ministry of Health Expanded Programme on Immunization (EPI); WHO/UNICEF JRF 2024 country profile; WHO AFRO Eritrea; UNICEF Eritrea country pages; Gavi Eritrea",
+  "source_urls": [
+    "https://www.unicef.org/eritrea/health",
+    "https://www.afro.who.int/countries/eritrea/news",
+    "https://immunizationdata.who.int/dashboard/regions/african-region/ERI",
+    "https://www.who.int/publications/m/item/immunization-2024-eritrea-country-profile",
+    "https://www.gavi.org/programmes-impact/country-hub/africa/eritrea"
+  ],
+  "source_notes": "Schedule composed from WHO/UNICEF JRF Eritrea 2024 country profile, WHO AFRO Eritrea, Gavi Eritrea, and the WHO Immunization Data portal for Eritrea (ERI). WHO-aligned 6/10/14-week primary series. Eritrea introduced PCV (2014), Rotavirus (2014), and IPV at 14 weeks. HepB birth dose is NOT routine in public EPI — HepB delivered via Pentavalent only. Eritrea historically has high routine coverage (often >95% national) compared to neighbours. MCV2 introduced at 18 months. YF and MenA subnational depending on risk.",
+  "verification_status": "needs_reverification",
+  "verification_notes": "Phase 1 seed marked needs_review on the country selector. Do NOT treat as clinically authoritative until row-level reconciliation against the current WHO/XMart 2024 JRF schedule and Eritrea MoH EPI bulletin is complete. Open items include: HepB birth dose introduction status, current PCV product (PCV10 vs PCV13), MR (Measles-Rubella) integration timing, MCV2 timing variations, YF subnational risk classification.",
+  "source_year_or_release_date": "2024 WHO/UNICEF JRF schedule data; seed first added 2026-04-25",
+  "last_verified_at": null,
+  "last_updated": "2026-04-25",
+  "version": "0.1",
+  "scope": "Routine childhood immunisation, birth to 72 months (6 years). Compulsory (Eritrea EPI) and subnationally-routine antigens.",
+  "context_note": "Source-country schedule. In cross-border reconciliation INTO Egypt, Eritrea-EPI doses are the reliable signal on an Eritrean card (which may use Tigrinya, Arabic, English, or Italian). Eritrea public EPI does NOT give a routine HepB birth dose — HepB is delivered via Pentavalent only. An Eritrean-origin child with documented Pentavalent ×3 has completed their HepB course (3 doses). Yellow Fever (subnational) is Eritrea-routine where given but not on the Egyptian schedule — preserve on the record but do not count as 'missing' for Egypt.",
+  "key_differences_vs_egypt": [
+    "Eritrea uses WHO-aligned 6/10/14-week primary series; Egypt uses 2/4/6-month series",
+    "Eritrea uses Pentavalent (DTPw-Hib-HepB, 5-in-1, no IPV); Egypt uses Hexavalent (6-in-1, includes IPV)",
+    "Eritrea public EPI does NOT give a routine HepB birth dose — HepB is delivered via Pentavalent starting at 6 weeks; Egypt gives HepB monovalent at birth",
+    "Eritrea gives separate IPV at 14 weeks; Egypt's IPV is bundled in Hexavalent",
+    "Eritrea gives Measles monovalent at 9 months and a second measles-containing dose at 18 months; Egypt gives MMR at 12 months and 18 months",
+    "Eritrea has routine Rotavirus (Rota1 6w, Rota2 10w) in EPI; Egypt does not",
+    "Eritrea has routine PCV at 6/10/14 weeks; Egypt PCV is recommended/private only",
+    "Eritrea gives Yellow Fever in YF-endemic regions; Egypt does not (YF non-endemic)"
+  ],
+  "doses": [
+    {
+      "antigen": "BCG",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "At birth or as soon as possible after birth.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "OPV0 at birth. Eritrea uses bivalent OPV (bOPV) in routine schedule.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "OPV1 at 6 weeks. Co-administered with Pentavalent, PCV, Rotavirus.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta1 at 6 weeks. 5-in-1 covering DTPw, Hib, HepB. This is the FIRST HepB exposure in Eritrea public EPI — no routine HepB birth dose.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "PCV1 at 6 weeks. Eritrea uses PCV (product label varies — historically PCV13 from procurement).",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 6,
+      "minimum_age_weeks": 6,
+      "notes": "Rota1 at 6 weeks. 2-dose oral series. Series must be initiated by 15 weeks and completed by 24 months per WHO.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "OPV2 at 10 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta2 at 10 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "PCV2 at 10 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "Rotavirus",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_weeks": 10,
+      "minimum_age_weeks": 10,
+      "notes": "Rota2 at 10 weeks. Series complete after dose 2.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 4,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "OPV3 at 14 weeks.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta3 at 14 weeks. Primary DTPw-Hib-HepB series complete.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "IPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "IPV1 at 14 weeks. Single fIPV dose; second IPV under WHO consideration.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "PCV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_weeks": 14,
+      "minimum_age_weeks": 14,
+      "notes": "PCV3 at 14 weeks. Primary PCV series complete.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "Measles",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Measles first dose (MCV1) at 9 months. Eritrea public EPI delivers measles-monovalent at 9 months (not MMR).",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    },
+    {
+      "antigen": "YellowFever",
+      "dose_number": 1,
+      "category": "subnational_routine",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Yellow Fever at 9 months in YF-endemic regions. WHO YF certificate is lifetime-valid.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024; WHO YF country list"
+    },
+    {
+      "antigen": "Measles",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 18,
+      "minimum_age_months": 15,
+      "notes": "Measles second dose (MCV2) at 18 months. May appear as 'MR2' on newer cards where Measles-Rubella has been integrated.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Eritrea 2024"
+    }
+  ],
+  "open_questions": [
+    "HepB birth dose introduction status — currently not routine in public EPI.",
+    "Current PCV product (PCV10 vs PCV13) — verify against most recent procurement.",
+    "MR (Measles-Rubella) integration at MCV2 — varies by year.",
+    "YF subnational risk classification.",
+    "TCV (typhoid conjugate vaccine) introduction status."
+  ]
+}

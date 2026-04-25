@@ -1,0 +1,184 @@
+{
+  "country": "Syria",
+  "country_code": "SYR",
+  "source": "Syrian Arab Republic Ministry of Health Expanded Programme on Immunization (EPI); WHO/UNICEF JRF 2024 country profile; WHO EMRO Syria; UNICEF Syrian Arab Republic country pages",
+  "source_urls": [
+    "https://www.unicef.org/syria/health",
+    "https://www.emro.who.int/syr/programmes/expanded-programme-on-immunization.html",
+    "https://immunizationdata.who.int/dashboard/regions/eastern-mediterranean-region/SYR",
+    "https://www.who.int/publications/m/item/immunization-2024-syrian-arab-republic-country-profile"
+  ],
+  "source_notes": "Schedule composed from WHO/UNICEF JRF Syria 2024 country profile, WHO EMRO Syria EPI page, and the WHO Immunization Data portal for Syria (SYR). Syrian MoH uses a 2/4/6-month primary series (not the WHO 6/10/14-week schedule), more similar to Egypt's pattern than to most sub-Saharan African programmes. Coverage was high pre-2011 (~95%) and dropped substantially during the conflict; rebuilding ongoing under WHO/UNICEF support. Rotavirus and PCV are NOT in routine public EPI as of 2024 — they are paediatric-society recommendations / private-sector. IPV was introduced into routine schedule for polio endgame.",
+  "verification_status": "needs_reverification",
+  "verification_notes": "Phase 1 seed marked needs_review on the country selector. Do NOT treat as clinically authoritative until row-level reconciliation against the current WHO/XMart 2024 JRF schedule and Syrian MoH EPI bulletin is complete. Open items include: current IPV schedule (single fIPV vs 2-dose), HPV introduction status, PCV public-sector introduction, MR (Measles-Rubella) timing, area-specific coverage (NW Syria, NE Syria, regime-controlled areas may have different procurement chains).",
+  "source_year_or_release_date": "2024 WHO/UNICEF JRF schedule data; seed first added 2026-04-25",
+  "last_verified_at": null,
+  "last_updated": "2026-04-25",
+  "version": "0.1",
+  "scope": "Routine childhood immunisation, birth to 72 months (6 years). Compulsory (Syrian EPI) antigens.",
+  "context_note": "Source-country schedule. In cross-border reconciliation INTO Egypt, Syrian-EPI doses are the reliable signal on a Syrian card (which may be in Arabic, English, or both). Syria and Egypt both use a 2/4/6-month primary series, so age-based dose timing aligns more closely than with the WHO 6/10/14-week countries. Rotavirus and PCV are NOT routine in either Syrian or Egyptian public EPI — absence on a Syrian card is expected, not a deficiency.",
+  "key_differences_vs_egypt": [
+    "Syria and Egypt BOTH use a 2/4/6-month primary series — closer alignment than WHO 6/10/14-week countries.",
+    "Syria uses Pentavalent (DTPw-Hib-HepB, 5-in-1, no IPV) at 2/4/6 months; Egypt uses Hexavalent (6-in-1, includes IPV).",
+    "Syria gives separate IPV at 4 months (and per polio endgame may now have a second IPV); Egypt's IPV is bundled in Hexavalent.",
+    "Syria gives BCG at birth; Egypt gives BCG at 1 month — a Syrian-origin BCG dose still satisfies the Egyptian BCG requirement.",
+    "Syria gives HepB monovalent at birth; Egypt also gives HepB at birth — alignment.",
+    "Syria gives Measles-containing dose at 9 months and 18 months; Egypt gives MMR at 12 months and 18 months — Mumps and Rubella coverage may need to be verified for the 9-month Syrian dose.",
+    "Neither Syria nor Egypt has routine Rotavirus or PCV in public EPI — absence is not a gap.",
+    "Yellow Fever is NOT in the Syrian schedule (Syria is YF-non-endemic) — alignment with Egypt.",
+    "Booster DPT/OPV at 18 months in Syria; Egypt has booster DTP + MMR2 + OPV at 18 months — broadly aligned."
+  ],
+  "doses": [
+    {
+      "antigen": "BCG",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "At birth or as soon as possible.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024; WHO EMRO Syria"
+    },
+    {
+      "antigen": "HepB",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "Birth dose (HBV0). Standalone monovalent HepB at birth.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "OPV0 at birth. Syria uses bivalent OPV (bOPV) in routine schedule.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 2,
+      "minimum_age_months": 2,
+      "notes": "OPV1 at 2 months.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 2,
+      "minimum_age_months": 2,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta1 at 2 months. 5-in-1 covering DTPw, Hib, HepB. Does NOT include IPV — IPV is given separately.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_months": 4,
+      "minimum_age_months": 4,
+      "notes": "OPV2 at 4 months.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 2,
+      "category": "compulsory",
+      "recommended_age_months": 4,
+      "minimum_age_months": 4,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta2 at 4 months.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "IPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 4,
+      "minimum_age_months": 4,
+      "notes": "IPV1 at 4 months. Syria introduced IPV into routine schedule for polio endgame. Single IPV dose; second IPV under WHO consideration.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024; WHO Polio Eradication Initiative"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 4,
+      "category": "compulsory",
+      "recommended_age_months": 6,
+      "minimum_age_months": 6,
+      "notes": "OPV3 at 6 months.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "Pentavalent",
+      "dose_number": 3,
+      "category": "compulsory",
+      "recommended_age_months": 6,
+      "minimum_age_months": 6,
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Penta3 at 6 months. Primary DTPw-Hib-HepB series complete.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "Measles",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 9,
+      "minimum_age_months": 9,
+      "notes": "Measles first dose (MCV1) at 9 months. May be measles-monovalent or MR depending on year and area; verify against the card.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 5,
+      "category": "compulsory",
+      "recommended_age_months": 12,
+      "minimum_age_months": 12,
+      "notes": "OPV booster at 12 months.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "MMR",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 18,
+      "minimum_age_months": 12,
+      "notes": "MMR (or measles-containing booster) at 18 months. Older Syrian schedules pre-2010 may show measles-monovalent at 18 months instead of MMR; newer cards typically show MMR.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    },
+    {
+      "antigen": "DPT",
+      "dose_number": 4,
+      "category": "compulsory",
+      "recommended_age_months": 18,
+      "minimum_age_months": 12,
+      "notes": "DPT booster (4th DPT-containing dose) at 18 months.",
+      "verification": "needs_reverification",
+      "verification_source": "WHO/UNICEF JRF Syria 2024"
+    }
+  ],
+  "open_questions": [
+    "Current IPV schedule — single fIPV vs second IPV dose introduction status.",
+    "PCV public-sector introduction status — historically not in EPI; check most recent FMOH bulletin.",
+    "Rotavirus introduction status — historically not in EPI.",
+    "MR (Measles-Rubella) timing at 9 vs 18 months — varies by year and area.",
+    "Area-specific coverage — NW Syria (Idlib), NE Syria, and regime-controlled areas may have different procurement chains and coverage.",
+    "HPV introduction status."
+  ]
+}

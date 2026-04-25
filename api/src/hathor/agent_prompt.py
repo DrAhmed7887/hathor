@@ -87,6 +87,41 @@ When you call `extract_vaccinations_from_card`, you receive a structured object 
 - Sudan gives **Measles monovalent at 9 months** and a **second measles-containing dose at 18 months** (may appear as "MR2" on newer cards). For Egypt, the 9-month measles dose covers Measles only — Mumps and Rubella remain uncovered, and two MMR doses are still needed at 12 and 18 months.
 - Schedule readiness flag: `needs_review`. Treat Sudan as a source for **review-workflow demonstration**, not authoritative reconciliation; surface the Schedule-under-review banner.
 
+### Syria EPI (source-country, Phase 1 seed — needs_review)
+- Syrian cards may be in Arabic (سوريا), English, or both. Schedule uses a **2/4/6-month primary series** (NOT the WHO 6/10/14-week schedule) — closer to Egypt than to most sub-Saharan African schedules.
+- Syria gives **BCG, HepB monovalent, and OPV0 at birth** — a Syrian-origin BCG dose still satisfies the Egyptian BCG-at-1-month requirement, and HepB-at-birth aligns directly with Egypt.
+- Syria uses **Pentavalent (DTPw-Hib-HepB) at 2/4/6 months** plus **separate IPV at 4 months** (introduced for polio endgame). Penta does NOT include IPV — credit IPV only if explicitly listed.
+- Syria does **NOT** routinely give Rotavirus or PCV in public EPI — alignment with Egypt; absence is not a gap.
+- Syria gives **Measles-containing dose at 9 months and MMR (or measles booster) at 18 months** plus **DPT booster at 18 months**. Mumps and Rubella coverage at 9 months may be variable — verify whether the 9-month dose is measles-monovalent or MR/MMR.
+- Yellow Fever is **NOT** part of Syrian EPI (Syria is YF-non-endemic) — alignment with Egypt.
+- Coverage was high pre-2011 (~95%) and dropped substantially during the conflict; an arriving Syrian card may have legitimate gaps reflecting service disruption — do not assume invalid records when timing is irregular.
+- Schedule readiness flag: `needs_review`. Treat Syria as a source for **review-workflow demonstration**, not authoritative reconciliation; surface the Schedule-under-review banner.
+
+### South Sudan EPI (source-country, Phase 1 seed — needs_review)
+- South Sudanese cards are typically in English. Schedule is WHO-aligned 6/10/14-week primary series.
+- **South Sudan public EPI does NOT give a routine HepB birth dose** — HepB is delivered via Pentavalent only, starting at 6 weeks (same posture as Ethiopia and Eritrea). Do NOT report HepB-at-birth as missing for a South-Sudanese-origin card with documented Pentavalent ×3.
+- South Sudan uses **Pentavalent (DTPw-Hib-HepB) at 6/10/14 weeks** plus **separate IPV at 14 weeks**. Penta does NOT include IPV.
+- South Sudan gives **PCV13 and Rotavirus** in routine EPI (6/10/14w PCV; 6/10w Rota — both introduced 2014). Egypt does not — preserve on record.
+- South Sudan gives **Yellow Fever at 9 months in YF-endemic states** and **MenAfriVac at 9 months in meningitis-belt areas** — both subnational, not nationally routine. Both are lifetime-valid documentation but not Egyptian-EPI requirements.
+- South Sudan gives **Measles monovalent at 9 months**. For Egypt, the 9-month measles dose covers Measles only — Mumps and Rubella remain uncovered, two MMR doses still needed.
+- Coverage substantially affected by ongoing displacement and humanitarian conditions — gaps on the card may reflect service-access constraints, not patient non-compliance.
+- Schedule readiness flag: `needs_review`. Treat South Sudan as a source for **review-workflow demonstration**, not authoritative reconciliation.
+
+### Eritrea EPI (source-country, Phase 1 seed — needs_review)
+- Eritrean cards may be in **Tigrinya (ኤርትራ)**, Arabic, English, or Italian. Schedule is WHO-aligned 6/10/14-week primary series.
+- **Eritrea public EPI does NOT give a routine HepB birth dose** — HepB is delivered via Pentavalent only (same posture as Ethiopia and South Sudan). Do NOT report HepB-at-birth as missing for an Eritrean-origin card with documented Pentavalent ×3.
+- Eritrea uses **Pentavalent (DTPw-Hib-HepB) at 6/10/14 weeks** plus **separate IPV at 14 weeks**. Penta does NOT include IPV.
+- Eritrea gives **PCV and Rotavirus** in routine EPI (6/10/14w PCV; 6/10w Rota — both introduced 2014). Egypt does not — preserve on record.
+- Eritrea gives **Yellow Fever at 9 months in YF-endemic regions** — subnational. Lifetime-valid documentation but not Egyptian-EPI requirement.
+- Eritrea gives **Measles monovalent at 9 months and a second measles-containing dose at 18 months** (may appear as "MR2" on newer cards). For Egypt: 9-month dose covers Measles only; two MMR doses still needed at 12 and 18 months.
+- Eritrea historically has high routine coverage (often >95% national) compared to neighbours — fewer reasonable gaps on the card.
+- Schedule readiness flag: `needs_review`. Treat Eritrea as a source for **review-workflow demonstration**, not authoritative reconciliation.
+
+### WHO baseline (generic source-country fall-back — needs_review)
+- Use only when the actual source country's schedule has not been seeded — e.g. Somalia, Yemen, Iraq, or any other country without a country-specific JSON in `data/schedules/`.
+- The WHO baseline assumes the **standard 6/10/14-week primary series**: BCG + OPV0 at birth, Pentavalent + OPV + PCV + Rotavirus at 6/10/14 weeks, IPV at 14 weeks, Measles at 9 months. This is the IVB/SAGE recommendation; actual national schedules diverge.
+- Treat WHO-baseline reconciliation as **definitively review-workflow only** — even more cautious than country seeds, because the divergence between baseline and the actual national programme is unverified.
+
 ### Ethiopia EPI (source-country, Phase 1 seed — needs_review)
 - Ethiopian cards may be in Amharic (ኢትዮጵያ) or English. Schedule is WHO-aligned 6/10/14-week primary series.
 - **Ethiopia public EPI does NOT give a routine HepB birth dose** — HepB is delivered via Pentavalent only, starting at 6 weeks. A child from Ethiopia with documented Pentavalent ×3 has completed their HepB course (3 doses). Do NOT report HepB-at-birth as missing for an Ethiopian-origin card; the WHO-aligned 6/10/14w HepB schedule is acceptable.
