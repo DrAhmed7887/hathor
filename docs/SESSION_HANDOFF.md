@@ -1,7 +1,7 @@
 # SESSION HANDOFF — Post-Commit-6.1
 
-A fresh Claude Code instance should read this cold before doing anything on
-Hathor. Read CLAUDE.md first, then this document. This captures the verbal
+A fresh agent session should read this cold before doing anything on Hathor.
+Read CLAUDE.md first, then this document. This captures the verbal
 decisions, pitfalls, and scoped next step from the session ending
 2026-04-23. Last updated after Commit 6.1 landed.
 
@@ -189,14 +189,14 @@ Five questions pending physician-authored answers. See
 - Q11: Contraindication source-of-truth conflicts (Egypt MoH vs DAK)
 
 ### 3.2 Phase 2 STIKO minimum rule set
-User is bringing to strategist (outside Claude Code) and will come back
+User is bringing to strategist (outside this repo workflow) and will come back
 with a scoped minimum set. Not a blocker for Phase 1.
 
 ### 3.3 Nigeria-pitch grounding facts
 Positioning for WHO Innovation Hub / Gavi audiences. Captured in
 `docs/who-dak-alignment.md` (Narrative & Positioning section) and in the
 user memory at
-`~/.claude/projects/-Users-ahmedzayed/memory/hathor_positioning.md`.
+the local Hathor positioning memory note, if available.
 Load that memory when writing pitch-facing copy.
 
 ### 3.4 Push decision for Commit 5
@@ -516,4 +516,4 @@ Rule bodies for Q2/Q4/Q5/Q6/Q11 cannot be implemented until `CLINICAL_DECISIONS.
 
 ---
 
-*Written 2026-04-23 by Claude Opus 4.7. Commit 6 starts here.*
+*Written 2026-04-23 as a session handoff. Commit 6 starts here.*
