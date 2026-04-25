@@ -107,11 +107,19 @@ Rules:
 - Combination products expand to every antigen they contain. Examples:
   - "Hexyon" / "Hexavalent" → DTP, HepB, Hib, IPV
   - "Pentavac" / "Pentavalent" → DTP, HepB, Hib (no IPV)
-  - "MMR" / "ROR" → Measles, Mumps, Rubella, MMR (include the combined code)
-  - "MMRV" → Measles, Mumps, Rubella, MMR, Varicella
+  - "MMR" / "ROR" → MMR, Measles, Mumps, Rubella (include the combined code AND the components)
+  - "MMRV" → MMR, Measles, Mumps, Rubella, Varicella
   - "Tdap" / "DTaP" / "DTwP" → DTP
   - "Td" → DTP (tetanus + diphtheria; emit DTP and let downstream rules decide)
-- Standalone antigens map to themselves: "BCG" → BCG, "OPV" → OPV, "Yellow Fever" / "حمى صفراء" → YellowFever.
+- Standalone antigens map to themselves and ONLY themselves:
+  - "BCG" → BCG
+  - "OPV" → OPV
+  - "Yellow Fever" / "حمى صفراء" / "fièvre jaune" → YellowFever
+  - **"Measles" / "Measles monovalent" / "حصبة" / "rougeole"** → Measles ONLY.
+    Do NOT add Mumps, Rubella, or MMR. Monovalent measles vaccine
+    (e.g. Nigeria's 9-month dose) is clinically distinct from MMR;
+    conflating them would silently change the catch-up plan.
+  - "Mumps" alone → Mumps. "Rubella" alone → Rubella.
 - If you cannot identify the label confidently, emit an empty canonical_antigens array — do NOT guess.
 - Preserve the exact "input" string from the request in your response.
 

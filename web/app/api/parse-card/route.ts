@@ -493,15 +493,19 @@ export async function POST(request: Request): Promise<Response> {
   // /scan UI uses this; legacy /demo POSTs without it and gets JSON.
   // ?fast=1 skips the per-row ROI cascade for ~3× speedup at minor
   // accuracy cost on Egypt MoHP cards. Whole-image vision still runs.
-  // ?normalize=1 (or HATHOR_ANTIGEN_NORMALIZER=1) enables the Haiku-4.5
-  // sub-agent that maps trade names to canonical antigens. CrossBeam-style
-  // task-specific model; opt-in for last-day demo safety.
+  // Antigen normalizer (Haiku-4.5 sub-agent that maps trade names to
+  // canonical antigens) is ON by default. Disable per-deployment with
+  // HATHOR_ANTIGEN_NORMALIZER=0 or per-request with ?normalize=0. The
+  // normalizer is purely additive: it attaches canonicalAntigens hints
+  // to rows without changing antigen text, confidence, source, or any
+  // AMBER / clinician-confirmation behavior. On any failure the route
+  // falls back to the un-normalized rows.
   const url = new URL(request.url);
   const wantStream = url.searchParams.get("stream") === "1";
   const fastMode = url.searchParams.get("fast") === "1";
   const normalizeMode =
-    url.searchParams.get("normalize") === "1" ||
-    process.env.HATHOR_ANTIGEN_NORMALIZER === "1";
+    url.searchParams.get("normalize") !== "0" &&
+    process.env.HATHOR_ANTIGEN_NORMALIZER !== "0";
 
   // Read the blob into a base64 string for the Messages API image block.
   const arrayBuf = await file.arrayBuffer();
