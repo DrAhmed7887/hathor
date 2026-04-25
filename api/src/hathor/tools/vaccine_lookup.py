@@ -14,16 +14,14 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Sanofi Pasteur",
         "components": ["DTaP", "IPV", "Hib", "HepB"],
         "combination_type": "hexavalent",
-        "stiko_equivalent": "Hexavalent (DTaP-IPV-Hib-HepB)",
         "notes": "Widely used in Egypt and EU. Egypt may use whole-cell pertussis variant; Hexyon is acellular (DTaP). Both satisfy DTP requirement.",
-        "source": "EMA SmPC / STIKO",
+        "source": "EMA SmPC",
     },
     "hexaxim": {
         "canonical_name": "Hexaxim",
         "manufacturer": "Sanofi Pasteur",
         "components": ["DTaP", "IPV", "Hib", "HepB"],
         "combination_type": "hexavalent",
-        "stiko_equivalent": "Hexavalent (DTaP-IPV-Hib-HepB)",
         "source": "EMA SmPC",
     },
     "infanrix hexa": {
@@ -31,15 +29,13 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "GSK",
         "components": ["DTaP", "IPV", "Hib", "HepB"],
         "combination_type": "hexavalent",
-        "stiko_equivalent": "Hexavalent (DTaP-IPV-Hib-HepB)",
-        "source": "EMA SmPC / STIKO",
+        "source": "EMA SmPC",
     },
     "vaxelis": {
         "canonical_name": "Vaxelis",
         "manufacturer": "MCM Vaccine / Sanofi-MSD",
         "components": ["DTaP", "IPV", "Hib", "HepB"],
         "combination_type": "hexavalent",
-        "stiko_equivalent": "Hexavalent (DTaP-IPV-Hib-HepB)",
         "source": "EMA SmPC",
     },
     # Pentavalent (DTaP + IPV + Hib — no HepB)
@@ -48,7 +44,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Sanofi Pasteur",
         "components": ["DTaP", "IPV", "Hib"],
         "combination_type": "pentavalent",
-        "stiko_equivalent": "Pentavalent (DTaP-IPV-Hib)",
         "notes": "Does NOT include HepB. Common on older Egyptian cards before hexavalent was introduced.",
         "source": "EMA SmPC",
     },
@@ -57,7 +52,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Sanofi Pasteur",
         "components": ["DTaP", "IPV", "Hib"],
         "combination_type": "pentavalent",
-        "stiko_equivalent": "Pentavalent (DTaP-IPV-Hib)",
         "notes": "Egyptian/MENA market pentavalent. Does NOT include HepB. May appear on Egyptian cards as 'الخماسي'.",
         "source": "Sanofi product data",
     },
@@ -66,7 +60,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "GSK",
         "components": ["DTaP", "IPV", "Hib"],
         "combination_type": "pentavalent",
-        "stiko_equivalent": "Pentavalent (DTaP-IPV-Hib)",
         "source": "EMA SmPC",
     },
     # MMR and variants
@@ -75,7 +68,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "GSK",
         "components": ["Measles", "Mumps", "Rubella"],
         "combination_type": "MMR",
-        "stiko_equivalent": "MMR",
         "source": "EMA SmPC",
     },
     "mmrvaxpro": {
@@ -83,7 +75,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "MSD",
         "components": ["Measles", "Mumps", "Rubella"],
         "combination_type": "MMR",
-        "stiko_equivalent": "MMR",
         "source": "EMA SmPC",
     },
     "m-m-rvaxpro": {
@@ -91,7 +82,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "MSD",
         "components": ["Measles", "Mumps", "Rubella"],
         "combination_type": "MMR",
-        "stiko_equivalent": "MMR",
         "source": "EMA SmPC",
     },
     "mmr": {
@@ -99,7 +89,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Various",
         "components": ["Measles", "Mumps", "Rubella"],
         "combination_type": "MMR",
-        "stiko_equivalent": "MMR",
         "notes": "Generic MMR notation on Egyptian cards — accept as MMR without requiring specific brand.",
         "source": "Clinical convention",
     },
@@ -108,7 +97,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Various",
         "components": ["Measles", "Rubella"],
         "combination_type": "MR",
-        "stiko_equivalent": "MR — does NOT cover Mumps",
         "notes": "Older Egyptian cards may show MR at 9 months instead of MMR. Counts for Measles and Rubella only; Mumps component is missing.",
         "source": "Clinical convention",
     },
@@ -118,7 +106,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "GSK",
         "components": ["Varicella"],
         "combination_type": "monovalent",
-        "stiko_equivalent": "Varicella",
         "source": "EMA SmPC",
     },
     "varivax": {
@@ -126,7 +113,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "MSD",
         "components": ["Varicella"],
         "combination_type": "monovalent",
-        "stiko_equivalent": "Varicella",
         "source": "EMA SmPC",
     },
     "varicella": {
@@ -134,7 +120,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Various",
         "components": ["Varicella"],
         "combination_type": "monovalent",
-        "stiko_equivalent": "Varicella",
         "source": "Clinical convention",
     },
     # MMR-V (combined)
@@ -143,7 +128,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "GSK",
         "components": ["Measles", "Mumps", "Rubella", "Varicella"],
         "combination_type": "MMRV",
-        "stiko_equivalent": "MMRV (counts for both MMR and Varicella)",
         "source": "EMA SmPC",
     },
     "proquad": {
@@ -151,7 +135,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "MSD",
         "components": ["Measles", "Mumps", "Rubella", "Varicella"],
         "combination_type": "MMRV",
-        "stiko_equivalent": "MMRV (counts for both MMR and Varicella)",
         "source": "EMA SmPC",
     },
     # Rotavirus
@@ -160,7 +143,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "GSK",
         "components": ["Rotavirus"],
         "combination_type": "monovalent",
-        "stiko_equivalent": "Rotavirus (2-dose series)",
         "notes": "2-dose oral vaccine. Series complete after dose 2.",
         "source": "EMA SmPC",
     },
@@ -169,7 +151,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "MSD",
         "components": ["Rotavirus"],
         "combination_type": "pentavalent oral",
-        "stiko_equivalent": "Rotavirus (3-dose series)",
         "notes": "3-dose oral vaccine. Series complete after dose 3.",
         "source": "EMA SmPC",
     },
@@ -179,7 +160,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Pfizer",
         "components": ["PCV"],
         "combination_type": "PCV13",
-        "stiko_equivalent": "PCV (13-valent)",
         "source": "EMA SmPC",
     },
     "prevenar13": {
@@ -187,7 +167,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Pfizer",
         "components": ["PCV"],
         "combination_type": "PCV13",
-        "stiko_equivalent": "PCV (13-valent)",
         "source": "EMA SmPC",
     },
     "synflorix": {
@@ -195,7 +174,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "GSK",
         "components": ["PCV"],
         "combination_type": "PCV10",
-        "stiko_equivalent": "PCV (10-valent) — STIKO accepts PCV10 or PCV13",
         "source": "EMA SmPC",
     },
     "prevenar 20": {
@@ -203,7 +181,6 @@ VACCINE_DB: dict[str, dict] = {
         "manufacturer": "Pfizer",
         "components": ["PCV"],
         "combination_type": "PCV20",
-        "stiko_equivalent": "PCV (20-valent) — accepted by STIKO from 2024",
         "source": "EMA SmPC",
     },
 }

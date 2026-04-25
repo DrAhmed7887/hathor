@@ -4,7 +4,7 @@ import json
 from claude_agent_sdk import tool
 
 # Minimum age in days for first valid dose, by antigen.
-# Source: ACIP general minimum ages + STIKO where stricter.
+# Source: ACIP general minimum ages / WHO.
 MIN_AGE_DAYS: dict[str, int] = {
     "DTaP": 42,       # 6 weeks
     "DPT": 42,
@@ -13,13 +13,10 @@ MIN_AGE_DAYS: dict[str, int] = {
     "IPV": 42,        # 6 weeks
     "OPV": 0,
     "PCV": 42,        # 6 weeks
-    "MenB": 42,       # 6 weeks (STIKO)
-    "MenC": 60,       # 2 months
-    "MenACWY": 270,   # 9 months (STIKO standard; varies by product)
-    "MMR": 270,       # 9 months (minimum valid; STIKO standard is 11 months)
+    "MMR": 270,       # 9 months (minimum valid)
     "Measles": 180,   # 6 months (only as emergency MCV0; not counted in primary series)
     "Rubella": 270,
-    "Varicella": 270, # 9 months minimum (STIKO standard is 11 months)
+    "Varicella": 270, # 9 months minimum
     "Rotavirus": 42,  # 6 weeks; must COMPLETE series before 730 days (24 months)
     "BCG": 0,
     "HepA": 365,      # 12 months
@@ -145,29 +142,7 @@ async def validate_dose(args: dict) -> dict:
                 )
 
     # 4. Age-appropriateness flag (not invalidating, just informational).
-    # Only applies to numbered primary doses.
-    if (
-        dose_kind == "primary"
-        and antigen == "MMR"
-        and dose_number == 1
-        and age_days < 330
-    ):
-        flags.append(
-            "MMR dose 1 given before 11 months — below STIKO standard age (11 months). "
-            "May be clinically valid in the source country but falls below Germany's standard timing. "
-            "STIKO may accept doses given from 9 months; verify with local paediatrician."
-        )
-
-    if (
-        dose_kind == "primary"
-        and antigen == "Varicella"
-        and dose_number == 1
-        and age_days < 330
-    ):
-        flags.append(
-            "Varicella dose 1 given before 11 months — below STIKO standard age. "
-            "STIKO minimum is 9 months; check if this dose satisfies the requirement."
-        )
+    # Reserved for future population-health logic.
 
     # 5. Booster posture. If nothing above rejected the booster, the
     # engine defers to the clinician — it is NOT silently approving.

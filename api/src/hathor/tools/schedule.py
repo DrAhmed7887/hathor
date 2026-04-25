@@ -18,10 +18,6 @@ COUNTRY_MAP = {
     "who": "who.json",
     "world health organization": "who.json",
     # Other schedules are available but not part of the primary scope.
-    "germany": "germany.json",
-    "deutschland": "germany.json",
-    "deu": "germany.json",
-    "de": "germany.json",
 }
 
 

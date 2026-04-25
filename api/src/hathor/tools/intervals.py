@@ -4,53 +4,42 @@ import json
 from claude_agent_sdk import tool
 
 # Minimum interval in days between consecutive doses, by antigen.
-# source: ACIP general rules + STIKO footnotes where stricter.
+# source: ACIP general rules / WHO.
 INTERVAL_RULES: dict[str, dict] = {
     "DTaP": {
         "standard_min_days": 28,
-        "stiko_g2_to_g3_min_days": 180,
-        "note": "STIKO requires minimum 6 months between G2 and G3 (doses 2→3). Standard ACIP minimum 28 days applies between doses 1→2.",
-        "source": "ACIP / STIKO Impfkalender 2026 footnote d",
+        "note": "Standard ACIP minimum 28 days applies between primary series doses.",
+        "source": "ACIP / WHO",
     },
     "DPT": {
         "standard_min_days": 28,
-        "stiko_g2_to_g3_min_days": 180,
         "note": "Same rules as DTaP — whole-cell and acellular pertussis share interval requirements.",
-        "source": "ACIP / STIKO",
+        "source": "ACIP / WHO",
     },
     "HepB": {
         "standard_min_days": 28,
-        "stiko_g2_to_g3_min_days": 180,
-        "note": "STIKO: doses 2→3 minimum 6 months (delivered in hexavalent combination with DTaP).",
-        "source": "ACIP / STIKO",
+        "note": "Standard ACIP minimum 28 days.",
+        "source": "ACIP / WHO",
     },
     "Hib": {
         "standard_min_days": 28,
-        "stiko_g2_to_g3_min_days": 180,
-        "note": "Same hexavalent constraint — 6 months minimum between G2 and G3.",
-        "source": "ACIP / STIKO",
+        "note": "Standard ACIP minimum 28 days.",
+        "source": "ACIP / WHO",
     },
     "IPV": {
         "standard_min_days": 28,
-        "stiko_g2_to_g3_min_days": 180,
-        "note": "Same hexavalent constraint.",
-        "source": "ACIP / STIKO",
+        "note": "Standard ACIP minimum 28 days.",
+        "source": "ACIP / WHO",
     },
     "PCV": {
         "standard_min_days": 28,
-        "stiko_g2_to_g3_min_days": 180,
-        "note": "STIKO co-schedules PCV with hexavalent; 6-month minimum before G3/booster in the 2+1 or 3p schedule.",
-        "source": "ACIP / STIKO",
-    },
-    "MenB": {
-        "standard_min_days": 56,
-        "note": "Minimum 8 weeks between all MenB doses in the 3-dose infant series.",
-        "source": "STIKO",
+        "note": "Standard ACIP minimum 28 days.",
+        "source": "ACIP / WHO",
     },
     "MMR": {
         "standard_min_days": 28,
         "note": "Minimum 4 weeks between MMR doses 1 and 2.",
-        "source": "ACIP / STIKO",
+        "source": "ACIP / WHO",
     },
     "Measles": {
         "standard_min_days": 28,
@@ -60,12 +49,12 @@ INTERVAL_RULES: dict[str, dict] = {
     "Varicella": {
         "standard_min_days": 28,
         "note": "Minimum 4 weeks between Varicella doses 1 and 2.",
-        "source": "ACIP / STIKO",
+        "source": "ACIP / WHO",
     },
     "Rotavirus": {
         "standard_min_days": 28,
         "note": "Minimum 4 weeks between doses. Series must be completed before 24 months of age.",
-        "source": "ACIP / STIKO",
+        "source": "ACIP / WHO",
     },
     "OPV": {
         "standard_min_days": 28,
@@ -84,10 +73,6 @@ def _get_min_interval(antigen: str, from_dose: int, to_dose: int) -> tuple[int, 
     rule = INTERVAL_RULES.get(antigen)
     if rule is None:
         return 28, "default ACIP minimum (antigen not in rule table)"
-
-    # STIKO special case: stricter minimum for the last primary-to-booster transition
-    if from_dose == 2 and to_dose == 3 and "stiko_g2_to_g3_min_days" in rule:
-        return rule["stiko_g2_to_g3_min_days"], rule.get("source", "STIKO")
 
     return rule["standard_min_days"], rule.get("source", "ACIP")
 
