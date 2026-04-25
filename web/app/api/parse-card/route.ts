@@ -323,12 +323,14 @@ function toParsedRow(row: ToolRow): ParsedCardRow {
 async function runEgyptMohpRoi(
   imageBuffer: Buffer,
   client: Anthropic,
+  onRoiComplete?: (done: number) => void,
 ): Promise<RoiExtractionResult> {
   const meta = await sharp(imageBuffer).metadata();
   if (!meta.width || !meta.height) {
     throw new Error("sharp could not read image dimensions");
   }
   const template = loadEgyptMohpTemplate();
+  let completed = 0;
 
   const cropper: Cropper = async (img, rect) => {
     return sharp(img)
@@ -383,6 +385,8 @@ async function runEgyptMohpRoi(
       ],
     });
     const tu = response.content.find((b) => b.type === "tool_use");
+    completed += 1;
+    onRoiComplete?.(completed);
     if (!tu || tu.type !== "tool_use") {
       // Treat a missing tool call as a blank cell — the merger will not
       // patch a confident whole-image row from a blank ROI read.
@@ -409,6 +413,21 @@ async function runEgyptMohpRoi(
 }
 
 // ── Route handler ────────────────────────────────────────────────────────────
+
+/** Progress event emitted to the SSE stream. The /scan UI renders these as
+ * the live agent-thinking trail. JSON-only payload — keep keys stable. */
+type ProgressEvent =
+  | { kind: "status"; label: string; detail?: string }
+  | { kind: "vision_start"; bytes: number; mediaType: string }
+  | { kind: "vision_done"; rows: number }
+  | { kind: "template"; id: string }
+  | { kind: "roi_start"; total: number }
+  | { kind: "roi_progress"; done: number; total: number }
+  | { kind: "roi_done"; merged: number }
+  | { kind: "result"; body: ParsedCardOutput }
+  | { kind: "error"; message: string };
+
+type Emit = (event: ProgressEvent) => void;
 
 export async function POST(request: Request): Promise<Response> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -464,6 +483,14 @@ export async function POST(request: Request): Promise<Response> {
   const cardLanguage = form.get("card_language");
   const childDob = form.get("child_dob");
 
+  // ?stream=1 returns SSE progress events ending in `event: result`. The
+  // /scan UI uses this; legacy /demo POSTs without it and gets JSON.
+  // ?fast=1 skips the per-row ROI cascade for ~3× speedup at minor
+  // accuracy cost on Egypt MoHP cards. Whole-image vision still runs.
+  const url = new URL(request.url);
+  const wantStream = url.searchParams.get("stream") === "1";
+  const fastMode = url.searchParams.get("fast") === "1";
+
   // Read the blob into a base64 string for the Messages API image block.
   const arrayBuf = await file.arrayBuffer();
   const base64 = Buffer.from(arrayBuf).toString("base64");
@@ -481,7 +508,16 @@ export async function POST(request: Request): Promise<Response> {
 
   const client = new Anthropic({ apiKey });
 
-  try {
+  // Inner work: takes an emitter that reports progress. Returns the final
+  // ParsedCardOutput. Used by both the JSON path (collect-then-respond)
+  // and the SSE path (emit-as-you-go).
+  const doWork = async (emit: Emit): Promise<ParsedCardOutput> => {
+    emit({
+      kind: "vision_start",
+      bytes: file.size,
+      mediaType,
+    });
+
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
@@ -523,13 +559,8 @@ export async function POST(request: Request): Promise<Response> {
     // Find the tool_use block — tool_choice forced it, so it must exist.
     const toolUse = response.content.find((b) => b.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") {
-      return Response.json(
-        {
-          error:
-            "model did not call record_card_extraction — unexpected stop reason",
-          stop_reason: response.stop_reason,
-        },
-        { status: 502 },
+      throw new Error(
+        `model did not call record_card_extraction — stop_reason=${response.stop_reason}`,
       );
     }
 
@@ -538,6 +569,7 @@ export async function POST(request: Request): Promise<Response> {
       | undefined;
     const rawRows = input?.rows ?? [];
     const parsedRows = rawRows.map(toParsedRow);
+    emit({ kind: "vision_done", rows: parsedRows.length });
 
     // Tolerant: the trace is nice-to-have. A missing or malformed
     // document_intelligence object normalises to an empty trace
@@ -554,28 +586,49 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    if (documentIntelligence?.recognized_template_id) {
+      emit({
+        kind: "template",
+        id: documentIntelligence.recognized_template_id,
+      });
+    }
+
     // Egypt MoHP ROI pass — primary fill for blanks and low-confidence
     // dates on this template. Sequenced AFTER the whole-image pass so
     // we only spend ROI compute on cards that recognised as Egypt
     // MoHP. Errors here NEVER degrade the whole-image rows: a thrown
     // ROI call is caught and folded into trace warnings, then the
     // existing inferRowsFromTemplate fallback runs as today.
+    //
+    // ?fast=1 skips this path. The whole-image vision call already
+    // returned ParsedCardRow values; ROI is purely an accuracy lift
+    // that costs ~9 extra Opus 4.7 vision calls.
     let mergedRows = parsedRows;
     const roiWarnings: string[] = [];
     if (
+      !fastMode &&
       documentIntelligence &&
       shouldRunEgyptMohpRoi(documentIntelligence.recognized_template_id)
     ) {
+      const template = loadEgyptMohpTemplate();
+      emit({ kind: "roi_start", total: template.row_specs.length });
       try {
         const roiBuffer = Buffer.from(arrayBuf);
-        const roiResult = await runEgyptMohpRoi(roiBuffer, client);
+        const roiResult = await runEgyptMohpRoi(roiBuffer, client, (done) =>
+          emit({
+            kind: "roi_progress",
+            done,
+            total: template.row_specs.length,
+          }),
+        );
         const merged = mergeRoiIntoVisionRows({
-          template: loadEgyptMohpTemplate(),
+          template,
           visionRows: parsedRows,
           roiRows: roiResult.rows,
         });
         mergedRows = merged.rows;
         roiWarnings.push(...merged.warnings);
+        emit({ kind: "roi_done", merged: merged.rows.length });
       } catch (roiErr) {
         // Safe fallback: ROI failure leaves whole-image rows intact and
         // surfaces the reason in the trace so the clinician/judge can
@@ -583,7 +636,19 @@ export async function POST(request: Request): Promise<Response> {
         const reason =
           roiErr instanceof Error ? roiErr.message : String(roiErr);
         roiWarnings.push(`Egypt MoHP ROI extraction failed: ${reason}`);
+        emit({ kind: "status", label: "ROI fallback", detail: reason });
       }
+    } else if (
+      fastMode &&
+      documentIntelligence &&
+      shouldRunEgyptMohpRoi(documentIntelligence.recognized_template_id)
+    ) {
+      emit({
+        kind: "status",
+        label: "ROI cascade skipped (fast mode)",
+        detail:
+          "Whole-image vision rows used as-is. Re-run without fast=1 for the per-row cross-check.",
+      });
     }
 
     // Narrow, safe template inference. Runs only when (a) the vision
@@ -723,6 +788,63 @@ export async function POST(request: Request): Promise<Response> {
       parsedAt: new Date().toISOString(),
     };
 
+    // Diagnostic log — single line per upload so we can see at a glance
+    // why a parse came back empty without scraping the SSE stream.
+    // Counts vision rows separately from template-inferred / promoted
+    // rows so a "0 rows" report is unambiguous about which path ran.
+    const visionRowCount = parsedRows.length;
+    const finalRowCount = finalizedRows.length;
+    const di = documentIntelligence;
+    const warningPreview = di
+      ? di.warnings.slice(0, 3).map((w) => w.slice(0, 80)).join(" | ")
+      : "";
+    console.log(
+      `[parse-card] vision_rows=${visionRowCount} final_rows=${finalRowCount} ` +
+        `template=${di?.recognized_template_id ?? "none"} ` +
+        `doc_guess=${di?.document_type_guess ?? "none"} ` +
+        `regions=${di?.regions.length ?? 0} fragments=${di?.evidence_fragments?.length ?? 0} ` +
+        `orientation_warning=${di?.orientation_warning ? "yes" : "no"} ` +
+        `roi_warnings=${roiWarnings.length} ` +
+        `warnings_preview="${warningPreview}"`,
+    );
+
+    emit({ kind: "result", body });
+    return body;
+  };
+
+  // ── Stream dispatch ──
+  if (wantStream) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (event: ProgressEvent) => {
+          const payload = `event: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
+          controller.enqueue(encoder.encode(payload));
+        };
+        try {
+          await doWork(send);
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "unknown error";
+          send({ kind: "error", message });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
+  // ── Buffered JSON dispatch (legacy /demo path) ──
+  try {
+    // No-op emitter — collect everything, return only the final body.
+    const body = await doWork(() => {});
     return Response.json(body);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown error";

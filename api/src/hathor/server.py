@@ -32,6 +32,8 @@ import logging
 import os
 import pathlib
 import re
+import time
+from collections import defaultdict
 from typing import AsyncGenerator, Literal
 
 from fastapi import FastAPI, HTTPException
@@ -55,7 +57,7 @@ from hathor.safety import phase_d
 from hathor.schemas.extraction import CardExtractionOutput, FieldExtraction
 from hathor.server_sessions import RECONCILE_SESSIONS, SESSIONS, HITLSession
 from hathor.tools import HATHOR_TOOLS
-from hathor.tools.card_extraction import build_stub_output
+from hathor.tools.card_extraction import build_stub_output, extract_card
 
 MODEL = os.environ.get("HATHOR_MODEL", "claude-opus-4-7")
 MCP_SERVER_NAME = "hathor"
@@ -154,7 +156,9 @@ def _validate_image_path(raw: str) -> pathlib.Path:
       back inside CARDS_DIR — cheap to be strict here).
     - Paths that resolve outside CARDS_DIR.
 
-    The file does not need to exist — the extraction tool is still stubbed.
+    Existence is checked downstream by the vision extractor — a missing
+    file surfaces as a FileNotFoundError that the SSE generator converts
+    to an `error` event.
     """
     if not isinstance(raw, str) or not raw:
         _log.info("rejected image_path (empty) raw=%r", raw)
@@ -516,8 +520,16 @@ def _parse_tool_result_content(content: str | list | None) -> dict:
 
 
 async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
-    """Run the agent and yield SSE-formatted event bytes."""
+    """Run the agent and yield SSE-formatted event bytes.
+
+    Emits a ``timing_summary`` SSE event right before ``run_complete`` with
+    a per-stage breakdown so we can see where wall-clock time actually
+    goes (vision call, agent turns, per-tool ms, parallelism signal,
+    emit_recommendations retry count). All values are observed — nothing
+    in the agent's behaviour changes.
+    """
     active_model = req.model or MODEL
+    t_agent_start = time.perf_counter()
     # Emit agent_start immediately — before any setup — so the browser gets
     # a response within milliseconds of the request arriving.
     yield _sse("agent_start", {"model": active_model, "tools": len(HATHOR_TOOLS)})
@@ -540,22 +552,60 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
     final_plan_text: list[str] = []
     result_message: ResultMessage | None = None
 
+    # ── Timing instrumentation ─────────────────────────────────────────
+    # Per-tool start timestamps keyed by tool_use_id, resolved when the
+    # matching ToolResultBlock arrives. Aggregated into per-tool ms lists
+    # for the timing_summary at the end.
+    tool_start_ts: dict[str, float] = {}
+    tool_ms_by_name: dict[str, list[float]] = defaultdict(list)
+    # Per-turn parallelism signal: how many tool_use blocks the model
+    # emitted in each assistant turn. >1 means the model batched calls.
+    tool_uses_per_turn: list[int] = []
+    # First-byte timings — useful for diagnosing whether the agent is
+    # spending its budget thinking before emitting any tool call.
+    t_first_thinking: float | None = None
+    t_first_tool_use: float | None = None
+    t_last_tool_result: float | None = None
+    thinking_block_count = 0
+    thinking_chars = 0
+    assistant_turn_count = 0
+    emit_recs_call_count = 0
+    emit_recs_retry_count = 0  # incomplete_emission errors that forced a retry
+    emit_recs_tool_name = f"mcp__{MCP_SERVER_NAME}__emit_recommendations"
+
     try:
         async with ClaudeSDKClient(options) as client:
             await client.query(_build_prompt(req))
 
             async for message in client.receive_messages():
                 if isinstance(message, AssistantMessage):
+                    assistant_turn_count += 1
                     has_tool_use = any(isinstance(b, ToolUseBlock) for b in message.content)
+                    tool_uses_in_turn = sum(
+                        1 for b in message.content if isinstance(b, ToolUseBlock)
+                    )
+                    if tool_uses_in_turn:
+                        tool_uses_per_turn.append(tool_uses_in_turn)
 
                     for block in message.content:
                         if isinstance(block, ThinkingBlock):
+                            now = time.perf_counter()
+                            if t_first_thinking is None:
+                                t_first_thinking = now
+                            thinking_block_count += 1
+                            thinking_chars += len(block.thinking or "")
                             yield _sse("thinking", {"text": block.thinking})
 
                         elif isinstance(block, ToolUseBlock):
                             tool_index += 1
                             tool_id_to_index[block.id] = tool_index
                             tool_id_to_name[block.id] = block.name
+                            now = time.perf_counter()
+                            tool_start_ts[block.id] = now
+                            if t_first_tool_use is None:
+                                t_first_tool_use = now
+                            if block.name == emit_recs_tool_name:
+                                emit_recs_call_count += 1
                             yield _sse(
                                 "tool_use",
                                 {
@@ -581,6 +631,30 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
                                 idx = tool_id_to_index.get(block.tool_use_id, 0)
                                 tool_name = tool_id_to_name.get(block.tool_use_id, "")
                                 result_data = _parse_tool_result_content(block.content)
+                                # Per-tool timing: from tool_use to tool_result.
+                                # Note: when the model batches multiple tool_use
+                                # blocks in one turn, the SDK runs them
+                                # concurrently — the per-call ms here is
+                                # wall-clock for that call, not "queue + run".
+                                t_use = tool_start_ts.pop(block.tool_use_id, None)
+                                if t_use is not None:
+                                    elapsed_ms = (time.perf_counter() - t_use) * 1000
+                                    short_name = tool_name.removeprefix(
+                                        f"mcp__{MCP_SERVER_NAME}__"
+                                    ) or tool_name
+                                    tool_ms_by_name[short_name].append(elapsed_ms)
+                                t_last_tool_result = time.perf_counter()
+                                # Detect emit_recommendations retries: the tool
+                                # itself returns text content with
+                                # "error":"incomplete_emission" when the agent
+                                # missed a required antigen. The retry forces a
+                                # second model turn → measurable latency.
+                                if (
+                                    tool_name == emit_recs_tool_name
+                                    and isinstance(result_data, dict)
+                                    and result_data.get("error") == "incomplete_emission"
+                                ):
+                                    emit_recs_retry_count += 1
                                 yield _sse(
                                     "tool_result",
                                     {
@@ -628,6 +702,83 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
     if final_plan_text:
         yield _sse("final_plan", {"markdown": "\n".join(final_plan_text)})
 
+    # ── Timing summary ─────────────────────────────────────────────────
+    # Single source of truth for "where did the time actually go." The
+    # frontend can render this; the server log gets the same numbers via
+    # _log.info so we have an offline trace without scraping SSE.
+    from hathor.tools import card_extraction as _card_extraction
+
+    t_agent_end = time.perf_counter()
+    agent_total_ms = (t_agent_end - t_agent_start) * 1000
+    final_synthesis_ms: float | None = None
+    if t_last_tool_result is not None:
+        final_synthesis_ms = (t_agent_end - t_last_tool_result) * 1000
+
+    def _ms_summary(values: list[float]) -> dict:
+        if not values:
+            return {"count": 0, "total_ms": 0.0}
+        return {
+            "count": len(values),
+            "total_ms": round(sum(values), 1),
+            "min_ms": round(min(values), 1),
+            "max_ms": round(max(values), 1),
+            "avg_ms": round(sum(values) / len(values), 1),
+        }
+
+    per_tool = {name: _ms_summary(v) for name, v in tool_ms_by_name.items()}
+    parallel_turns = [n for n in tool_uses_per_turn if n > 1]
+    serial_turns = [n for n in tool_uses_per_turn if n == 1]
+
+    timing_summary = {
+        "agent_total_ms": round(agent_total_ms, 1),
+        "vision_call_ms": (
+            round(_card_extraction.LAST_VISION_CALL_MS, 1)
+            if _card_extraction.LAST_VISION_CALL_MS is not None
+            else None
+        ),
+        "ttft_thinking_ms": (
+            round((t_first_thinking - t_agent_start) * 1000, 1)
+            if t_first_thinking is not None
+            else None
+        ),
+        "ttft_tool_use_ms": (
+            round((t_first_tool_use - t_agent_start) * 1000, 1)
+            if t_first_tool_use is not None
+            else None
+        ),
+        "final_synthesis_ms": (
+            round(final_synthesis_ms, 1) if final_synthesis_ms is not None else None
+        ),
+        "assistant_turn_count": assistant_turn_count,
+        "thinking_block_count": thinking_block_count,
+        "thinking_chars": thinking_chars,
+        "tool_call_count": tool_index,
+        "tool_uses_per_turn": tool_uses_per_turn,
+        "parallel_turn_count": len(parallel_turns),
+        "serial_turn_count": len(serial_turns),
+        "max_parallel_in_a_turn": max(tool_uses_per_turn) if tool_uses_per_turn else 0,
+        "emit_recs_call_count": emit_recs_call_count,
+        "emit_recs_retry_count": emit_recs_retry_count,
+        "per_tool_ms": per_tool,
+    }
+    _log.info(
+        "timing: agent=%.0fms vision=%s turns=%d tools=%d parallel_turns=%d "
+        "emit_retries=%d thinking_blocks=%d thinking_chars=%d "
+        "ttft_thinking=%s ttft_tool=%s final_synth=%s",
+        agent_total_ms,
+        timing_summary["vision_call_ms"],
+        assistant_turn_count,
+        tool_index,
+        len(parallel_turns),
+        emit_recs_retry_count,
+        thinking_block_count,
+        thinking_chars,
+        timing_summary["ttft_thinking_ms"],
+        timing_summary["ttft_tool_use_ms"],
+        timing_summary["final_synthesis_ms"],
+    )
+    yield _sse("timing_summary", timing_summary)
+
     stats: dict = {"tool_call_count": tool_index}
     if result_message:
         if result_message.usage:
@@ -638,6 +789,9 @@ async def _stream_agent(req: ReconcileRequest) -> AsyncGenerator[bytes, None]:
         if result_message.total_cost_usd is not None:
             stats["cost_usd"] = result_message.total_cost_usd
 
+    # Echo the wall-clock total into run_complete too — handy for the
+    # legacy SSE consumers that don't read timing_summary.
+    stats["agent_total_ms"] = round(agent_total_ms, 1)
     yield _sse("run_complete", stats)
 
 
@@ -674,7 +828,10 @@ async def _card_reconciliation_stream(
     endpoint function so tests can drive it directly. Validation lives in
     the endpoint (so HTTP 400 is emitted before the generator starts)."""
     try:
-        extraction = build_stub_output(str(validated_path))
+        extraction = await extract_card(str(validated_path))
+    except FileNotFoundError as exc:
+        yield _sse("error", {"message": f"extraction failed: {exc}"})
+        return
     except Exception as exc:
         yield _sse("error", {"message": f"extraction failed: {exc}"})
         return
@@ -924,4 +1081,17 @@ async def validate_schedule(req: ValidateScheduleRequest) -> list[dict]:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "model": MODEL}
+    """Liveness probe + vision-mode signal.
+
+    `vision` reports whether ``extract_card`` will hit the real Anthropic
+    vision API ("live") or the deterministic stub ("stub"). It mirrors the
+    same env-var logic the extractor uses, without leaking the key value.
+    """
+    from hathor.tools.card_extraction import _should_use_stub, VISION_MODEL
+    vision_mode = "stub" if _should_use_stub() else "live"
+    return {
+        "status": "ok",
+        "model": MODEL,
+        "vision": vision_mode,
+        "vision_model": VISION_MODEL if vision_mode == "live" else None,
+    }
