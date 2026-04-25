@@ -594,19 +594,13 @@ export default function ScanPage() {
               />
             </Field>
             <Field label="Card from">
-              <input
-                list="hathor-source-countries"
+              <CountryCombobox
                 value={sourceCountry}
+                onChange={setSourceCountry}
                 disabled={running}
                 placeholder="e.g. Pakistan, Iraq, Yemen…"
-                onChange={(e) => setSourceCountry(e.target.value)}
-                style={inputStyle}
+                options={SUGGESTED_COUNTRIES}
               />
-              <datalist id="hathor-source-countries">
-                {SUGGESTED_COUNTRIES.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
             </Field>
             <Field label="Reconciling against">
               <input
@@ -969,6 +963,162 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+// ── Country combobox ─────────────────────────────────────────────────────────
+// Opens reliably on click, filters as the user types, and still allows
+// free-text values that aren't in the suggested list. Replaces a native
+// <input list> + <datalist>, which Chrome filters to empty when the input
+// already contains an exact match.
+
+function CountryCombobox({
+  value,
+  onChange,
+  options,
+  disabled,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const trimmed = value.trim().toLowerCase();
+  const exactMatch = options.some((o) => o.toLowerCase() === trimmed);
+  const filtered = useMemo(() => {
+    if (!trimmed || exactMatch) return options;
+    return options.filter((o) => o.toLowerCase().includes(trimmed));
+  }, [options, trimmed, exactMatch]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const pick = (v: string) => {
+    onChange(v);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        type="text"
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+          setHighlight(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+            setHighlight((h) => Math.min(filtered.length - 1, h + 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHighlight((h) => Math.max(0, h - 1));
+          } else if (e.key === "Enter" && open && filtered[highlight]) {
+            e.preventDefault();
+            pick(filtered[highlight]);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        aria-controls="hathor-country-listbox"
+        style={{ ...inputStyle, paddingRight: 30 }}
+      />
+      <span
+        aria-hidden
+        onClick={() => {
+          if (disabled) return;
+          setOpen((o) => !o);
+        }}
+        style={{
+          position: "absolute",
+          right: 10,
+          top: "50%",
+          transform: "translateY(-50%)",
+          pointerEvents: disabled ? "none" : "auto",
+          color: C.mute,
+          fontSize: 10,
+          cursor: disabled ? "default" : "pointer",
+          userSelect: "none",
+        }}
+      >
+        ▼
+      </span>
+      {open && filtered.length > 0 && (
+        <ul
+          id="hathor-country-listbox"
+          role="listbox"
+          style={{
+            position: "absolute",
+            zIndex: 20,
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            margin: 0,
+            padding: 4,
+            listStyle: "none",
+            background: C.card,
+            border: `1px solid ${C.rule}`,
+            borderRadius: 6,
+            boxShadow: "0 6px 20px rgba(15, 23, 42, 0.08)",
+            maxHeight: 240,
+            overflowY: "auto",
+            fontFamily: F.sans,
+            fontSize: 14,
+          }}
+        >
+          {filtered.map((c, i) => {
+            const active = i === highlight;
+            const selected = c.toLowerCase() === trimmed;
+            return (
+              <li
+                key={c}
+                role="option"
+                aria-selected={selected}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(c);
+                }}
+                onMouseEnter={() => setHighlight(i)}
+                style={{
+                  padding: "7px 10px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  background: active ? C.tealWash : "transparent",
+                  color: C.ink,
+                  fontWeight: selected ? 600 : 400,
+                }}
+              >
+                {c}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
