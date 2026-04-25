@@ -34,6 +34,7 @@ import {
   type CountrySchedule,
   type ScheduleDose,
 } from "@/lib/schedule-diff";
+import { COUNTRIES } from "@/lib/countries";
 import type { ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 
 // ── Palette: safe-triage clinical + Pharos warmth ───────────────────────────
@@ -94,15 +95,48 @@ interface TrailItem {
 }
 
 // ── Country options ─────────────────────────────────────────────────────────
+//
+// Source picker is registry-backed (lib/countries.ts is the source of
+// truth). Order: Egypt first because the Egyptian MoHP card is the one
+// with a per-row ROI template + clinician-reviewed schedule; then the
+// UNHCR-Egypt top-5 source populations the demo narrates; then Nigeria
+// (Phase 1 reference profile, kept for the Amina Bello card); then the
+// generic WHO 6/10/14 baseline for any other origin. The card_language
+// hint is the first registry language whose code the API accepts —
+// non-{en,ar,fr,mixed} languages (am, ti) fall back to "mixed", which
+// the model treats as "read the card as shown".
+
+const SCAN_API_LANGS = new Set(["en", "ar", "fr", "mixed"]);
+const SCAN_SOURCE_ORDER = [
+  "EG",
+  "SD",
+  "SY",
+  "SS",
+  "ER",
+  "ET",
+  "NG",
+  "WHO",
+] as const;
 
 const SOURCE_COUNTRIES: Array<{
   code: string;
   name: string;
   cardLanguage: "en" | "ar" | "fr" | "mixed";
-}> = [
-  { code: "NG", name: "Nigeria",  cardLanguage: "en" },
-  { code: "EG", name: "Egypt",    cardLanguage: "ar" },
-];
+}> = SCAN_SOURCE_ORDER.map((code) => {
+  const profile = COUNTRIES[code];
+  const firstAcceptedLang = profile.cardLanguages.find((l) =>
+    SCAN_API_LANGS.has(l),
+  );
+  return {
+    code,
+    name: profile.name,
+    cardLanguage: (firstAcceptedLang ?? "mixed") as
+      | "en"
+      | "ar"
+      | "fr"
+      | "mixed",
+  };
+});
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -259,9 +293,18 @@ export default function ScanPage() {
               `Opus 4.7 · whole-image pass`,
             );
           } else if (data.kind === "vision_done") {
+            // Whole-image pass is one of several extraction paths. On
+            // dense Eastern-Arabic tables it commonly returns 0 rows
+            // and the per-cell ROI cascade or template-inference fills
+            // them in afterwards — so we narrate it as a stage result,
+            // not a final count.
             updateStep(
               "vision",
-              `${data.rows} row${data.rows === 1 ? "" : "s"} extracted`,
+              data.rows === 0
+                ? "Whole-image pass returned no rows; will retry per cell"
+                : `Whole-image pass · ${data.rows} row${
+                    data.rows === 1 ? "" : "s"
+                  }`,
             );
           } else if (data.kind === "template") {
             const friendly = templateLabel(data.id);
@@ -285,7 +328,11 @@ export default function ScanPage() {
           } else if (data.kind === "status") {
             startStep(`status-${ev.type}`, data.label, data.detail);
           } else if (data.kind === "result") {
-            startStep("done", "Reconciling against the destination schedule");
+            const n = data.body.rows.length;
+            startStep(
+              "done",
+              `Reconciling ${n} dose${n === 1 ? "" : "s"} against the destination schedule`,
+            );
             setParsed(data.body);
           } else if (data.kind === "error") {
             setError(data.message);
