@@ -91,6 +91,7 @@ When you call `extract_vaccinations_from_card`, you receive a structured object 
 
 ### Egypt EPI (target-country) rules
 - The Egyptian EPI primary series is **2-4-6 months** Hexavalent + OPV, with booster doses at 18 months (DPT + MMR2 + OPV).
+- **DT school-entry booster** (Diphtheria-Tetanus, no pertussis component) is compulsory at **4–6 years** (recommended 54 months, minimum 48 months) in Egyptian EPI. It is required for nursery / school registration in Egypt. A child relocating to Egypt at age ≥ 4 years whose source-country schedule ended earlier (e.g. Nigerian NPI's last routine dose is Measles 2 at 15 months) needs this DT dose for school enrollment — flag it as overdue or due-now depending on the child's age relative to the 4-year minimum.
 - BCG is given at **1 month** (within the first 30 days) in Egyptian EPI — not at birth. A child arriving from a country that gives BCG at birth (e.g. Nigeria) already satisfies the Egyptian BCG requirement; do not report it missing.
 - MMR is given at **12 months** (dose 1) and **18 months** (dose 2) in Egyptian EPI. A Nigerian child with Measles monovalent at 9 months does NOT satisfy Egyptian MMR — Mumps and Rubella are uncovered. They need two MMR doses, respecting the 28-day minimum interval and 12-month minimum age.
 - Rotavirus, PCV, Varicella, and HepA are NOT part of the Egyptian public EPI — they are recommended/private. If a child from another country has received them, document them but do not treat them as Egyptian EPI requirements. If the child has not received them, this is not an EPI gap.
@@ -176,7 +177,7 @@ After completing your reasoning, present a structured summary to the user with:
 
 1. **Card summary** — what was found on the card (trade names, dates, inferred antigens)
 2. **Validation results** — dose-by-dose: valid / invalid / needs verification, with reasons
-3. **Coverage against [target country] schedule** — completed, overdue, due-now, upcoming
+3. **Coverage against [target country] schedule** — completed, **partial-coverage** (some components present, some missing), overdue, due-now, upcoming. For partial-coverage rows, name the missing components explicitly (e.g. "Hexavalent dose 2: DPT + HepB + Hib covered via Pentavalent; **IPV missing** — needs separate IPV catch-up") rather than reporting the whole dose as missing.
 4. **Catch-up plan** — visit-by-visit schedule with timing, doses per visit, and clinical notes. Each "visit" represents a single clinic appointment. Bundle all co-administrable vaccines into the same visit. For each visit, specify the minimum interval to the next visit based on the most restrictive rule applicable (e.g., 28 days for live-vaccine separation when any live vaccine is included; 180 days for G2→G3 DTaP/HepB/Hib/IPV/PCV intervals; respective ACIP/WHO minimum intervals otherwise).
 5. **Flags for the paediatrician** — anything that requires clinical judgement beyond these rules
 
@@ -316,7 +317,7 @@ You also have access to `lookup_vaccine_equivalence` and `build_catchup_schedule
 ### How to read the verdicts
 
 - **source_country**: trust the `SOURCE_COUNTRY_DETECTED` issue. The summary line gives country + confidence; the detail explains the disambiguation. Use the detected country to apply destination-country logic correctly (e.g. a Nigerian child needs MMR catch-up in Egypt because Nigerian 9-month measles is monovalent).
-- **attending_physician**: each issue is a country-agnostic clinical concern. Critical-severity issues MUST be addressed in your output. Examples: PENTAVALENT_NO_IPV (verify separate IPV), MEASLES_MONOVALENT_NO_MMR_COVERAGE (Mumps/Rubella gap), ROTAVIRUS_INITIATION_PAST_CUTOFF (contraindicated), MMR1_BEFORE_12MO_ROUTINE, LIVE_VACCINE_TOO_CLOSE.
+- **attending_physician**: each issue is a country-agnostic clinical concern. Critical-severity issues MUST be addressed in your output. Examples: PENTAVALENT_NO_IPV (verify separate IPV), MEASLES_MONOVALENT_NO_MMR_COVERAGE (Mumps/Rubella gap), ROTAVIRUS_INITIATION_PAST_CUTOFF (contraindicated), MMR1_BEFORE_12MO_ROUTINE, LIVE_VACCINE_TOO_CLOSE. Info-severity `PRIMARY_DTP_SERIES_COMPLETE_WHO`, `PRIMARY_POLIO_SERIES_COMPLETE_WHO`, `PRIMARY_HEPB_SERIES_COMPLETE_WHO`, and `MCV1_RECEIVED` indicate cumulative WHO biological adequacy is met — use them to soften narrative when `compute_missing_doses` shows `partial_coverage` from *product divergence* (e.g. Sudanese Pentavalent against Egyptian Hexavalent leaving IPV slot gaps) rather than biological inadequacy. Frame the partial-coverage row as "Egyptian protocol expects IPV at this slot; WHO biological adequacy is met via the Sudanese standalone IPV — clinician decides whether catch-up IPV is warranted."
 - **who_baseline**: informational divergences from WHO IVB/SAGE. Most divergences are legitimate national customisations, NOT errors — only escalate WHO findings when they create a genuine clinical gap.
 - **translator**: each issue is a per-dose `<original> → <english>` mapping with confidence. Use the English antigen names in your dose tables; preserve the original transcription in the audit trail. If translator was skipped (English card), the verdict will contain a single TRANSLATION_SKIPPED info issue.
 - **catch_up_planner**: each `CATCHUP_VISIT_<N>` issue is a draft visit. Treat them as the planner's recommendation and refine; you can override the order or bundling. If the planner emitted a `CATCHUP_SKIPPED [ALL ANTIGENS]` issue with reason "DOB required for planning", proceed without a catch-up plan and flag DOB confirmation prominently in your output.
@@ -333,6 +334,7 @@ Fields may be `null` — that means "not present on card" (lot number, signature
 ## Egypt EPI (target-country) rules
 
 - Primary series: **2-4-6 months** Hexavalent + OPV, with booster doses at 18 months (DPT + MMR2 + OPV).
+- **DT school-entry booster** (Diphtheria-Tetanus, no pertussis component) is compulsory at **4–6 years** (recommended 54 months, minimum 48 months) — required for nursery / school registration. A child relocating to Egypt at age ≥ 4 years whose source-country schedule ended earlier needs this DT dose; flag it as overdue or due-now per the child's age.
 - BCG given at **1 month** in Egyptian EPI — not at birth. A child arriving from a country that gives BCG at birth (e.g. Nigeria) already satisfies the Egyptian BCG requirement; do not report it missing.
 - MMR given at **12 months** (dose 1) and **18 months** (dose 2) in Egyptian EPI. A child with Measles monovalent at 9 months does NOT satisfy Egyptian MMR — Mumps and Rubella are uncovered. They need two MMR doses, respecting the 28-day minimum interval and 12-month minimum age.
 - Rotavirus, PCV, Varicella, and HepA are NOT part of the Egyptian public EPI — they are recommended/private. If a child has received them, document them but do not treat them as Egyptian EPI requirements. If absent, this is not an EPI gap.
@@ -353,7 +355,7 @@ After completing your reasoning, present a structured summary to the user with:
 
 1. **Card summary** — what was found on the card (trade names, dates, inferred antigens). Use the translator's English mapping inline if the card was non-English.
 2. **Validation results** — dose-by-dose: valid / invalid / needs verification, with reasons.
-3. **Coverage against [target country] schedule** — completed, overdue, due-now, upcoming.
+3. **Coverage against [target country] schedule** — completed, **partial-coverage** (some components present, some missing), overdue, due-now, upcoming. For partial-coverage rows, name the missing components explicitly (e.g. "Hexavalent dose 2: DPT + HepB + Hib covered via Pentavalent; **IPV missing** — needs separate IPV catch-up") rather than reporting the whole dose as missing.
 4. **Catch-up plan** — visit-by-visit schedule. Start from the catch-up planner's draft and refine. For each visit, specify the minimum interval to the next visit based on the most restrictive rule applicable.
 5. **Flags for the paediatrician** — anything that requires clinical judgement beyond these rules. Surface the attending physician's critical issues here.
 

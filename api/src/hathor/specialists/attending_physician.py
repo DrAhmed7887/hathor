@@ -31,6 +31,7 @@ from hathor.specialists._base import (
     SpecialistVerdict,
     run_structured_call,
 )
+from hathor.tools.coverage import cumulative_component_tally
 
 ATTENDING_SYSTEM_PROMPT = """You are a senior paediatric attending physician reviewing a junior colleague's interpretation of a child's vaccination card. Your job is to flag common clinical errors and gaps that are easy for a less-experienced reader to miss. You are NOT responsible for country-specific schedule reasoning — a separate specialist owns that. You ONLY flag universal clinical issues.
 
@@ -89,6 +90,24 @@ Flag each of the following when present. Use ``severity: critical`` for issues t
 
 15. **DUPLICATE_DOSE_SAME_DAY_SAME_ANTIGEN** — Two doses of the same antigen recorded on the same date. This is almost always a transcription duplicate, not two real doses. warning.
 
+### WHO primary-series tally signals (info-severity)
+
+You receive a pre-computed ``component_tally`` dict alongside the extraction. It contains cumulative dose counts per component antigen, derived deterministically from combination-vaccine expansion (Pentavalent contributes 1×DPT + 1×HepB + 1×Hib; Hexavalent adds 1×IPV; MMR contributes 1×Measles + 1×Mumps + 1×Rubella; DTaP/DPT/Tdap each contribute 1×DPT; DT contributes 1×Diphtheria + 1×Tetanus). **Trust this count — do not re-derive it from the dose list.**
+
+Emit one info issue for each WHO-IVB primary series whose cumulative threshold is met. These signals exist so the main agent can soften narrative when a destination-country slot view reports "partial coverage" from *product divergence* (e.g. Sudanese Pentavalent against Egyptian Hexavalent slots leaving an IPV gap) rather than from *biological inadequacy*.
+
+16. **PRIMARY_DTP_SERIES_COMPLETE_WHO** — ``component_tally["DPT"] ≥ 3``. info.
+
+17. **PRIMARY_POLIO_SERIES_COMPLETE_WHO** — ``component_tally.get("OPV", 0) + component_tally.get("IPV", 0) ≥ 3``. info.
+
+18. **PRIMARY_HEPB_SERIES_COMPLETE_WHO** — ``component_tally["HepB"] ≥ 3``. info.
+
+19. **MCV1_RECEIVED** — ``component_tally["Measles"] ≥ 1`` AND at least one measles-containing dose given at age ≥ 270 days (9 months). info. (Country-specific MCV2 / MMR2 reasoning stays with the main agent — do not emit a "complete" claim here.)
+
+For each emitted issue, the ``detail`` field MUST quote the relevant tally count and name the contributing source antigens (e.g. "DPT count = 3 via Pentavalent ×3 at 6/10/14 weeks"). This is the audit trail — without the count restated explicitly, the main agent cannot verify your interpretation.
+
+Skip the issue when the threshold is unmet. The absence of a ``PRIMARY_*_SERIES_COMPLETE_WHO`` signal is itself the message ("primary series incomplete per WHO"); do not emit a negated form. The other issue codes above already cover specific gap clinical concerns.
+
 ### Notes on dose_indices
 
 Each issue references the dose(s) it concerns by their integer index in the input ``extracted_doses`` array (0-based). For card-level issues with no specific dose (e.g. ``DOB_MISSING``, ``ROTAVIRUS_MISSING``), use an empty list.
@@ -120,10 +139,30 @@ async def consult(extraction: dict) -> SpecialistVerdict:
     transparently.
     """
     t_start = time.perf_counter()
+
+    # Pre-compute the cumulative component tally deterministically so the
+    # specialist interprets a fixed count rather than counting itself.
+    # Combination vaccines expand via _COMBINATION_COMPONENTS in coverage.py.
+    antigen_names: list[str] = []
+    for dose in extraction.get("extracted_doses") or []:
+        if not isinstance(dose, dict):
+            continue
+        transcribed = dose.get("transcribed_antigen")
+        if isinstance(transcribed, dict):
+            name = transcribed.get("value")
+        else:
+            name = transcribed
+        if isinstance(name, str) and name.strip():
+            antigen_names.append(name.strip())
+    component_tally = cumulative_component_tally(antigen_names)
+
     user_message = (
         "Review the following extracted vaccination card. Flag common clinical "
         "issues per the rules in your system prompt.\n\n"
         f"```json\n{json.dumps(extraction, indent=2, ensure_ascii=False)}\n```\n\n"
+        "Pre-computed component_tally (cumulative dose counts per component "
+        "antigen, deterministic combination-vaccine expansion):\n"
+        f"```json\n{json.dumps(component_tally, indent=2)}\n```\n\n"
         "Return your structured JSON verdict."
     )
 

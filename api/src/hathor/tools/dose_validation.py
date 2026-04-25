@@ -20,6 +20,8 @@ MIN_AGE_DAYS: dict[str, int] = {
     "Rotavirus": 42,  # 6 weeks; must COMPLETE series before 730 days (24 months)
     "BCG": 0,
     "HepA": 365,      # 12 months
+    "DT": 1460,       # 48 months — Egypt school-entry booster minimum age
+    "Td": 2555,       # 7 years — adolescent/adult Td booster minimum
 }
 
 # Maximum age for certain vaccines
