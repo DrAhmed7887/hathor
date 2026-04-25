@@ -1,0 +1,31 @@
+{
+  "name": "HATHOR-AGE-002 pass — agent emits 'DTP' which normalises to 'DPT' and is in scope",
+  "description": "Pertussis acronym-order variance ('DTP' vs 'DPT') stabilised by _normalize_pertussis at the rule layer. Without normalisation, 'DTP' would not appear in PHASE1_ANTIGENS and AGE-002 would fail.",
+  "context": {
+    "child_dob": "2025-01-01",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "DTP", "date_administered": "2025-03-12", "dose_number": 1}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "DTP",
+      "dose_number": 1,
+      "agent_rationale": "Verdict on DTP dose 1.",
+      "reasoning": "Agent emitted 'DTP'; engine normalises to canonical 'DPT'.",
+      "agent_confidence": 0.95,
+      "source_dose_indices": [0]
+    }
+  ],
+  "expects": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-AGE-002", "severity": "pass"}
+  ],
+  "forbids": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-AGE-002", "severity": "fail"}
+  ]
+}

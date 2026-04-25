@@ -1,0 +1,31 @@
+{
+  "name": "HATHOR-AGE-001 fail — Hexavalent dose 1 administered before 60-day minimum",
+  "description": "Hexavalent dose 1 at 45 days; Egypt minimum is 60 days; shortfall 15 days exceeds the 4-day grace.",
+  "context": {
+    "child_dob": "2025-01-01",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "Hexavalent", "date_administered": "2025-02-15", "dose_number": 1}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "Hexavalent",
+      "dose_number": 1,
+      "agent_rationale": "Verdict on Hexavalent dose 1.",
+      "reasoning": "Single Hexavalent dose 1 on file; check minimum age.",
+      "agent_confidence": 0.95,
+      "source_dose_indices": [0]
+    }
+  ],
+  "expects": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-AGE-001", "severity": "fail"}
+  ],
+  "forbids": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-DOSE-003"}
+  ]
+}

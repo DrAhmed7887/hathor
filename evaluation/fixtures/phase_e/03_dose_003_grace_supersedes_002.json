@@ -1,0 +1,43 @@
+{
+  "name": "HATHOR-DOSE-003 supersedes HATHOR-DOSE-002 — interval shortfall within 4-day grace",
+  "description": "Hex dose 1 at 63 days, Hex dose 2 at 116 days. Interval 53 days; Egypt minimum 56; shortfall 3 days within 4-day grace. DOSE-003 returns pass with supersedes='HATHOR-DOSE-002'; the engine must remove DOSE-002 from active and place it in superseded.",
+  "context": {
+    "child_dob": "2025-01-01",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "Hexavalent", "date_administered": "2025-03-05", "dose_number": 1},
+      {"antigen": "Hexavalent", "date_administered": "2025-04-27", "dose_number": 2}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "Hexavalent",
+      "dose_number": 2,
+      "agent_rationale": "Verdict on Hexavalent dose 2 — interval within ACIP grace.",
+      "reasoning": "Interval 53d vs 56d minimum; shortfall 3d.",
+      "agent_confidence": 0.95,
+      "source_dose_indices": [0, 1]
+    }
+  ],
+  "expects": [
+    {
+      "recommendation_id": "rec-1",
+      "rule_id": "HATHOR-DOSE-003",
+      "severity": "pass",
+      "supersedes": "HATHOR-DOSE-002"
+    },
+    {
+      "recommendation_id": "rec-1",
+      "rule_id": "HATHOR-DOSE-002",
+      "severity": "fail",
+      "in": "superseded"
+    }
+  ],
+  "forbids": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-DOSE-002", "severity": "fail"}
+  ]
+}

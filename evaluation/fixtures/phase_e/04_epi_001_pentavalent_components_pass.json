@@ -1,0 +1,29 @@
+{
+  "name": "HATHOR-EPI-001 pass — Pentavalent dose 1 satisfies DPT + HepB + Hib components",
+  "description": "Nigerian Pentavalent dose 1 at 70 days. EPI-001 falls back to ACIP/DAK component-maximum minimum age (max of DPT=42, HepB=0, Hib=42 = 42 days); 70 ≥ 42 → pass with rationale referencing 3 components.",
+  "context": {
+    "child_dob": "2025-01-01",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "Pentavalent", "date_administered": "2025-03-12", "dose_number": 1}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "Pentavalent",
+      "dose_number": 1,
+      "agent_rationale": "Pentavalent dose 1 — Nigerian 5-in-1.",
+      "reasoning": "Pentavalent dose 1 at 70 days; DPT/HepB/Hib components.",
+      "agent_confidence": 0.95,
+      "source_dose_indices": [0]
+    }
+  ],
+  "expects": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-EPI-001", "severity": "pass"}
+  ],
+  "forbids": []
+}

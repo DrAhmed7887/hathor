@@ -1,0 +1,36 @@
+{
+  "name": "HATHOR-AGE-003 override_required — Rotavirus gap, child past 105d, Nigerian source",
+  "description": "Friction-by-Design path. Child currently 137 days old (DOB 2025-12-09, current_date 2026-04-25), no Rotavirus dose on file, source country Nigeria (high-burden). Gap-mode signaled by source_dose_indices=[]. Expected: override_required with all three justification codes (HIGH_BURDEN_ORIGIN, OUTBREAK_CATCHUP, CLINICIAN_DETERMINED) presented.",
+  "context": {
+    "child_dob": "2025-12-09",
+    "target_country": "Egypt",
+    "source_country": "Nigeria",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "BCG", "date_administered": "2025-12-09", "dose_number": 1}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "Rotavirus",
+      "dose_number": 1,
+      "agent_rationale": "No Rotavirus on card; child past 15-week initiation cutoff.",
+      "reasoning": "Gap-mode evaluation: child 137d, no Rotavirus dose, Nigerian origin (high-burden).",
+      "agent_confidence": 0.92,
+      "source_dose_indices": []
+    }
+  ],
+  "expects": [
+    {
+      "recommendation_id": "rec-1",
+      "rule_id": "HATHOR-AGE-003",
+      "severity": "override_required",
+      "justification_codes_present": ["HIGH_BURDEN_ORIGIN", "OUTBREAK_CATCHUP", "CLINICIAN_DETERMINED"]
+    }
+  ],
+  "forbids": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-AGE-003", "severity": "fail"}
+  ]
+}

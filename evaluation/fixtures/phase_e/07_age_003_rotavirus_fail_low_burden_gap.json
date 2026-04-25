@@ -1,0 +1,31 @@
+{
+  "name": "HATHOR-AGE-003 fail — Rotavirus gap, child past 105d, non-high-burden source",
+  "description": "Same age and gap as fixture 06, but source country France (NOT in HIGH_BURDEN_COUNTRIES). Q6 policy: window closed, no catch-up indicated; severity=fail (standard override path), not override_required.",
+  "context": {
+    "child_dob": "2025-12-09",
+    "target_country": "Egypt",
+    "source_country": "France",
+    "current_date": "2026-04-25",
+    "confirmed_doses": [
+      {"antigen": "BCG", "date_administered": "2025-12-09", "dose_number": 1}
+    ]
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec-1",
+      "kind": "dose_verdict",
+      "antigen": "Rotavirus",
+      "dose_number": 1,
+      "agent_rationale": "No Rotavirus on card; child past 15-week initiation cutoff.",
+      "reasoning": "Gap-mode evaluation: child 137d, no Rotavirus dose, French origin (not high-burden).",
+      "agent_confidence": 0.92,
+      "source_dose_indices": []
+    }
+  ],
+  "expects": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-AGE-003", "severity": "fail"}
+  ],
+  "forbids": [
+    {"recommendation_id": "rec-1", "rule_id": "HATHOR-AGE-003", "severity": "override_required"}
+  ]
+}
