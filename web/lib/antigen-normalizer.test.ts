@@ -246,6 +246,65 @@ test("applyNormalizationsToRows: does not mutate input rows", () => {
   assert.equal(JSON.stringify(rows[0]), before);
 });
 
+test("normalizeAntigens: Measles monovalent passes through as Measles only (not MMR)", async () => {
+  // Clinical-safety regression: Nigeria's 9-month measles monovalent
+  // dose must NOT be silently re-labelled as MMR. The downstream
+  // catch-up logic for an Egyptian schedule treats these differently.
+  // The Haiku response below mirrors what the prompt instructs the
+  // model to emit; this test pins the coercion layer's behaviour
+  // when the model behaves correctly.
+  const client = mockClient({
+    stop_reason: "tool_use",
+    content: [
+      {
+        type: "tool_use",
+        input: {
+          mappings: [
+            { input: "Measles", canonical_antigens: ["Measles"] },
+            {
+              input: "MMR",
+              canonical_antigens: ["MMR", "Measles", "Mumps", "Rubella"],
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  const out = await normalizeAntigens({
+    labels: ["Measles", "MMR"],
+    client,
+  });
+
+  assert.deepEqual(out[0].canonical_antigens, ["Measles"]);
+  assert.equal(
+    out[0].canonical_antigens.includes("MMR"),
+    false,
+    "Measles must never expand to include MMR",
+  );
+  // MMR DOES expand to its components, including the combined code.
+  assert.ok(out[1].canonical_antigens.includes("MMR"));
+  assert.ok(out[1].canonical_antigens.includes("Measles"));
+  assert.ok(out[1].canonical_antigens.includes("Mumps"));
+  assert.ok(out[1].canonical_antigens.includes("Rubella"));
+});
+
+test("applyNormalizationsToRows: never overwrites the row's antigen text", () => {
+  // Even if the normalizer (or a future bug) returned bogus mappings,
+  // the row's `antigen` string — the field downstream clinical logic
+  // and Phase E read — must never be replaced. Normalization is
+  // additive; canonicalAntigens is a HINT, not a substitution.
+  const rows = [row("Measles")];
+  const out = applyNormalizationsToRows(rows, [
+    {
+      input: "Measles",
+      canonical_antigens: ["Measles"],
+    },
+  ]);
+  assert.equal(out[0].antigen, "Measles", "antigen text is preserved");
+  assert.deepEqual(out[0].canonicalAntigens, ["Measles"]);
+});
+
 test("CANONICAL_ANTIGENS contains the antigens Hathor's deterministic tool speaks", () => {
   // Spot check — the canonical list must include every antigen the
   // schedule engine and `lookup_vaccine_equivalence` produce. Drift
