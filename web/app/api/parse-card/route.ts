@@ -72,6 +72,10 @@ import {
   ROI_EXTRACTION_TOOL_NAME,
 } from "@/lib/roi-extraction-prompt";
 import { loadEgyptMohpTemplate } from "@/lib/templates/egypt-mohp";
+import {
+  applyNormalizationsToRows,
+  normalizeAntigens,
+} from "@/lib/antigen-normalizer";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -424,6 +428,8 @@ type ProgressEvent =
   | { kind: "roi_start"; total: number }
   | { kind: "roi_progress"; done: number; total: number }
   | { kind: "roi_done"; merged: number }
+  | { kind: "normalize_start"; labels: number; model: string }
+  | { kind: "normalize_done"; mapped: number; ms: number }
   | { kind: "result"; body: ParsedCardOutput }
   | { kind: "error"; message: string };
 
@@ -487,9 +493,15 @@ export async function POST(request: Request): Promise<Response> {
   // /scan UI uses this; legacy /demo POSTs without it and gets JSON.
   // ?fast=1 skips the per-row ROI cascade for ~3× speedup at minor
   // accuracy cost on Egypt MoHP cards. Whole-image vision still runs.
+  // ?normalize=1 (or HATHOR_ANTIGEN_NORMALIZER=1) enables the Haiku-4.5
+  // sub-agent that maps trade names to canonical antigens. CrossBeam-style
+  // task-specific model; opt-in for last-day demo safety.
   const url = new URL(request.url);
   const wantStream = url.searchParams.get("stream") === "1";
   const fastMode = url.searchParams.get("fast") === "1";
+  const normalizeMode =
+    url.searchParams.get("normalize") === "1" ||
+    process.env.HATHOR_ANTIGEN_NORMALIZER === "1";
 
   // Read the blob into a base64 string for the Messages API image block.
   const arrayBuf = await file.arrayBuffer();
@@ -773,13 +785,60 @@ export async function POST(request: Request): Promise<Response> {
           )
         : {};
 
-    const visits = buildVisits(finalizedRows, templateAgeLabels);
+    // Haiku-4.5 antigen normalizer — CrossBeam-style sub-agent. Runs
+    // on every row's transcribed antigen and attaches `canonicalAntigens`.
+    // Opt-in (?normalize=1 or HATHOR_ANTIGEN_NORMALIZER=1) so a flaky
+    // Haiku call cannot break the demo path. Failures are caught and
+    // ignored — rows still flow downstream without the field.
+    let rowsWithCanonical = finalizedRows;
+    if (normalizeMode && finalizedRows.length > 0) {
+      const labels = Array.from(
+        new Set(finalizedRows.map((r) => r.antigen).filter((a) => !!a)),
+      );
+      if (labels.length > 0) {
+        emit({
+          kind: "normalize_start",
+          labels: labels.length,
+          model:
+            process.env.HATHOR_NORMALIZER_MODEL ?? "claude-haiku-4-5-20251001",
+        });
+        const t0 = Date.now();
+        try {
+          const normalizations = await normalizeAntigens({
+            labels,
+            client,
+          });
+          rowsWithCanonical = applyNormalizationsToRows(
+            finalizedRows,
+            normalizations,
+          );
+          const mapped = normalizations.filter(
+            (n) => n.canonical_antigens.length > 0,
+          ).length;
+          emit({
+            kind: "normalize_done",
+            mapped,
+            ms: Date.now() - t0,
+          });
+        } catch (normErr) {
+          const reason =
+            normErr instanceof Error ? normErr.message : String(normErr);
+          emit({
+            kind: "status",
+            label: "Antigen normalizer fallback",
+            detail: reason,
+          });
+        }
+      }
+    }
+
+    const visits = buildVisits(rowsWithCanonical, templateAgeLabels);
 
     const orientationWarning = documentIntelligence?.orientation_warning ?? null;
     const orientation_acknowledged = orientationWarning === null;
 
     const body: ParsedCardOutput = {
-      rows: finalizedRows,
+      rows: rowsWithCanonical,
       visits,
       orientation_acknowledged,
       audit_log: [],

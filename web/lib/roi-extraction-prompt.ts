@@ -20,6 +20,17 @@ Your only job: report what is written in this single cell. Do NOT infer from any
 
 If the cell is blank, illegible, or clearly not a date, return blank_or_illegible=true and confidence below 0.4. Never use blank_or_illegible to mean "I'm unsure but here's a guess" — return your best read with low confidence in that case instead.
 
+Arabic-digit calibration. Egyptian MoHP cards mix Western (0-9) and Eastern Arabic (٠١٢٣٤٥٦٧٨٩) digits, often in the same handwritten date. Because this crop is a single isolated cell, you do NOT have surrounding row context to cross-check against — be MORE cautious than usual:
+  ٣ (3) vs ١ (1) — similar vertical stroke. When you cannot tell, set
+                   confidence ≤ 0.5 and name both candidates in
+                   reasoning_if_uncertain (e.g. "year digit reads ٣ or
+                   ١; ambiguous between 2021 and 2023").
+  ٢ (2) vs ٧ (7) — sloppy handwriting can invert these shapes. Same
+                   rule: state both candidates, lower confidence.
+  ٠ (0) vs Western 0 — visually similar; do NOT downgrade for this
+                   alone, but preserve the original character in raw_text.
+A stamp, ink bleed, or a redaction box overlapping a digit also caps confidence at ≤ 0.6 — say so explicitly in reasoning_if_uncertain. Do NOT silently commit to one interpretation when the digit is genuinely ambiguous.
+
 Tool: ${ROI_EXTRACTION_TOOL_NAME}.
 
 Fields:
