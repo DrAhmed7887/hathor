@@ -19,8 +19,9 @@
   "context_note": "In cross-border reconciliation into Egypt, NPI-compulsory doses are the reliable signal on a Nigerian card. Yellow Fever and Meningococcal A doses are NPI-routine in Nigeria but are not on the Egyptian schedule — these remain as Nigerian-only antigens and should be preserved on the record but not counted as 'missing' for Egypt.",
   "key_differences_vs_egypt": [
     "Nigeria uses 6/10/14-week WHO-aligned primary series; Egypt uses 2/4/6-month series",
-    "Nigeria uses Pentavalent (DTPw-Hib-HepB, 5-in-1, no IPV); Egypt uses Hexavalent (6-in-1, includes IPV)",
-    "Nigeria gives separate IPV at 14 weeks; Egypt's IPV is bundled in Hexavalent",
+    "Both Nigeria and Egypt use Pentavalent (DTPw + HepB + Hib) in public EPI; component-equivalence on those visits is straightforward. Egypt private practice may substitute Hexavalent (Hexyon / Infanrix Hexa) which adds IPV in the same shot.",
+    "Polio: Nigeria gives OPV 0/1/2/3 + a single IPV at 14 weeks. Egypt gives OPV at birth/2/4/6/9/12/18 months + a single IPV at 4 months only. The IPV count matches (one each) but the visit alignment differs.",
+    "HepB birth dose: Egypt mandates a discrete day-1 HepB dose (كبدي ب رضع); Nigeria's NPI does not include a routine HepB birth dose, so Nigerian cards typically do not satisfy Egypt's birth-dose requirement even when the full Pentavalent series is documented.",
     "Nigeria gives Measles monovalent at 9 months; Egypt gives MMR at 12 months",
     "Nigeria has routine Rotavirus (Rota1 6w, Rota2 10w) in NPI; Egypt does not",
     "Nigeria has routine PCV13 (6/10/14w) in NPI; Egypt PCV is recommended/private only",

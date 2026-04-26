@@ -1,23 +1,25 @@
 {
   "country": "Egypt",
   "country_code": "EGY",
-  "source": "Egypt Ministry of Health and Population (MoHP) Expanded Programme on Immunization (EPI); WHO EMRO Egypt country programme; UNICEF Egypt",
+  "source": "Egypt Ministry of Health and Population (MoHP) child vaccination card (التطعيمات الأساسية للطفل); WHO EMRO Egypt country programme; UNICEF Egypt",
   "source_urls": [
+    "docs/sources/egypt_mohp_child_vaccination_card.pdf",
     "https://www.emro.who.int/egy/programmes/expanded-programme-on-immunization.html",
     "https://www.unicef.org/egypt/vaccines",
-    "https://immunizationdata.who.int/dashboard/regions/eastern-mediterranean-region/EGY",
-    "https://pubmed.ncbi.nlm.nih.gov/4071636/"
+    "https://immunizationdata.who.int/dashboard/regions/eastern-mediterranean-region/EGY"
   ],
-  "source_notes": "Schedule composed from WHO EMRO Egypt EPI programme description, UNICEF Egypt vaccines page, and the WHO Immunization Data portal for Egypt (EGY). Routine EPI coverage in Egypt exceeds 95%; WHO certified Egypt measles-elimination in 2023. Clinically reviewed by Ahmed Zayed MD. PCV, Rotavirus, Varicella, and Hepatitis A are NOT in the free public EPI — they are available privately (PAN-equivalent / paediatric society recommendation) and carry variable uptake.",
-  "last_updated": "2026-04-22",
-  "version": "2.0",
+  "source_notes": "v2.1 (2026-04-26): re-anchored on the official MoHP child vaccination card (Arabic) saved at docs/sources/egypt_mohp_child_vaccination_card.pdf. The card mandates Pentavalent (DPT + HepB + Hib) at 2 / 4 / 6 months with a single IPV (شلل أطفال حقن) at 4 months — NOT Hexavalent at 2/4/6 as v2.0 modeled. v2.0's Hexavalent claim came from secondary WHO/UNICEF programme summaries that conflate public and private practice; the printed MoHP card is authoritative. OPV (شلل أطفال فموي) is given at birth, 2, 4, 6, 9, 12, and 18 months — v2.0 incorrectly placed OPV #1 at 1 month. HepB has a discrete birth dose (كبدي ب رضع at عند الميلاد); the engine flags this as `birth_dose: true` so later HepB-containing Pentavalent doses do not silently satisfy it. PCV, Rotavirus, Varicella, and Hepatitis A remain recommended/private. Clinically reviewed by Ahmed Zayed MD against the MoHP card.",
+  "last_updated": "2026-04-26",
+  "version": "2.1",
   "scope": "Routine childhood immunisation, birth to 72 months (6 years). Compulsory (EPI) and recommended (private) antigens with category distinction.",
   "context_note": "Destination-country schedule. In cross-border reconciliation INTO Egypt, incoming doses from a source country (e.g. Nigeria) are validated against this schedule — does each documented dose count under Egyptian EPI rules, what is missing, and what does the child need to enrol in an Egyptian nursery or school?",
   "key_features": [
-    "OPV is routine throughout Egyptian EPI (Egypt has been polio-free since 2006 but continues OPV)",
-    "Hexavalent at 2/4/6 months includes IPV, so IPV is covered via Hexavalent without a separate IPV dose",
+    "OPV is routine throughout Egyptian EPI (Egypt has been polio-free since 2006 but continues OPV) — given at birth, 2, 4, 6, 9, 12, and 18 months per the MoHP card",
+    "Pentavalent (DPT + HepB + Hib) at 2 / 4 / 6 months — Egypt's public EPI uses Pentavalent + a single separate IPV at 4 months, NOT Hexavalent. Private practice may use Hexavalent (Hexyon / Infanrix Hexa) which substitutes for both Pentavalent and IPV at the same visits.",
+    "Single IPV (شلل أطفال حقن) at 4 months — WHO/SAGE 2014 single-IPV transition policy",
     "DPT uses DTPw (whole-cell pertussis) in public EPI; DTaP available privately",
-    "BCG at 1 month (within first month) — Egypt EPI convention, not WHO-birth-dose",
+    "BCG within the first month (birth to 2 months window per the MoHP card)",
+    "HepB birth dose (كبدي ب رضع) is a discrete day-1 dose distinct from the Pentavalent HepB component — engine enforces this via `birth_dose: true`",
     "Egypt transitioned measles-monovalent at 9m to MMR at 12m + 18m around 2020; pre-2020 cards may show measles-only at 9m",
     "Yellow Fever is NOT routine in Egypt (non-endemic); arriving cards with YF should be preserved on record but not counted as missing",
     "Rotavirus and PCV are recommended/private in Egypt; absence on an EPI card is expected, not a deficiency"
@@ -29,9 +31,20 @@
       "category": "compulsory",
       "recommended_age_months": 0,
       "minimum_age_months": 0,
-      "notes": "Zero dose at birth (day 1 of life). Standalone HepB birth dose.",
+      "birth_dose": true,
+      "notes": "Birth dose (كبدي ب رضع) — given on day 1 of life per the MoHP card. Discrete from the HepB component delivered via Pentavalent at 2/4/6 months. The birth dose protects against vertical HBV transmission and the engine requires a row with doseKind='birth' to credit it; later Pentavalent doses do NOT satisfy it.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, row 1 at عند الميلاد)"
+    },
+    {
+      "antigen": "OPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 0,
+      "minimum_age_months": 0,
+      "notes": "OPV birth dose / zero-dose (شلل أطفال فموي at عند الميلاد) — given on day 1 alongside the HepB birth dose. v2.1 correction: v2.0 placed this at 1 month, but the MoHP card mandates birth.",
+      "verification": "confirmed",
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, row 2 at عند الميلاد)"
     },
     {
       "antigen": "BCG",
@@ -39,30 +52,20 @@
       "category": "compulsory",
       "recommended_age_months": 1,
       "minimum_age_months": 0,
-      "notes": "Egyptian EPI administers BCG at 1 month (within first 30 days) rather than at birth. WHO SAGE recommends at birth in TB-endemic countries; Egypt's MoHP convention places it at the first well-child visit at 1 month.",
+      "notes": "BCG within the first month — the MoHP card lists it under 'من الميلاد حتى شهرين' (from birth until 2 months). Egyptian convention places it at the first well-child visit rather than at birth itself; either is accepted.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, row at من الميلاد حتى شهرين)"
     },
     {
-      "antigen": "OPV",
-      "dose_number": 1,
-      "category": "compulsory",
-      "recommended_age_months": 1,
-      "minimum_age_months": 1,
-      "notes": "OPV zero dose at 1 month. Egypt uses bivalent OPV (bOPV) throughout its routine schedule.",
-      "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
-    },
-    {
-      "antigen": "Hexavalent",
+      "antigen": "Pentavalent",
       "dose_number": 1,
       "category": "compulsory",
       "recommended_age_months": 2,
       "minimum_age_months": 2,
-      "components": ["DPT", "Hib", "HepB", "IPV"],
-      "notes": "Egypt's 6-in-1 vaccine covering DPT (whole-cell pertussis), Hib, Hepatitis B, and IPV. Given at 2 months. Egypt uses DTPw (whole-cell) in public EPI. Because IPV is bundled in Hexavalent, Egypt does not give a separate IPV dose (contrast with Nigeria, which gives Pentavalent 5-in-1 + separate IPV at 14 weeks).",
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Egyptian Pentavalent (الطعم الخماسي) at 2 months — covers Diphtheria, Pertussis, Tetanus, Viral Hepatitis B, and Hib. Egypt's public EPI uses Pentavalent + a separate single IPV at 4 months, NOT Hexavalent at 2/4/6. Private practice may substitute Hexavalent (Hexyon, Infanrix Hexa), which delivers the same components plus IPV in one shot.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, شهرين row — full Arabic component list given)"
     },
     {
       "antigen": "OPV",
@@ -70,20 +73,20 @@
       "category": "compulsory",
       "recommended_age_months": 2,
       "minimum_age_months": 2,
-      "notes": "OPV dose 1 of primary series, co-administered with Hexavalent at 2 months.",
+      "notes": "OPV at 2 months, co-administered with Pentavalent.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, شهرين row)"
     },
     {
-      "antigen": "Hexavalent",
+      "antigen": "Pentavalent",
       "dose_number": 2,
       "category": "compulsory",
       "recommended_age_months": 4,
       "minimum_age_months": 3,
-      "components": ["DPT", "Hib", "HepB", "IPV"],
-      "notes": "Second hexavalent dose at 4 months.",
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Pentavalent dose 2 at 4 months.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, ٤ شهور row)"
     },
     {
       "antigen": "OPV",
@@ -91,20 +94,30 @@
       "category": "compulsory",
       "recommended_age_months": 4,
       "minimum_age_months": 3,
-      "notes": "OPV dose 2 of primary series, co-administered with Hexavalent at 4 months.",
+      "notes": "OPV at 4 months, co-administered with Pentavalent and IPV.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, ٤ شهور row)"
     },
     {
-      "antigen": "Hexavalent",
+      "antigen": "IPV",
+      "dose_number": 1,
+      "category": "compulsory",
+      "recommended_age_months": 4,
+      "minimum_age_months": 4,
+      "notes": "Single IPV dose (شلل أطفال حقن) at 4 months — WHO/SAGE 2014 single-IPV transition policy that Egypt and several other EMR countries adopted. The MoHP card lists IPV at 4 months only, not at 2 months. A card-side Hexavalent dose covers this IPV requirement (Hexavalent includes IPV); a card-side Pentavalent does not.",
+      "verification": "confirmed",
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, ٤ شهور row, line 'شلل أطفال (حقن)')"
+    },
+    {
+      "antigen": "Pentavalent",
       "dose_number": 3,
       "category": "compulsory",
       "recommended_age_months": 6,
       "minimum_age_months": 5,
-      "components": ["DPT", "Hib", "HepB", "IPV"],
-      "notes": "Third hexavalent dose at 6 months. Completes primary series.",
+      "components": ["DPT", "Hib", "HepB"],
+      "notes": "Pentavalent dose 3 at 6 months. Completes the public-EPI primary series for DPT/HepB/Hib.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, ٦ شهور row)"
     },
     {
       "antigen": "OPV",
@@ -112,9 +125,9 @@
       "category": "compulsory",
       "recommended_age_months": 6,
       "minimum_age_months": 5,
-      "notes": "OPV dose 3 of primary series, co-administered with Hexavalent at 6 months.",
+      "notes": "OPV at 6 months, co-administered with Pentavalent dose 3.",
       "verification": "confirmed",
-      "verification_source": "Egypt MoHP EPI; WHO EMRO Egypt programme; UNICEF Egypt"
+      "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, ٦ شهور row)"
     },
     {
       "antigen": "OPV",
@@ -244,27 +257,27 @@
         "action": "Count as Measles dose 1; flag Mumps and Rubella as unverified."
       },
       {
-        "old_entry": "Pentavalent (DPT+Hib+HepB) — 5-in-1 without IPV",
-        "maps_to": "DTaP + Hib + HepB without IPV component",
-        "action": "Count DTaP/Hib/HepB as given; flag IPV as not covered by that product."
+        "old_entry": "Hexavalent (Hexyon / Infanrix Hexa) at 2/4/6 months on a private-practice card",
+        "maps_to": "Pentavalent #1/2/3 + IPV #1 — Hexavalent delivers DPT+HepB+Hib+IPV in one shot",
+        "action": "Credit each Hexavalent dose as covering the same-numbered Pentavalent dose; the IPV component of Hexavalent #2 covers the single IPV at 4 months."
       }
     ]
   },
   "interval_rules": [
     {
-      "antigen": "Hexavalent",
+      "antigen": "Pentavalent",
       "from_dose": 1,
       "to_dose": 2,
       "minimum_interval_days": 56,
-      "notes": "Egypt 2-4-6 schedule; standard 8-week interval. ACIP minimum 28 days.",
-      "source": "Egypt MoHP EPI — 2-4-6 month schedule"
+      "notes": "Egypt 2-4-6 month schedule; standard 8-week interval. ACIP minimum 28 days.",
+      "source": "Egypt MoHP child vaccination card — 2-4-6 month schedule"
     },
     {
-      "antigen": "Hexavalent",
+      "antigen": "Pentavalent",
       "from_dose": 2,
       "to_dose": 3,
       "minimum_interval_days": 56,
-      "source": "Egypt MoHP EPI — 2-4-6 month schedule"
+      "source": "Egypt MoHP child vaccination card — 2-4-6 month schedule"
     },
     {
       "antigen": "MMR",

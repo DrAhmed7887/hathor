@@ -34,7 +34,8 @@ import {
   formatScheduleAge,
   ageMonthsOn,
   type CountrySchedule,
-  type ScheduleDose,
+  type DoseCoverage,
+  type NextAction,
 } from "@/lib/schedule-diff";
 import { getScenario, type DemoScenario } from "@/lib/scenarios";
 import type { ParsedCardOutput, ParsedCardRow } from "@/lib/types";
@@ -859,12 +860,14 @@ export default function ScanPage() {
         {reconciliation && (
           <>
             <NextDoseCard
-              next={reconciliation.next}
+              nextAction={reconciliation.nextAction}
               ageMonths={ageMonths}
             />
             <MissedDosesCard
               missed={reconciliation.missed}
+              partial={reconciliation.partial}
               recommendedMissing={reconciliation.recommendedMissing}
+              schedule={destSchedule}
             />
           </>
         )}
@@ -1894,21 +1897,29 @@ const tdStyle: React.CSSProperties = {
   fontSize: 12.5,
 };
 
-// ── Next-dose card ───────────────────────────────────────────────────────────
+// ── Next-action card ─────────────────────────────────────────────────────────
+//
+// Distinguishes "catch-up review now" (an overdue compulsory dose has
+// no covering source-card row) from "routine upcoming dose" (every
+// past-due dose is at least partially covered, so the next dose is
+// the one whose recommended age has not yet arrived). The old card
+// always picked the next future dose, which surfaced "DT at 54 months"
+// to a 3-year-old missing MMR — exactly the failure case the user
+// flagged.
 
 function NextDoseCard({
-  next,
+  nextAction,
   ageMonths,
 }: {
-  next: ScheduleDose | null;
+  nextAction: NextAction;
   ageMonths: number;
 }) {
-  if (!next) {
+  if (!nextAction) {
     return (
       <Card accent="teal">
         <SectionHeader
           title="No upcoming compulsory dose under Egyptian EPI"
-          eyebrow="Next dose"
+          eyebrow="Next action"
           tone="ok"
         />
         <p
@@ -1921,17 +1932,59 @@ function NextDoseCard({
           }}
         >
           Every compulsory dose recommended for this child&apos;s age has been
-          read off the card. The school-age boosters (DT at 4–6 years) are not
-          yet due.
+          covered. The school-age boosters (DT at 4–6 years) are not yet due.
         </p>
       </Card>
     );
   }
-  const recAge = next.recommended_age_months ?? 0;
+
+  if (nextAction.kind === "catchup_overdue") {
+    const dose = nextAction.coverage.dose;
+    return (
+      <Card accent="amber">
+        <SectionHeader
+          title="Catch-up review now"
+          eyebrow="Next action"
+          tone="warn"
+        />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: 16,
+            marginBottom: 12,
+          }}
+        >
+          <Stat label="Most overdue" value={dose.antigen} accent="amber" />
+          <Stat label="Dose number" value={String(dose.dose_number)} />
+          <Stat label="Recommended at" value={formatScheduleAge(dose)} />
+        </div>
+        <p
+          style={{
+            fontFamily: F.serif,
+            fontSize: 14,
+            color: C.ink2,
+            margin: 0,
+            lineHeight: 1.6,
+          }}
+        >
+          {nextAction.overdueCount > 1
+            ? `${nextAction.overdueCount} compulsory Egypt doses are not covered by the source card. `
+            : "1 compulsory Egypt dose is not covered by the source card. "}
+          Clinician should reconcile catch-up before scheduling the next routine
+          booster.
+          {dose.notes ? ` ${dose.notes}` : ""}
+        </p>
+      </Card>
+    );
+  }
+
+  const dose = nextAction.coverage.dose;
+  const recAge = dose.recommended_age_months ?? 0;
   const monthsUntil = Math.max(0, recAge - ageMonths);
   return (
     <Card accent="teal">
-      <SectionHeader title="Next dose due" eyebrow="Recommended next" tone="running" />
+      <SectionHeader title="Next routine dose" eyebrow="Next action" tone="running" />
       <div
         style={{
           display: "grid",
@@ -1940,19 +1993,9 @@ function NextDoseCard({
           marginBottom: 12,
         }}
       >
-        <Stat
-          label="Antigen"
-          value={next.antigen}
-          accent="teal"
-        />
-        <Stat
-          label="Dose number"
-          value={String(next.dose_number)}
-        />
-        <Stat
-          label="Recommended at"
-          value={formatScheduleAge(next)}
-        />
+        <Stat label="Antigen" value={dose.antigen} accent="teal" />
+        <Stat label="Dose number" value={String(dose.dose_number)} />
+        <Stat label="Recommended at" value={formatScheduleAge(dose)} />
       </div>
       <p
         style={{
@@ -1968,22 +2011,45 @@ function NextDoseCard({
           : `Due in about ${Math.round(monthsUntil)} month${
               Math.round(monthsUntil) === 1 ? "" : "s"
             }.`}
-        {next.notes ? ` ${next.notes}` : ""}
+        {dose.notes ? ` ${dose.notes}` : ""}
       </p>
     </Card>
   );
 }
 
-// ── Missed doses card ────────────────────────────────────────────────────────
+// ── Coverage gaps card ───────────────────────────────────────────────────────
+//
+// Two-tier display:
+//
+//   Section A — "Not covered": compulsory destination doses where NO
+//     component was delivered by any source-card row. The clinically
+//     hard gaps. Triggers the catch-up framing on the next-action card.
+//
+//   Section B — "Partially covered": compulsory destination doses
+//     where SOME components were delivered (e.g. Pentavalent dose 1
+//     covers DPT+Hib+HepB but not IPV → Egypt's Hexavalent dose 1
+//     lands here with `IPV` in `missingComponents`). Surfaces the
+//     component-equivalence nuance the user explicitly asked for.
+//
+//   Section C — recommended (private) doses missing.
+//
+// Schedule-version footer makes the destination schedule's source +
+// version explicit so the clinician knows what they're being measured
+// against — "Egypt MoHP EPI v2.0 · last updated 2026-04-22" — addressing
+// the "versioned schedule source required" complaint.
 
 function MissedDosesCard({
   missed,
+  partial,
   recommendedMissing,
+  schedule,
 }: {
-  missed: ScheduleDose[];
-  recommendedMissing: ScheduleDose[];
+  missed: DoseCoverage[];
+  partial: DoseCoverage[];
+  recommendedMissing: DoseCoverage[];
+  schedule: CountrySchedule | null;
 }) {
-  if (missed.length === 0 && recommendedMissing.length === 0) {
+  if (missed.length === 0 && partial.length === 0 && recommendedMissing.length === 0) {
     return (
       <Card accent="teal">
         <SectionHeader title="Nothing missed" eyebrow="Reconciliation" tone="ok" />
@@ -1996,51 +2062,61 @@ function MissedDosesCard({
             lineHeight: 1.6,
           }}
         >
-          Every compulsory Egyptian EPI dose recommended for this age is
-          present on the card.
+          Every compulsory Egyptian EPI dose recommended for this age is fully
+          covered by the source card.
         </p>
+        <ScheduleVersionFooter schedule={schedule} />
       </Card>
     );
   }
+
+  const accent = missed.length > 0 ? "amber" : partial.length > 0 ? "copper" : "teal";
+  const headlineCount = missed.length + partial.length;
+  const headline =
+    missed.length > 0 || partial.length > 0
+      ? `${headlineCount} Egypt schedule item${headlineCount === 1 ? "" : "s"} not fully matched`
+      : "Recommended doses missing";
+
   return (
-    <Card accent={missed.length > 0 ? "amber" : "teal"}>
+    <Card accent={accent}>
       <SectionHeader
-        title={
-          missed.length > 0
-            ? `${missed.length} compulsory dose${missed.length === 1 ? "" : "s"} missing`
-            : "Recommended doses missing"
-        }
+        title={headline}
         eyebrow="Gaps vs Egypt EPI"
         tone={missed.length > 0 ? "warn" : "neutral"}
       />
-      {missed.length > 0 && (
-        <ul style={listStyle}>
-          {missed.map((d, i) => (
-            <li key={`${d.antigen}-${d.dose_number}-${i}`} style={listItemStyle}>
-              <span
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 11,
-                  padding: "2px 7px",
-                  borderRadius: 4,
-                  background: C.amberWash,
-                  border: `1px solid ${C.amber}`,
-                  color: C.amber,
-                  marginRight: 10,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Compulsory
-              </span>
-              <span style={{ fontWeight: 500 }}>{d.antigen}</span>
-              <span style={{ color: C.mute }}> · dose {d.dose_number}</span>
-              <span style={{ color: C.faint, marginLeft: 8, fontFamily: F.mono, fontSize: 11.5 }}>
-                recommended at {formatScheduleAge(d)}
-              </span>
-            </li>
-          ))}
-        </ul>
+      {(missed.length > 0 || partial.length > 0) && (
+        <p
+          style={{
+            fontFamily: F.serif,
+            fontSize: 13,
+            fontStyle: "italic",
+            color: C.mute,
+            margin: "0 0 12px",
+            lineHeight: 1.55,
+          }}
+        >
+          Some items may be covered by component-equivalent vaccines from the
+          source country (e.g. Pentavalent covers three of the four components
+          of Egypt&apos;s Hexavalent). Clinician confirmation required.
+        </p>
       )}
+
+      {missed.length > 0 && (
+        <CoverageSection
+          eyebrow="Not covered"
+          tone="amber"
+          coverages={missed}
+        />
+      )}
+
+      {partial.length > 0 && (
+        <CoverageSection
+          eyebrow="Partially covered by component-equivalent"
+          tone="copper"
+          coverages={partial}
+        />
+      )}
+
       {recommendedMissing.length > 0 && (
         <>
           <div
@@ -2050,17 +2126,20 @@ function MissedDosesCard({
               letterSpacing: "0.12em",
               textTransform: "uppercase",
               color: C.mute,
-              marginTop: missed.length > 0 ? 16 : 0,
+              marginTop: missed.length > 0 || partial.length > 0 ? 16 : 0,
               marginBottom: 6,
             }}
           >
             Recommended (private uptake)
           </div>
           <ul style={listStyle}>
-            {recommendedMissing.map((d, i) => (
-              <li key={`r-${d.antigen}-${d.dose_number}-${i}`} style={listItemStyle}>
-                <span style={{ fontWeight: 500 }}>{d.antigen}</span>
-                <span style={{ color: C.mute }}> · dose {d.dose_number}</span>
+            {recommendedMissing.map((c, i) => (
+              <li
+                key={`r-${c.dose.antigen}-${c.dose.dose_number}-${i}`}
+                style={listItemStyle}
+              >
+                <span style={{ fontWeight: 500 }}>{c.dose.antigen}</span>
+                <span style={{ color: C.mute }}> · dose {c.dose.dose_number}</span>
                 <span
                   style={{
                     color: C.faint,
@@ -2069,14 +2148,154 @@ function MissedDosesCard({
                     fontSize: 11.5,
                   }}
                 >
-                  at {formatScheduleAge(d)}
+                  at {formatScheduleAge(c.dose)}
                 </span>
               </li>
             ))}
           </ul>
         </>
       )}
+
+      <ScheduleVersionFooter schedule={schedule} />
     </Card>
+  );
+}
+
+function CoverageSection({
+  eyebrow,
+  tone,
+  coverages,
+}: {
+  eyebrow: string;
+  tone: "amber" | "copper";
+  coverages: DoseCoverage[];
+}) {
+  const chipBg = tone === "amber" ? C.amberWash : "#FBF6EC";
+  const chipBorder = tone === "amber" ? C.amber : C.copper;
+  const chipColor = tone === "amber" ? C.amber : C.copperInk;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: tone === "amber" ? C.amber : C.copperInk,
+          marginBottom: 8,
+        }}
+      >
+        {eyebrow}
+      </div>
+      <ul style={listStyle}>
+        {coverages.map((cov, i) => (
+          <li
+            key={`${cov.dose.antigen}-${cov.dose.dose_number}-${i}`}
+            style={{ ...listItemStyle, paddingLeft: 0 }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
+              <span
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 11,
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  background: chipBg,
+                  border: `1px solid ${chipBorder}`,
+                  color: chipColor,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {tone === "amber" ? "Not covered" : "Partial"}
+              </span>
+              <span style={{ fontWeight: 500 }}>{cov.dose.antigen}</span>
+              <span style={{ color: C.mute }}>· dose {cov.dose.dose_number}</span>
+              <span
+                style={{
+                  color: C.faint,
+                  fontFamily: F.mono,
+                  fontSize: 11.5,
+                }}
+              >
+                at {formatScheduleAge(cov.dose)}
+              </span>
+            </div>
+            {cov.dose.components && cov.dose.components.length > 1 && (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontFamily: F.mono,
+                  fontSize: 11.5,
+                  color: C.mute,
+                  lineHeight: 1.5,
+                }}
+              >
+                Components: {cov.dose.components.join(" + ")}
+                {cov.delivered.length > 0 && (
+                  <>
+                    {" · "}
+                    <span style={{ color: C.ok }}>
+                      delivered: {cov.delivered.map((d) => d.component).join(", ")}
+                      {cov.delivered[0]?.rowAntigen
+                        ? ` (via ${cov.delivered[0].rowAntigen})`
+                        : ""}
+                    </span>
+                  </>
+                )}
+                {cov.missingComponents.length > 0 && (
+                  <>
+                    {" · "}
+                    <span style={{ color: chipColor }}>
+                      still missing: {cov.missingComponents.join(", ")}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+            {cov.clinicalNote && (
+              <div
+                style={{
+                  marginTop: 6,
+                  paddingLeft: 10,
+                  borderLeft: `2px solid ${chipBorder}`,
+                  fontFamily: F.serif,
+                  fontSize: 12.5,
+                  fontStyle: "italic",
+                  color: C.ink2,
+                  lineHeight: 1.55,
+                }}
+              >
+                {cov.clinicalNote}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ScheduleVersionFooter({ schedule }: { schedule: CountrySchedule | null }) {
+  if (!schedule) return null;
+  const parts: string[] = [schedule.country];
+  if (schedule.version) parts.push(`schedule v${schedule.version}`);
+  if (schedule.last_updated) parts.push(`updated ${schedule.last_updated}`);
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        paddingTop: 12,
+        borderTop: `1px solid ${C.ruleSoft}`,
+        fontFamily: F.mono,
+        fontSize: 10.5,
+        color: C.faint,
+        letterSpacing: "0.06em",
+        lineHeight: 1.5,
+      }}
+    >
+      Measured against: {parts.join(" · ")}. Schedules change over time and
+      between public and private sectors — clinician confirmation required.
+    </div>
   );
 }
 
