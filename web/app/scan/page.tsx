@@ -28,7 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { parseSSEChunk } from "@/lib/sse-parser";
-import { PageHeader } from "@/app/_design/pharos";
+import { CountryPair, Eyebrow as PharosEyebrow, HathorSigil, PageHeader } from "@/app/_design/pharos";
 import {
   reconcile,
   formatScheduleAge,
@@ -796,6 +796,27 @@ export default function ScanPage() {
               </div>
             )}
           </Card>
+        )}
+
+        {/* Verdict header — sigil + country pair, lights up the moment
+            extraction returns rows. Sets the ceremonial frame for everything
+            below: "this child arrived from X, we are reconciling against Y." */}
+        {parsed && parsed.rows.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 18,
+              padding: "8px 4px 4px",
+              animation: "hathor-fade-in 0.4s ease-out both",
+            }}
+          >
+            <HathorSigil size={36} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <PharosEyebrow>Verdict · cross-border reconciliation</PharosEyebrow>
+              <CountryPair origin={sourceCountry} destination="Egypt" />
+            </div>
+          </div>
         )}
 
         {/* Doses extracted */}
