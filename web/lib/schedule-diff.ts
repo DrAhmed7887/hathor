@@ -206,7 +206,16 @@ function findCoveringRow(
   for (const row of rows) {
     const delivered = rowDeliversComponents(row);
     if (!delivered.has(component)) continue;
-    if (birthDoseRequired && row.doseKind !== "birth") continue;
+    if (birthDoseRequired) {
+      // Birth doses match on doseKind, not on dose number. A card-side
+      // OPV dose 0 at birth satisfies Egypt's OPV birth dose even
+      // though numerically 0 < 1; the dose-number gate doesn't apply
+      // to birth doses because cards from different countries use
+      // different conventions (Nigeria writes OPV "0", Egypt writes
+      // OPV "1" for what is the same clinical event).
+      if (row.doseKind === "birth") return row;
+      continue;
+    }
     if (row.doseNumber == null) return row;
     if (row.doseNumber >= destDoseNumber) return row;
   }

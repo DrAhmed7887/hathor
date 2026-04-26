@@ -199,3 +199,33 @@ test("prompt instructs the model to emit dose_kind for every row", () => {
   assert.match(CARD_EXTRACTION_SYSTEM_PROMPT, /"booster"/);
   assert.match(CARD_EXTRACTION_SYSTEM_PROMPT, /"birth"/);
 });
+
+test("prompt forbids collapsing combination products to base antigens", () => {
+  // Bug from 2026-04-26 user report: a Nigerian Pentavalent card
+  // came back from vision as antigen="DTP" because the prompt
+  // explicitly listed "Pentavalent" as a synonym for the canonical
+  // DTP code. That destroyed the HepB and Hib component identity
+  // before the reconciliation engine ever saw it, and caused
+  // Egypt's Pentavalent doses to be flagged as partial-with-Hib-
+  // and-HepB-missing. The prompt must preserve combination names.
+  assert.match(
+    CARD_EXTRACTION_SYSTEM_PROMPT,
+    /Pentavalent[\s\S]{0,400}DPT \+ HepB \+ Hib/,
+    "prompt must define Pentavalent as a preserve-as-named combination, not a DTP synonym",
+  );
+  assert.match(
+    CARD_EXTRACTION_SYSTEM_PROMPT,
+    /DO NOT downgrade to "DTP"/,
+    "prompt must explicitly forbid downgrading combination products to DTP",
+  );
+  assert.match(
+    CARD_EXTRACTION_SYSTEM_PROMPT,
+    /Hexavalent[\s\S]{0,400}DPT \+ HepB \+ Hib \+ IPV/,
+    "Hexavalent must also be a preserve-as-named combination",
+  );
+  assert.match(
+    CARD_EXTRACTION_SYSTEM_PROMPT,
+    /MMR[\s\S]{0,200}Measles \+ Mumps \+ Rubella/,
+    "MMR must be preserved as a combination, not collapsed to Measles",
+  );
+});

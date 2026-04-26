@@ -42,7 +42,8 @@
       "category": "compulsory",
       "recommended_age_months": 0,
       "minimum_age_months": 0,
-      "notes": "OPV birth dose / zero-dose (شلل أطفال فموي at عند الميلاد) — given on day 1 alongside the HepB birth dose. v2.1 correction: v2.0 placed this at 1 month, but the MoHP card mandates birth.",
+      "birth_dose": true,
+      "notes": "OPV birth dose / zero-dose (شلل أطفال فموي at عند الميلاد) — given on day 1 alongside the HepB birth dose. The engine credits this only against a card row carrying doseKind='birth'; a card-side OPV labeled dose 0 at birth satisfies it regardless of the numeric dose number, which is the standard convention for OPV-zero on cards from WHO 6/10/14-week countries (Nigeria, etc.).",
       "verification": "confirmed",
       "verification_source": "Egypt MoHP child vaccination card (PDF p. 1, row 2 at عند الميلاد)"
     },

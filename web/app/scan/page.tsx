@@ -2096,8 +2096,9 @@ function MissedDosesCard({
           }}
         >
           Some items may be covered by component-equivalent vaccines from the
-          source country (e.g. Pentavalent covers three of the four components
-          of Egypt&apos;s Hexavalent). Clinician confirmation required.
+          source country. For example, Pentavalent covers DPT, HepB, and Hib,
+          but does not prove a separate HepB birth dose or IPV unless those
+          are documented. Clinician confirmation required.
         </p>
       )}
 
