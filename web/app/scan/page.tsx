@@ -1431,18 +1431,25 @@ function FileThumb({
       }}
     >
       {previewUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={previewUrl}
-          alt={`Card ${index + 1} preview`}
+        <div
           style={{
-            width: "100%",
-            aspectRatio: "4 / 3",
-            objectFit: "cover",
+            position: "relative",
+            overflow: "hidden",
             borderRadius: 4,
             border: `1px solid ${C.ruleSoft}`,
+            aspectRatio: "4 / 3",
           }}
-        />
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl}
+            alt={`Card ${index + 1} preview`}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+          {/* Lighthouse beam — sweeps across the card while extraction runs.
+              Pharos metaphor: signal across distance, not a spinner. */}
+          {disabled && <div className="hathor-beam" aria-hidden="true" />}
+        </div>
       )}
       <div
         style={{

@@ -151,3 +151,29 @@
 .hathor-station {
   animation: hathor-fade-in 0.45s ease-out both;
 }
+
+/* Lighthouse beam — used during card extraction in the scan flow.
+   The beam is a 90px gradient that sweeps across the card preview
+   instead of a spinner. Pharos metaphor: signal across distance. */
+@keyframes hathor-beam-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(560%); }
+}
+
+.hathor-beam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 90px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(184, 138, 61, 0) 10%,
+    rgba(184, 138, 61, 0.22) 50%,
+    rgba(184, 138, 61, 0) 90%,
+    transparent 100%
+  );
+  filter: blur(2px);
+  animation: hathor-beam-sweep 2.4s ease-in-out infinite;
+  pointer-events: none;
+}

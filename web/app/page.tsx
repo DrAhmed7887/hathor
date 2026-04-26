@@ -1,62 +1,7 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
 
 import { DEMO_SCENARIOS, type DemoScenario } from "@/lib/scenarios";
-
-const H = {
-  ivory: "#FAF7EF",
-  paper: "#F3EBDD",
-  card: "#FFFDF8",
-  cardSoft: "#F8F2E5",
-  line: "#DED4C2",
-  lineSoft: "#EAE1CE",
-  teal: "#123C3F",
-  teal2: "#1F5D61",
-  gold: "#B88A3D",
-  goldSoft: "#EFE1BE",
-  ink: "#172222",
-  mute: "#5C6764",
-  faint: "#8C9492",
-  white: "#FFFFFF",
-  amber: "#B8833B",
-};
-
-const F = {
-  serif: "Georgia, 'Times New Roman', serif",
-  sans: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-  mono: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
-};
-
-function HathorSigil() {
-  return (
-    <svg width="44" height="44" viewBox="0 0 54 54" fill="none" aria-hidden="true">
-      <circle cx="27" cy="20" r="7" fill={H.goldSoft} stroke={H.gold} strokeWidth="1.4" />
-      <path
-        d="M14 17c2.2 11.5 7.1 17.2 13 17.2S37.8 28.5 40 17"
-        stroke={H.gold}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path d="M20 36h14M18 42h18" stroke={H.teal} strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function Eyebrow({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        fontFamily: F.mono,
-        fontSize: 11,
-        letterSpacing: "0.16em",
-        textTransform: "uppercase",
-        color: H.gold,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
+import { Eyebrow, F, H, HathorSigil } from "@/app/_design/pharos";
 
 function ScenarioCard({ s }: { s: DemoScenario }) {
   return (
