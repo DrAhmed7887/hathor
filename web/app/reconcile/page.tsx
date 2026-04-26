@@ -232,7 +232,10 @@ function summarizeToolResult(
       const s = result.summary as Record<string, number> | undefined;
       if (s) {
         const gaps = (s.overdue ?? 0) + (s.due_now ?? 0);
-        return `${gaps} gaps identified`;
+        const partial = s.partial_coverage ?? 0;
+        return partial > 0
+          ? `${gaps} gaps · ${partial} partial`
+          : `${gaps} gaps identified`;
       }
       return "Complete";
     }
