@@ -93,4 +93,34 @@ describe("Egypt v2.1 reconciliation against Nigerian Pentavalent card", () => {
       "the note must reference the specific later vaccine that was documented (Pentavalent), so the clinician can connect it to the card",
     );
   });
+
+  test("OPV dose 0 at birth on a Nigerian card satisfies Egypt's OPV birth dose despite the dose-number gap (0 vs 1)", () => {
+    // Cross-country dose-number conventions diverge: Nigerian NPI
+    // labels the OPV birth dose "OPV 0", Egypt's MoHP card labels
+    // it "OPV 1" (the first oral polio dose, given on day 1). The
+    // engine must treat these as the same clinical event when the
+    // destination dose carries `birth_dose: true`.
+    const r = reconcile(aminaRows, egyptSchedule, aminaDob, aminaAsOf);
+
+    const opv1 = r.covered.find(
+      (c) => c.dose.antigen === "OPV" && c.dose.dose_number === 1,
+    );
+    assert.ok(
+      opv1,
+      "Egypt OPV #1 (birth dose) must be credited to the card's OPV-0-at-birth row, not flagged as missed",
+    );
+    assert.equal(opv1.dose.birth_dose, true, "Egypt OPV #1 must carry birth_dose:true");
+    assert.equal(opv1.status, "covered");
+    assert.equal(opv1.delivered[0]?.rowAntigen, "OPV");
+    assert.equal(opv1.delivered[0]?.rowDoseNumber, 0, "the credited row should be the OPV-0 birth row");
+
+    // OPV doses 2..7 are at older ages and should remain missed
+    // (no card row for those). Sanity-check the gate didn't get
+    // too permissive.
+    const missedOpvDoses = r.missed
+      .filter((c) => c.dose.antigen === "OPV")
+      .map((c) => c.dose.dose_number)
+      .sort((a, b) => a - b);
+    assert.deepEqual(missedOpvDoses, [2, 3, 4, 5, 6, 7]);
+  });
 });

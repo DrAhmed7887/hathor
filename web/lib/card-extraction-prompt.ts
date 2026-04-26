@@ -55,11 +55,35 @@ EXTRACTION RULES — per row:
 
 2. For each row, populate:
    - antigen: the canonical code where one fits cleanly. Common codes:
-       BCG, HepB, HepA, OPV, IPV, DTP (any DTP / DTaP / DTwP / pentavalent
-       DTP-containing product such as Pentavalent / Penta), Hib, PCV
-       (any PCV-7/10/13 conjugate), Rotavirus, MMR, Measles (monovalent),
-       Varicella, MenACWY, MenB, Typhoid, YellowFever, Cholera, COVID-19,
-       JapaneseEncephalitis, TickBorneEncephalitis, Rabies, Influenza.
+       BCG, HepB, HepA, OPV, IPV, DTP (only for STANDALONE DTP / DTaP /
+       DTwP — NEVER for combination products that contain DTP), Hib
+       (only standalone), PCV (any PCV-7/10/13 conjugate), Rotavirus,
+       Measles (monovalent), Varicella, MenACWY, MenB, Typhoid,
+       YellowFever, Cholera, COVID-19, JapaneseEncephalitis,
+       TickBorneEncephalitis, Rabies, Influenza.
+
+       **COMBINATION PRODUCTS ARE LOAD-BEARING — preserve them as
+       written.** Combination vaccines are clinically distinct from
+       their base antigens because the destination schedule may itself
+       require the combination, and dropping the combination identity
+       throws away the component information the reconciliation engine
+       needs. Emit these combination codes EXACTLY:
+
+         Pentavalent  — DPT + HepB + Hib (no IPV).
+                        Card labels: "Pentavalent", "Penta", "Penta-1",
+                        "5-in-1", "Pentavac", "Easyfive", "الطعم الخماسي".
+                        DO NOT downgrade to "DTP" — that destroys the
+                        HepB and Hib component information.
+         Hexavalent   — DPT + HepB + Hib + IPV (6-in-1).
+                        Card labels: "Hexavalent", "Hexyon",
+                        "Infanrix Hexa", "6-in-1", "Hexa".
+                        DO NOT downgrade to "DTP" or "Pentavalent".
+         MMR          — Measles + Mumps + Rubella.
+                        Card labels: "MMR", "ROR", "الثلاثي الفيروسي".
+                        DO NOT downgrade to "Measles" — Mumps and
+                        Rubella components are clinically distinct.
+         MMRV         — MMR + Varicella. Preserve the V.
+
        If the card prints a brand name or local abbreviation that maps
        cleanly to one of these, use the canonical code. If the printed
        label is unfamiliar or ambiguous, emit the raw printed label
