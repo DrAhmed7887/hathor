@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { parseSSEChunk } from "@/lib/sse-parser";
+import { PageHeader } from "@/app/_design/pharos";
 import {
   reconcile,
   formatScheduleAge,
@@ -581,64 +582,34 @@ export default function ScanPage() {
         fontFamily: F.sans,
       }}
     >
-      <header
-        style={{
-          background: C.card,
-          borderBottom: `1px solid ${C.rule}`,
-          padding: "20px 24px",
-        }}
-      >
-        <div
+      <PageHeader route="SCAN">
+        <Link
+          href="/demo"
           style={{
-            maxWidth: 880,
-            margin: "0 auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 16,
+            color: C.mute,
+            textDecoration: "none",
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
           }}
         >
-          <Link
-            href="/"
-            style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}
-          >
-            <HathorMark />
-            <div>
-              <div
-                style={{
-                  fontFamily: F.serif,
-                  fontSize: 22,
-                  letterSpacing: "-0.01em",
-                  color: C.ink,
-                  lineHeight: 1,
-                }}
-              >
-                Hathor
-              </div>
-              <div
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 10,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                  color: C.mute,
-                  marginTop: 4,
-                }}
-              >
-                Vaccine card reconciliation
-              </div>
-            </div>
-          </Link>
-          <nav style={{ display: "flex", gap: 18, fontSize: 13 }}>
-            <Link href="/demo" style={{ color: C.mute, textDecoration: "none" }}>
-              Full demo
-            </Link>
-            <Link href="/" style={{ color: C.mute, textDecoration: "none" }}>
-              Home
-            </Link>
-          </nav>
-        </div>
-      </header>
+          Full demo
+        </Link>
+        <Link
+          href="/"
+          style={{
+            color: C.mute,
+            textDecoration: "none",
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+          }}
+        >
+          Home
+        </Link>
+      </PageHeader>
 
       <main
         style={{

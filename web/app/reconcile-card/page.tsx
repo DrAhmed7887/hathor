@@ -18,6 +18,7 @@ import { type HITLRequiredPayload, type PhaseECompletePayload } from "@/lib/api"
 import { HITLPanel } from "@/components/HITLPanel";
 import { PhaseEPanel } from "@/components/PhaseEPanel";
 import { type Recommendation as PhaseERecommendation } from "@/components/RecommendationCard";
+import { PageHeader } from "@/app/_design/pharos";
 
 // ── Pharos design system ─────────────────────────────────────────────────────
 
@@ -525,20 +526,9 @@ export default function ReconcileCardPage() {
     <div style={{ minHeight: "100vh", background: H.paper, fontFamily: F.sans }}>
 
       {/* ── Header ── */}
-      <header style={{ background: H.paper, borderBottom: `1px solid ${H.rule}`, padding: "40px 48px 28px" }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", position: "relative" }}>
-          <div style={{ position: "absolute", top: 0, right: 0, display: "flex", alignItems: "center", gap: 10 }}>
-            <MetaSpan color={H.meta}>Pharos · a beacon</MetaSpan>
-            <div style={{ width: 1, height: 16, background: H.stone }} />
-            <PharosGlyph size={26} />
-          </div>
-          <HathorMark size={64} />
-          <div style={{ marginTop: 28, paddingTop: 14, borderTop: `1px solid ${H.rule}`, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <MetaSpan>Card-first reconciliation · Phase D safety loop</MetaSpan>
-            <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
-          </div>
-        </div>
-      </header>
+      <PageHeader route="CARD-FIRST · PHASE D">
+        <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
+      </PageHeader>
 
       <main style={{ maxWidth: 900, margin: "0 auto", padding: "40px 48px" }}>
 

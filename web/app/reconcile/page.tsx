@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Plus, Trash2, Loader2 } from "lucide-react";
@@ -16,6 +16,15 @@ import {
 import Link from "next/link";
 import { streamSSE } from "@/lib/sse-parser";
 import { HeroIntroPlayer } from "@/components/HeroIntroPlayer";
+import {
+  H as PharosH,
+  PageHeader,
+  PartialRow,
+  PharosCard,
+  StatusChip,
+  SummaryStat,
+  Eyebrow as PharosEyebrow,
+} from "@/app/_design/pharos";
 import { PhaseEPanel } from "@/components/PhaseEPanel";
 import type { PhaseECompletePayload } from "@/lib/api";
 import type { Recommendation as PhaseERecommendation } from "@/components/RecommendationCard";
@@ -874,6 +883,266 @@ function AnimatedDots({ active }: { active: boolean }) {
   return <span>{active ? ".".repeat(count) : ""}</span>;
 }
 
+// ── Coverage view ───────────────────────────────────────────────────────────
+// Derived from the latest compute_missing_doses tool result. The agent
+// returns six buckets (completed / partial_coverage / overdue / due_now /
+// upcoming / invalid_doses) — this view surfaces the three a clinician
+// acts on, with the new gold "partial" treatment for component-level
+// gaps from product divergence.
+
+interface CoverageRow {
+  antigen?: string;
+  dose_number?: number;
+  recommended_age_months?: number | null;
+  category?: string;
+  required_components?: string[];
+  covered_components?: string[];
+  missing_components?: string[];
+  covered_via?: string[];
+  notes?: string;
+  months_overdue?: number;
+}
+
+interface CoveragePayload {
+  target_country?: string;
+  current_age_months_approx?: number;
+  summary?: {
+    completed?: number;
+    partial_coverage?: number;
+    overdue?: number;
+    due_now?: number;
+    upcoming?: number;
+    invalid_doses_in_history?: number;
+  };
+  partial_coverage?: CoverageRow[];
+  overdue?: CoverageRow[];
+  due_now?: CoverageRow[];
+}
+
+function describeSlot(row: CoverageRow): string {
+  const dose = row.dose_number != null ? `Dose ${row.dose_number}` : "";
+  const age =
+    row.recommended_age_months != null
+      ? `${row.recommended_age_months} mo`
+      : "";
+  return [dose, age && `· ${age}`].filter(Boolean).join("  ");
+}
+
+function CoverageView({ data }: { data: CoveragePayload }) {
+  const s = data.summary ?? {};
+  const partial = data.partial_coverage ?? [];
+  const overdue = data.overdue ?? [];
+  const dueNow = data.due_now ?? [];
+
+  return (
+    <section
+      style={{
+        marginBottom: 40,
+        animation: "hathor-fade-in 0.4s ease-out both",
+      }}
+    >
+      <div style={{ marginBottom: 20 }}>
+        <PharosEyebrow color={H.copperInk}>Coverage · {data.target_country ?? "destination"} EPI</PharosEyebrow>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 14,
+            marginTop: 8,
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: F.serif,
+              fontSize: 24,
+              fontWeight: 400,
+              letterSpacing: "-0.018em",
+              lineHeight: 1.15,
+              color: H.ink,
+              margin: 0,
+            }}
+          >
+            Slot-by-slot diff
+          </h2>
+          <div
+            style={{
+              height: 1,
+              background: H.copper,
+              width: 64,
+              transform: "translateY(-6px)",
+              flexShrink: 0,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Stat band — 4 numbers across, no chart, no shadow */}
+      <PharosCard padding="22px 26px" style={{ marginBottom: 20 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 24,
+          }}
+        >
+          <SummaryStat n={s.completed ?? 0} label="Completed" tone="completed" />
+          <SummaryStat n={s.partial_coverage ?? 0} label="Partial" tone="partial" />
+          <SummaryStat n={s.overdue ?? 0} label="Overdue" tone="overdue" />
+          <SummaryStat n={s.due_now ?? 0} label="Due now" tone="overdue" />
+        </div>
+      </PharosCard>
+
+      {/* Partial coverage rows — gold caveat, named missing component */}
+      {partial.length > 0 && (
+        <PharosCard padding="22px 26px" style={{ marginBottom: 16 }}>
+          <PharosEyebrow color={H.copper}>Partial coverage · gold caveat</PharosEyebrow>
+          <p
+            style={{
+              fontFamily: F.serif,
+              fontSize: 13.5,
+              color: H.meta,
+              lineHeight: 1.55,
+              margin: "8px 0 14px",
+              fontStyle: "italic",
+            }}
+          >
+            Doses that landed at this slot but did not deliver every component
+            the destination schedule expects. Naming the missing component, not
+            the dose.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {partial.map((row, i) => {
+              const via =
+                row.covered_via && row.covered_via.length > 0
+                  ? `via ${row.covered_via.join(" + ")}`
+                  : null;
+              const covered =
+                row.covered_components?.join(", ") ?? "";
+              const missing = row.missing_components?.join(" + ") ?? "";
+              return (
+                <PartialRow
+                  key={`p-${i}`}
+                  title={
+                    <>
+                      <span style={{ color: H.ink }}>{row.antigen}</span>
+                      <span
+                        style={{
+                          fontFamily: F.mono,
+                          fontSize: 11,
+                          letterSpacing: "0.12em",
+                          color: H.faint,
+                          textTransform: "uppercase",
+                          marginLeft: 12,
+                        }}
+                      >
+                        {describeSlot(row)}
+                      </span>
+                    </>
+                  }
+                  gap={
+                    <>
+                      {covered ? `${covered} covered ${via ?? ""} · ` : ""}
+                      <strong style={{ color: H.copperInk, fontStyle: "normal" }}>
+                        {missing} gap
+                      </strong>
+                    </>
+                  }
+                />
+              );
+            })}
+          </div>
+        </PharosCard>
+      )}
+
+      {/* Overdue rows — terracotta status chip */}
+      {overdue.length > 0 && (
+        <PharosCard padding="22px 26px" style={{ marginBottom: 16 }}>
+          <PharosEyebrow color="#8B3A2C">Overdue</PharosEyebrow>
+          <div style={{ marginTop: 14, display: "flex", flexDirection: "column" }}>
+            {overdue.map((row, i) => (
+              <div
+                key={`o-${i}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.4fr 1fr auto",
+                  gap: 12,
+                  padding: "10px 0",
+                  borderBottom: i < overdue.length - 1 ? `1px solid ${H.ruleSoft}` : "none",
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ fontFamily: F.serif, fontSize: 14.5, color: H.ink }}>
+                  {row.antigen}
+                  {row.dose_number != null && (
+                    <span style={{ color: H.faint }}> · D{row.dose_number}</span>
+                  )}
+                </span>
+                <span
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 11,
+                    color: H.meta,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Window · {row.recommended_age_months}m
+                </span>
+                <StatusChip kind="overdue">
+                  {row.months_overdue != null
+                    ? `${row.months_overdue} mo late`
+                    : "Overdue"}
+                </StatusChip>
+              </div>
+            ))}
+          </div>
+        </PharosCard>
+      )}
+
+      {/* Due-now rows — muted chip */}
+      {dueNow.length > 0 && (
+        <PharosCard padding="22px 26px">
+          <PharosEyebrow color={PharosH.teal}>Due now</PharosEyebrow>
+          <div style={{ marginTop: 14, display: "flex", flexDirection: "column" }}>
+            {dueNow.map((row, i) => (
+              <div
+                key={`d-${i}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.4fr 1fr auto",
+                  gap: 12,
+                  padding: "10px 0",
+                  borderBottom: i < dueNow.length - 1 ? `1px solid ${H.ruleSoft}` : "none",
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ fontFamily: F.serif, fontSize: 14.5, color: H.ink }}>
+                  {row.antigen}
+                  {row.dose_number != null && (
+                    <span style={{ color: H.faint }}> · D{row.dose_number}</span>
+                  )}
+                </span>
+                <span
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 11,
+                    color: H.meta,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Recommended · {row.recommended_age_months}m
+                </span>
+                <StatusChip kind="mute">Due window</StatusChip>
+              </div>
+            ))}
+          </div>
+        </PharosCard>
+      )}
+    </section>
+  );
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────
 
 export default function HathorPage() {
@@ -1138,55 +1407,35 @@ export default function HathorPage() {
     }
   }, [dob, country, doses]);
 
+  // Latest compute_missing_doses result, surfaced as a structured Coverage
+  // section. The agent may call the tool more than once (re-validation,
+  // catch-up loop) — we render the most recent complete result.
+  const coverage = useMemo<CoveragePayload | null>(() => {
+    const entries = Object.values(toolMap)
+      .filter(
+        (t) =>
+          t.name === "mcp__hathor__compute_missing_doses" &&
+          t.status === "complete" &&
+          t.result,
+      )
+      .sort((a, b) => a.index - b.index);
+    const last = entries[entries.length - 1];
+    return (last?.result as CoveragePayload | undefined) ?? null;
+  }, [toolMap]);
+
   return (
     <div style={{ minHeight: "100vh", background: H.paper, fontFamily: F.sans }}>
 
       {/* ── Header ── */}
-      <header
-        style={{
-          background: H.paper,
-          borderBottom: `1px solid ${H.rule}`,
-          padding: "40px 48px 28px",
-        }}
-      >
-        <div style={{ maxWidth: 900, margin: "0 auto", position: "relative" }}>
-          {/* Pharos badge */}
-          <div
-            style={{
-              position: "absolute", top: 0, right: 0,
-              display: "flex", alignItems: "center", gap: 10,
-            }}
-          >
-            <MetaSpan color={H.meta}>Pharos · a beacon</MetaSpan>
-            <div style={{ width: 1, height: 16, background: H.stone }} />
-            <PharosGlyph size={26} />
-          </div>
-
-          <HathorMark size={64} />
-
-          <div
-            style={{
-              marginTop: 28, paddingTop: 14,
-              borderTop: `1px solid ${H.rule}`,
-              display: "flex", justifyContent: "space-between",
-              alignItems: "baseline",
-            }}
-          >
-            <MetaSpan>Cross-border immunization reconciliation</MetaSpan>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
-              <Link href="/demo" style={{ textDecoration: "none" }}>
-                <MetaSpan color={H.copper}>Fast-path demo →</MetaSpan>
-              </Link>
-              <div style={{ width: 1, height: 10, background: H.stone, alignSelf: "center" }} />
-              <Link href="/reconcile-card" style={{ textDecoration: "none" }}>
-                <MetaSpan color={H.copper}>Agent flow →</MetaSpan>
-              </Link>
-              <div style={{ width: 1, height: 10, background: H.stone, alignSelf: "center" }} />
-              <MetaSpan color={H.faint}>Built with Claude Opus 4.7</MetaSpan>
-            </div>
-          </div>
-        </div>
-      </header>
+      <PageHeader route="RECONCILIATION">
+        <Link href="/demo" style={{ textDecoration: "none" }}>
+          <MetaSpan color={H.copper}>Fast-path demo →</MetaSpan>
+        </Link>
+        <div style={{ width: 1, height: 10, background: H.stone, alignSelf: "center" }} />
+        <Link href="/reconcile-card" style={{ textDecoration: "none" }}>
+          <MetaSpan color={H.copper}>Agent flow →</MetaSpan>
+        </Link>
+      </PageHeader>
 
       <main style={{ maxWidth: 900, margin: "0 auto", padding: "40px 48px" }}>
 
@@ -1501,6 +1750,9 @@ export default function HathorPage() {
             </p>
           )}
         </section>
+
+        {/* ── Coverage diff (from compute_missing_doses) ── */}
+        {started && coverage && <CoverageView data={coverage} />}
 
         {/* ── Pre-visit immunization packet ── */}
         {started && (
