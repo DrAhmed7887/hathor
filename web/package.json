@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/validation.test.ts lib/document-intelligence.test.ts lib/phase-e-summary.test.ts lib/visit-grouping.test.ts lib/trust-gate.test.ts lib/slot-state.test.ts lib/image-crop.test.ts lib/countries.test.ts lib/antigen-normalizer.test.ts",
+    "test": "node --experimental-strip-types --test lib/validation.test.ts lib/document-intelligence.test.ts lib/phase-e-summary.test.ts lib/visit-grouping.test.ts lib/trust-gate.test.ts lib/slot-state.test.ts lib/image-crop.test.ts lib/countries.test.ts lib/antigen-normalizer.test.ts lib/schedule-diff.test.ts",
     "debug:synthetic": "node --experimental-strip-types scripts/debug-synthetic-card.ts"
   },
   "dependencies": {
