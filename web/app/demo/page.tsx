@@ -37,6 +37,8 @@
 import { Fragment, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 
+import { PageHeader } from "@/app/_design/pharos";
+
 import { ChatIntake } from "@/components/ChatIntake";
 import { CardDropzone } from "@/components/CardDropzone";
 import {
@@ -1173,91 +1175,67 @@ export default function DemoPage() {
 
   return (
     <div style={{ background: H.paper, minHeight: "100vh", color: H.ink }}>
-      {/* Header */}
-      <header
+      {/* Header — chrome from shared Pharos module */}
+      <PageHeader route="DEMO · FAST-PATH">
+        <Link
+          href="/reconcile-card"
+          style={{
+            color: H.copper,
+            textDecoration: "none",
+            fontFamily: F.mono,
+            fontSize: 10.5,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+          }}
+        >
+          Full agent flow →
+        </Link>
+      </PageHeader>
+
+      {/* Page intro — title + lede + progress rail. Was inside the
+          old header; lifted out so the chrome can be the standard
+          PageHeader and the page intro stays specific to demo. */}
+      <div
         style={{
-          padding: "28px 40px 18px",
+          padding: "32px 40px 18px",
           borderBottom: `1px solid ${H.rule}`,
           background: H.paper2,
         }}
       >
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-end",
-              gap: 16,
-              flexWrap: "wrap",
-            }}
-          >
-            <div>
-              <div
-                style={{
-                  fontFamily: F.mono,
-                  fontSize: 10.5,
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  color: H.copperInk,
-                }}
-              >
-                HATHOR · fast-path demo
-              </div>
-              <h1
-                style={{
-                  fontFamily: F.serif,
-                  fontSize: 34,
-                  fontWeight: 400,
-                  letterSpacing: "-0.018em",
-                  margin: "4px 0 0",
-                  color: H.ink,
-                }}
-              >
-                Reconcile a vaccination card
-              </h1>
-              <p
-                style={{
-                  fontFamily: F.serif,
-                  fontSize: 14,
-                  color: H.meta,
-                  margin: "6px 0 0",
-                  maxWidth: 620,
-                  lineHeight: 1.55,
-                }}
-              >
-                Standard apps trust their eyes. HATHOR double-checks every
-                extracted date against the WHO-DAK rules engine before it
-                reaches the child&apos;s record.
-              </p>
-            </div>
-            <div
+          <div>
+            <h1
               style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 4,
-                fontFamily: F.mono,
-                fontSize: 10.5,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                textAlign: "right",
+                fontFamily: F.serif,
+                fontSize: 34,
+                fontWeight: 400,
+                letterSpacing: "-0.018em",
+                margin: "4px 0 0",
+                color: H.ink,
               }}
             >
-              <Link href="/" style={{ color: H.meta, textDecoration: "none" }}>
-                ← Home
-              </Link>
-              <Link
-                href="/reconcile-card"
-                style={{ color: H.copper, textDecoration: "none" }}
-              >
-                Full agent flow →
-              </Link>
-            </div>
+              Reconcile a vaccination card
+            </h1>
+            <p
+              style={{
+                fontFamily: F.serif,
+                fontSize: 14,
+                color: H.meta,
+                margin: "6px 0 0",
+                maxWidth: 620,
+                lineHeight: 1.55,
+              }}
+            >
+              Standard apps trust their eyes. HATHOR double-checks every
+              extracted date against the WHO-DAK rules engine before it
+              reaches the child&apos;s record.
+            </p>
           </div>
           <div style={{ marginTop: 18 }}>
             <ProgressRail current={phase} />
           </div>
         </div>
-      </header>
+      </div>
 
       <main
         style={{
