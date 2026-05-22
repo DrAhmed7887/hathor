@@ -17,11 +17,12 @@ Claude Agent SDK. Frontend is Next.js 16 + React 19 + Tailwind 4.
 - **Claude Code stack:** the tracked repo-root `CLAUDE.md` sets
   `claude-opus-4-7` as the default (with `claude-sonnet-4-6` for
   side-by-side comparisons when Ahmed requests).
-- **General-agent stack:** the repo-root `AGENTS.md` is a corrected
-  general-agent rules file candidate pending commit. It does not
-  invent model IDs; it tells agents to use the best available reasoning
-  model configured by the operator/tool and to follow repo safety rules
-  over model-specific assumptions.
+- **General coding-agent stack (Codex etc.):** the tracked repo-root
+  `AGENTS.md` (since commit `eea3027`) deliberately does **not** pin
+  a model. Its "Model Guidance" section tells agents to use the best
+  available reasoning model configured by the operator/tool and to
+  follow repo safety rules over model-specific assumptions.
+  `HATHOR_MODEL` is the env-var override that scripts honor.
 
 The wiki itself is the durable memory across both stacks; it does
 not declare a universal default model.
@@ -47,6 +48,9 @@ not declare a universal default model.
 ### Decisions
 - [`decisions/source-of-truth-2026-05-22.md`](decisions/source-of-truth-2026-05-22.md)
   — where the live code and media live, and what is forbidden.
+- [`decisions/agents-md-promotion-2026-05-22.md`](decisions/agents-md-promotion-2026-05-22.md)
+  — record of cleaning the AGENTS.md template artifact and promoting
+  it to a tracked canonical file (commit `eea3027`).
 
 ### Manifests (point-in-time snapshots)
 - [`manifests/repo-map-2026-05-22.md`](manifests/repo-map-2026-05-22.md)
@@ -77,9 +81,10 @@ not declare a universal default model.
 2. Read the latest dated snapshot in each of `decisions/`,
    `manifests/`, `projects/`.
 3. Read the repo-root rules file for your agent stack: `CLAUDE.md`
-   (tracked) if you are Claude Code; `AGENTS.md` if you are a general
-   coding agent. `AGENTS.md` is corrected for promotion but remains a
-   pending-commit candidate until Ahmed commits it.
+   (tracked) if you are Claude Code; `AGENTS.md` (tracked since
+   commit `eea3027`) if you are a general coding agent. The two
+   files are intended to stay in sync; flag drift to Ahmed rather
+   than silently reconciling.
 4. Confirm the request does not require moving files, mutating Git
    state (no commit / branch / pull / push / stash / reset / clean —
    especially strict while the passport + Remotion work is uncommitted),
