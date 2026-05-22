@@ -92,8 +92,10 @@ as wiki content (not as pointers back to tool-state):
 
 Model-name note: `claude-opus-4-7` is the Claude Code stack's
 project default per the tracked repo-root `CLAUDE.md`; do not flag
-it as a suspect model name. The Codex stack's default is a separate
-question — see the model-defaults paragraph in `index.md`.
+it as a suspect model name. The general-agent stack (Codex etc.) is
+covered by tracked `AGENTS.md` and deliberately does not pin a model
+— see the model-defaults paragraph in `index.md` and the resolution
+in `decisions/agents-md-promotion-2026-05-22.md`.
 
 ## Known not-to-touch
 

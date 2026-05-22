@@ -23,15 +23,17 @@ points to them and compresses the durable facts around them.
 - Not a documentation dump. Keep entries operational and short.
 - Not a replacement for the canonical project-rule files:
   - `CLAUDE.md` (repo root) — Claude Code rules. Tracked.
-  - `AGENTS.md` (repo root) — Codex / general agent candidate
-    rules. **Currently untracked** in git as of 2026-05-22, so treat
-    as a local Codex-facing candidate rather than a durable canonical
-    source until Ahmed confirms it should be committed. **Ahmed
-    decision needed.**
+  - `AGENTS.md` (repo root) — general-purpose coding-agent rules
+    (Codex and other non-Claude agents). **Tracked as of 2026-05-22**
+    (commit `eea3027 docs: add general agent instructions`); the
+    earlier template-artifact wording (`Codex-opus-4-7` /
+    `Codex-sonnet-4-6`) was replaced before tracking with a generic
+    "Model Guidance" section that defers to operator/tool
+    configuration. See
+    `decisions/agents-md-promotion-2026-05-22.md`.
   - `web/AGENTS.md` — frontend-specific agent rules. Tracked.
   - `README.md`, `PRD.md`, `docs/` — public/product/methods truth.
-  Those remain canonical (subject to the AGENTS.md caveat above);
-  the wiki points to them.
+  All canonical; the wiki points to them.
 - Not a place for secrets, credentials, PII, or clinical detail.
 
 ## Read order
@@ -54,13 +56,12 @@ stack:
   discipline, no-hardcoded-pipeline, two safety loops, secrets
   handling, Next 16 deltas, and the Claude-stack model default
   (`claude-opus-4-7`).
-- `AGENTS.md` (repo root, **currently untracked** at 2026-05-22) —
-  Codex / general-agent equivalent of the above. Codex sessions
-  should read it if present; Claude sessions should be aware it
-  exists. The two stacks' rules are intended to stay in sync, but
-  because `AGENTS.md` is untracked it should be treated as a
-  candidate until Ahmed promotes it. Its model-default wording may
-  also still be a template artifact — **Ahmed decision needed.**
+- `AGENTS.md` (repo root, tracked since 2026-05-22) — general
+  coding-agent equivalent of the above (Codex and other non-Claude
+  agents). The two stacks' rules are intended to stay in sync; flag
+  drift to Ahmed rather than silently reconciling. `AGENTS.md` uses
+  generic "Model Guidance" — model selection is delegated to whatever
+  the operator/tool configures, with `HATHOR_MODEL` as the override.
 - `web/AGENTS.md` (tracked) — frontend-specific agent rules for the
   Next 16 / Turbopack stack; agent-neutral wording.
 
