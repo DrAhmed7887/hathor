@@ -39,6 +39,7 @@ import type {
   ReconciledDose,
 } from "@/lib/types";
 import { COUNTRIES } from "@/lib/countries";
+import { PassportIssueModal } from "@/components/PassportIssueModal";
 
 const H = {
   paper:     "#F6F0E4",
@@ -82,6 +83,7 @@ export function ExportPanel({
 }: ExportPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [letterError, setLetterError] = useState<string | null>(null);
+  const [passportOpen, setPassportOpen] = useState(false);
 
   const counts = useMemo(() => {
     let valid = 0;
@@ -370,6 +372,80 @@ export function ExportPanel({
           </div>
         </div>
       </div>
+
+      {/* Passport issuance card — gated on the same canDownloadBundle
+          rule (engine-validated AND no blocking clinician review). */}
+      <div
+        style={{
+          margin: "0 20px 18px",
+          background: H.card,
+          border: `1px solid ${H.rule}`,
+          padding: "16px 18px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: F.mono,
+            fontSize: 10.5,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: H.copperInk,
+          }}
+        >
+          Hathor Passport · synthetic demo
+        </div>
+        <div style={{ fontFamily: F.serif, fontSize: 15, color: H.ink }}>
+          Issue a locally verifiable QR passport
+        </div>
+        <p
+          style={{
+            fontFamily: F.sans,
+            fontSize: 12.5,
+            color: H.mute,
+            margin: 0,
+            lineHeight: 1.55,
+          }}
+        >
+          Signs the engine-validated record with the demo issuer key
+          (ES256, in-browser). The QR carries a compact JWS that the{" "}
+          <code style={{ fontFamily: F.mono, fontSize: 11.5 }}>/passport/verify</code>{" "}
+          page checks against the demo public key — no backend, no PHI,
+          synthetic issuer only.
+        </p>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={() => setPassportOpen(true)}
+            disabled={!canDownloadBundle}
+            style={{
+              padding: "10px 18px",
+              fontFamily: F.mono,
+              fontSize: 11,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "#FFFDF7",
+              background: canDownloadBundle ? H.copper : H.stone,
+              border: "none",
+              cursor: canDownloadBundle ? "pointer" : "not-allowed",
+            }}
+          >
+            Issue Hathor Passport
+          </button>
+        </div>
+      </div>
+
+      <PassportIssueModal
+        open={passportOpen}
+        onClose={() => setPassportOpen(false)}
+        doses={doses}
+        childDob={childDob}
+        sourceCountry={sourceCountry}
+        destinationCountry={destinationCountry}
+        intake={intake}
+      />
 
       {letterError && (
         <div
