@@ -13,8 +13,17 @@ a new dated current-status file alongside this one.
 
 - Branch: `main`.
 - Recent commits (most recent first):
+  - `5c57c6e` — chore(web): suppress body hydration warning
+    (`web/app/layout.tsx` `suppressHydrationWarning` on `<body>`).
+  - `dd25b8a` — feat(scan): add Phase D review gate UI
+    (`web/app/scan/page.tsx`; closes workstream 3).
+  - `2633f79` — feat(video): add Remotion Hathor compositions
+    (all Remotion source files; closes workstream 2).
+  - `8a841a6` — chore(web): add passport and remotion dependencies
+    (`web/package.json` + `web/package-lock.json`; Option A dep
+    strategy chosen — combined bump for both workstreams).
   - `8884e9e` — feat: add passport export prototype (code only;
-    deps deferred — see workstream-split decision below).
+    deps landed in `8a841a6` above).
   - `eda03a4` — docs: reconcile Hathor agent instructions.
   - `eea3027` — docs: add general agent instructions (root
     `AGENTS.md` tracked).
@@ -23,15 +32,10 @@ a new dated current-status file alongside this one.
     vision; OPV birth-dose match; refresh caveat copy.
   - `9031b05` — fix(reconcile): per-component coverage, catch-up
     framing, HepB birth-dose distinction; Egypt v2.1 remodel.
-  - `2c1cfc6` — feat(web): CountryPair verdict header on scan
-    results.
-  - `19d1cd7` — feat(web): standardize PageHeader + structured
-    Coverage view on reconcile.
-  - `56438ce` — feat(web): Pharos alignment — shared module,
-    lighthouse beam, partial-coverage signal.
 
 Theme of the latest run: **wiki + agent-rules canonicalization, then
-isolation of the passport-export prototype as its own review unit.**
+cleanup lane committing all four workstreams. Repo is clean on `main`
+after `5c57c6e`.**
 
 ## Workstream split (canonical classification)
 
@@ -41,7 +45,7 @@ not mix them in a single commit. Full rationale and recommended
 commit sequencing are in
 [`decisions/workstream-split-2026-05-22.md`](../decisions/workstream-split-2026-05-22.md).
 
-### 1. Passport / export prototype — **partially committed**
+### 1. Passport / export prototype — **fully committed**
 Code landed at `8884e9e feat: add passport export prototype`:
 
 - `web/app/passport/verify/page.tsx`
@@ -49,17 +53,17 @@ Code landed at `8884e9e feat: add passport export prototype`:
 - `web/components/ExportPanel.tsx` (modification)
 - `web/lib/passport/{bundle-mapping,issue,issue.test,keys,schema}.ts`
 
-Deferred until a dependency-strategy decision is made:
+Dependencies landed at `8a841a6 chore(web): add passport and remotion
+dependencies` (Option A — combined dep bump for passport + Remotion):
 
 - Passport portion of `web/package.json` (`jose`, `qrcode.react`,
   `html5-qrcode`, + `lib/passport/issue.test.ts` test path).
 - Corresponding `web/package-lock.json` entries.
 
-**Build caveat:** a fresh checkout at `8884e9e` will not install the
-passport deps and will fail to build until the dependency commit
-lands. This is the explicit trade-off recorded in the commit body.
+### 2. Remotion / video prototype — **committed at `2633f79`**
+All Remotion source landed at `2633f79 feat(video): add Remotion Hathor
+compositions`:
 
-### 2. Remotion / video prototype — **all dirty (untracked)**
 - `web/remotion.config.ts`
 - `web/remotion/Root.tsx`
 - `web/remotion/AgentFanOut.tsx`
@@ -67,48 +71,43 @@ lands. This is the explicit trade-off recorded in the commit body.
 - `web/remotion/SafetyGates.tsx`
 - `web/remotion/hathor60s/`
 
-Plus the Remotion portion of `web/package.json` (`@remotion/cli`,
+The Remotion portion of `web/package.json` (`@remotion/cli`,
 `@remotion/renderer` devDeps + six `remotion:*` / `render:*` scripts)
-and the matching `web/package-lock.json` entries.
+and the matching `web/package-lock.json` entries landed together with
+passport deps in `8a841a6`.
 
 Remotion is application code under `web/`, distinct from the in-repo
 `video/` directory and the Desktop `Hathor-video-assets` symlink
 target — see the manifest's three-way distinction table.
 
-### 3. Phase D safety-loop / HITL UI — **all dirty (modified)**
+### 3. Phase D safety-loop / HITL UI — **committed at `dd25b8a`**
 - `web/app/scan/page.tsx`
 
-Diff content: `CONFIDENCE_THRESHOLD` import from
-`@/lib/trust-gate`; new `pendingReview` memo; new `reviewBlocked`
-gate that pauses reconciliation, country-rules, and differences
-surfaces until clinician resolution; new `<ReviewRequiredBanner>`;
-new `onConfirm` plumbing through `DoseTable` → `DoseRow` with a
-"Keep as read" affordance writing `clinician_action: "confirmed"`;
-tightened amber-styling rule that respects clinician_action.
+Landed at `dd25b8a feat(scan): add Phase D review gate UI`. Diff
+content: `CONFIDENCE_THRESHOLD` import from `@/lib/trust-gate`; new
+`pendingReview` memo; new `reviewBlocked` gate that pauses
+reconciliation, country-rules, and differences surfaces until clinician
+resolution; new `<ReviewRequiredBanner>`; new `onConfirm` plumbing
+through `DoseTable` → `DoseRow` with a "Keep as read" affordance
+writing `clinician_action: "confirmed"`; tightened amber-styling rule
+that respects clinician_action.
 
 This implements the Phase D vision-safety-loop UI described in
 `docs/SAFETY_LOOPS.md` and named in the project rules in
 `CLAUDE.md` / `AGENTS.md`. It depends only on tracked
-`@/lib/trust-gate`. The earlier hypothesis that
-`web/app/scan/page.tsx` was passport scope was wrong; it is its own
-clinical-safety workstream.
+`@/lib/trust-gate`.
 
-### 4. Shared / ambiguous — **all dirty, special handling required**
-- `web/package.json` — **mixed** passport deps (`jose`,
-  `qrcode.react`, `html5-qrcode`, passport test path) and Remotion
-  deps (`@remotion/cli`, `@remotion/renderer` devDeps + six
-  `remotion:*` / `render:*` scripts). **Source commits must not
-  proceed via `git add web/package.json` until a dependency strategy
-  is chosen** — see the options in
-  `decisions/workstream-split-2026-05-22.md`.
-- `web/package-lock.json` — derives mechanically from `package.json`.
-  Cannot be split cleanly without re-running `npm install`, which
-  this wiki's policy says agents must not do unilaterally.
-- `web/app/layout.tsx` — single-line `suppressHydrationWarning`
-  addition on `<body>`. Cheap polish whose attribution is ambiguous
-  (passport's `html5-qrcode` widget mutates the DOM; Remotion's
-  preview can also hydrate; or it's generic polish). **Ahmed
-  decision needed** on which workstream's commit it should attach to.
+### 4. Shared / ambiguous — **all committed**
+- `web/package.json` — committed at `8a841a6 chore(web): add passport
+  and remotion dependencies`. Option A (combined dep bump) was applied:
+  passport deps (`jose`, `qrcode.react`, `html5-qrcode`, passport test
+  path) and Remotion devDeps (`@remotion/cli`, `@remotion/renderer` +
+  six `remotion:*` / `render:*` scripts) committed together.
+- `web/package-lock.json` — committed in the same `8a841a6` bump.
+- `web/app/layout.tsx` — single-line `suppressHydrationWarning` on
+  `<body>` committed at `5c57c6e chore(web): suppress body hydration
+  warning` as standalone polish (no ambiguous workstream attribution
+  needed — committed independently).
 
 The git-state listing in workstream sections 2–4 is a point-in-time
 view at 2026-05-22 (after `8884e9e`). It may be corrected in place
@@ -160,11 +159,13 @@ in `decisions/agents-md-promotion-2026-05-22.md`.
   (intra-Africa) or held for Phase 2?
 - Should Remotion replace, augment, or compete with the existing
   DaVinci / Final Cut flow in `video/`?
-- Which dependency-split strategy to use for `package.json` /
-  `package-lock.json` — Option A, B, or C in
-  `decisions/workstream-split-2026-05-22.md`?
-- Which workstream owns `web/app/layout.tsx`'s
-  `suppressHydrationWarning` polish line?
 
-All marked **Ahmed decision needed**. Do not resolve them in code
-without an explicit instruction.
+Resolved (no longer open):
+
+- ~~Which dependency-split strategy?~~ → **Option A chosen**: combined
+  passport + Remotion dep bump at `8a841a6`.
+- ~~Which workstream owns `layout.tsx`?~~ → **committed standalone**
+  at `5c57c6e` as generic polish.
+
+All remaining questions marked **Ahmed decision needed**. Do not
+resolve them in code without an explicit instruction.
