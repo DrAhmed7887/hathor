@@ -38,6 +38,7 @@ import {
   type NextAction,
 } from "@/lib/schedule-diff";
 import { getScenario, type DemoScenario } from "@/lib/scenarios";
+import { CONFIDENCE_THRESHOLD } from "@/lib/trust-gate";
 import type { ParsedCardOutput, ParsedCardRow } from "@/lib/types";
 
 // ── Palette: safe-triage clinical + Pharos warmth ───────────────────────────
@@ -563,11 +564,34 @@ export default function ScanPage() {
     void start();
   }, [activeScenario, files, running, destSchedule, sourceSchedule, start]);
 
-  // Reconciliation
+  // Phase D — Vision Safety Loop. Rows with any field below
+  // CONFIDENCE_THRESHOLD must NOT auto-commit to reconciliation; the
+  // clinician resolves each one (edit or accept-as-read) first. Mirrors
+  // web/lib/trust-gate.ts admit rule. While pendingReview > 0, the
+  // reconciliation surface below is replaced by a review banner.
+  const pendingReview = useMemo(() => {
+    if (!parsed) return [] as ParsedCardRow[];
+    return parsed.rows.filter((r) => {
+      const action = r.clinician_action;
+      if (action === "confirmed" || action === "edited") return false;
+      if (r.confidence < CONFIDENCE_THRESHOLD) return true;
+      const fc = r.fieldConfidences;
+      if (fc) {
+        if (fc.antigen !== undefined && fc.antigen < CONFIDENCE_THRESHOLD) return true;
+        if (fc.date    !== undefined && fc.date    < CONFIDENCE_THRESHOLD) return true;
+      }
+      return false;
+    });
+  }, [parsed]);
+
+  const reviewBlocked = !!parsed && parsed.rows.length > 0 && pendingReview.length > 0;
+
+  // Reconciliation — only computed once Phase D is clear.
   const reconciliation = useMemo(() => {
     if (!parsed || !destSchedule || !dob) return null;
+    if (reviewBlocked) return null;
     return reconcile(parsed.rows, destSchedule, dob);
-  }, [parsed, destSchedule, dob]);
+  }, [parsed, destSchedule, dob, reviewBlocked]);
 
   const ageMonths = useMemo(() => {
     if (!dob) return 0;
@@ -852,12 +876,44 @@ export default function ScanPage() {
                   };
                 });
               }}
+              onConfirm={(rowId) => {
+                setParsed((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    rows: prev.rows.map((r) =>
+                      (r.row_id ?? "") === rowId
+                        ? {
+                            ...r,
+                            // Clinician kept the value as read. Trust gate
+                            // admits on action="confirmed" regardless of
+                            // the underlying confidence; the audit log
+                            // records the deliberate accept.
+                            clinician_action: "confirmed",
+                            clinician_action_at: new Date().toISOString(),
+                          }
+                        : r,
+                    ),
+                  };
+                });
+              }}
             />
           </Card>
         )}
 
+        {/* Phase D blocking banner — shown when any row has a field below
+            CONFIDENCE_THRESHOLD and the clinician hasn't yet resolved it.
+            Replaces the reconciliation surface (next dose, missed, country
+            rules, differences) until every flagged row is edited or kept. */}
+        {reviewBlocked && (
+          <ReviewRequiredBanner
+            count={pendingReview.length}
+            total={parsed?.rows.length ?? 0}
+          />
+        )}
+
         {/* Next dose + missed */}
-        {reconciliation && (
+        {!reviewBlocked && reconciliation && (
           <>
             <NextDoseCard
               nextAction={reconciliation.nextAction}
@@ -873,7 +929,7 @@ export default function ScanPage() {
         )}
 
         {/* Country rules — source + Egypt */}
-        {sourceSchedule && destSchedule && parsed && (
+        {!reviewBlocked && sourceSchedule && destSchedule && parsed && (
           <div
             style={{
               display: "grid",
@@ -895,7 +951,8 @@ export default function ScanPage() {
         )}
 
         {/* Differences (only when source ≠ destination and we have them) */}
-        {sourceSchedule &&
+        {!reviewBlocked &&
+          sourceSchedule &&
           parsed &&
           sourceSchedule.country_code !== destSchedule?.country_code &&
           (sourceSchedule.key_differences_vs_egypt ?? []).length > 0 && (
@@ -1095,6 +1152,68 @@ function PulseDot() {
         {`@keyframes hathor-pulse { 0%,100% {opacity: 0.35} 50% {opacity: 1} }`}
       </style>
     </>
+  );
+}
+
+function ReviewRequiredBanner({
+  count,
+  total,
+}: {
+  count: number;
+  total: number;
+}) {
+  return (
+    <section
+      role="alert"
+      style={{
+        background: C.amberWash,
+        border: `1px solid ${C.amber}`,
+        borderLeft: `4px solid ${C.amber}`,
+        borderRadius: 8,
+        padding: "18px 22px",
+        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10.5,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: C.amber,
+        }}
+      >
+        Clinician review required · Phase D
+      </div>
+      <h2
+        style={{
+          fontFamily: F.serif,
+          fontWeight: 400,
+          letterSpacing: "-0.01em",
+          fontSize: 19,
+          color: C.ink,
+          margin: "6px 0 8px",
+        }}
+      >
+        {count} of {total} row{total === 1 ? "" : "s"} below the confidence threshold
+      </h2>
+      <p
+        style={{
+          fontFamily: F.serif,
+          fontSize: 14,
+          color: C.mute,
+          lineHeight: 1.55,
+          margin: 0,
+        }}
+      >
+        Reconciliation is paused until every flagged row is resolved. In the
+        table above, click any date or antigen to correct it, or{" "}
+        <strong style={{ color: C.ink }}>Keep as read</strong> to accept the
+        extracted value as the clinician&rsquo;s confirmed reading. Rows at or
+        above {Math.round(CONFIDENCE_THRESHOLD * 100)}% confidence auto-commit;
+        anything below requires an explicit decision.
+      </p>
+    </section>
   );
 }
 
@@ -1698,9 +1817,11 @@ type RowPatch = Partial<Pick<ParsedCardRow, "date" | "antigen">>;
 function DoseTable({
   rows,
   onEdit,
+  onConfirm,
 }: {
   rows: ParsedCardRow[];
   onEdit: (rowId: string, patch: RowPatch) => void;
+  onConfirm: (rowId: string) => void;
 }) {
   const sorted = [...rows].sort((a, b) => {
     if (!a.date) return 1;
@@ -1734,7 +1855,12 @@ function DoseTable({
         </thead>
         <tbody>
           {sorted.map((r, i) => (
-            <DoseRow key={r.row_id ?? i} row={r} onEdit={onEdit} />
+            <DoseRow
+              key={r.row_id ?? i}
+              row={r}
+              onEdit={onEdit}
+              onConfirm={onConfirm}
+            />
           ))}
         </tbody>
       </table>
@@ -1746,8 +1872,8 @@ function DoseTable({
           fontStyle: "italic",
         }}
       >
-        Click any date or antigen to correct it. Edits are clinician-confirmed
-        and re-run reconciliation immediately.
+        Click any date or antigen to correct it, or Keep as read to accept the
+        extracted value. Reconciliation runs once every flagged row is resolved.
       </p>
     </div>
   );
@@ -1756,13 +1882,22 @@ function DoseTable({
 function DoseRow({
   row,
   onEdit,
+  onConfirm,
 }: {
   row: ParsedCardRow;
   onEdit: (rowId: string, patch: RowPatch) => void;
+  onConfirm: (rowId: string) => void;
 }) {
   const rowId = row.row_id ?? "";
-  const amber = row.confidence < 0.85;
-  const edited = row.clinician_action === "edited";
+  const action = row.clinician_action;
+  const edited = action === "edited";
+  const confirmed = action === "confirmed";
+  const resolved = edited || confirmed;
+  const fc = row.fieldConfidences;
+  const fieldAmber =
+    (fc?.antigen !== undefined && fc.antigen < CONFIDENCE_THRESHOLD) ||
+    (fc?.date    !== undefined && fc.date    < CONFIDENCE_THRESHOLD);
+  const amber = !resolved && (row.confidence < CONFIDENCE_THRESHOLD || fieldAmber);
   return (
     <tr>
       <td style={tdStyle}>
@@ -1791,16 +1926,42 @@ function DoseRow({
             fontSize: 11,
             padding: "2px 8px",
             borderRadius: 4,
-            background: amber && !edited ? C.amberWash : C.okWash,
-            color: amber && !edited ? C.amber : C.ok,
-            border: `1px solid ${amber && !edited ? C.amber : C.ok}`,
+            background: amber ? C.amberWash : C.okWash,
+            color:      amber ? C.amber    : C.ok,
+            border:     `1px solid ${amber ? C.amber : C.ok}`,
           }}
         >
           {Math.round(row.confidence * 100)}%
         </span>
       </td>
       <td style={{ ...tdStyle, color: C.faint, fontFamily: F.mono, fontSize: 10.5 }}>
-        {edited ? "edited" : ""}
+        {amber && rowId ? (
+          <button
+            type="button"
+            onClick={() => onConfirm(rowId)}
+            style={{
+              fontFamily: F.mono,
+              fontSize: 10.5,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              padding: "3px 8px",
+              borderRadius: 4,
+              background: C.tealWash,
+              color: C.teal,
+              border: `1px solid ${C.tealSoft}`,
+              cursor: "pointer",
+            }}
+            title="Accept this row as extracted (clinician confirmed)"
+          >
+            Keep as read
+          </button>
+        ) : edited ? (
+          "edited"
+        ) : confirmed ? (
+          "kept"
+        ) : (
+          ""
+        )}
       </td>
     </tr>
   );
