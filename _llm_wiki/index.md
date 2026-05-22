@@ -51,6 +51,10 @@ not declare a universal default model.
 - [`decisions/agents-md-promotion-2026-05-22.md`](decisions/agents-md-promotion-2026-05-22.md)
   — record of cleaning the AGENTS.md template artifact and promoting
   it to a tracked canonical file (commit `eea3027`).
+- [`decisions/workstream-split-2026-05-22.md`](decisions/workstream-split-2026-05-22.md)
+  — canonical 4-way split of the dirty work (passport, Remotion,
+  Phase D, shared package/layout) and the three dependency-strategy
+  options Ahmed must choose between before further source commits.
 
 ### Manifests (point-in-time snapshots)
 - [`manifests/repo-map-2026-05-22.md`](manifests/repo-map-2026-05-22.md)
