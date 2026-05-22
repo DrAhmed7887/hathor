@@ -9,7 +9,7 @@ wiki page and log the change.
 | Source | What it owns |
 |---|---|
 | `/Users/ahmedzayed/projects/hathor/CLAUDE.md` | **Claude Code** project rules (tracked): model default `claude-opus-4-7`, scope discipline, no-hardcoded-pipeline, two safety loops, secrets policy, Next 16 deltas. **Authoritative over the wiki for Claude Code sessions.** |
-| `/Users/ahmedzayed/projects/hathor/AGENTS.md` | **Codex / general agent** candidate rules. **Currently untracked in git as of 2026-05-22** — treat as a local Codex-facing candidate, not a durable canonical source, until Ahmed confirms it should be committed. The file's model-default wording (`Codex-opus-4-7` / `Codex-sonnet-4-6`) looks like a template artifact from mirroring `CLAUDE.md`; **Ahmed decision needed** before relying on it. Keep aligned with `CLAUDE.md`; flag drift to Ahmed rather than silently reconciling. |
+| `/Users/ahmedzayed/projects/hathor/AGENTS.md` | **General-agent rules file candidate pending commit.** Corrected on 2026-05-22 to remove template-derived fake model names and to use operator/tool-configured model guidance. Treat as pending durable canon until Ahmed commits it. Keep aligned with `CLAUDE.md`; flag drift to Ahmed rather than silently reconciling. |
 | `/Users/ahmedzayed/projects/hathor/README.md` | Public project description. |
 | `/Users/ahmedzayed/projects/hathor/PRD.md` | Product requirements document. |
 | `/Users/ahmedzayed/projects/hathor/docs/SAFETY_LOOPS.md` | Phase D (vision-confidence) and Phase E (rules-engine) gate design. |

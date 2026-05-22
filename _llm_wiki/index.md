@@ -17,11 +17,11 @@ Claude Agent SDK. Frontend is Next.js 16 + React 19 + Tailwind 4.
 - **Claude Code stack:** the tracked repo-root `CLAUDE.md` sets
   `claude-opus-4-7` as the default (with `claude-sonnet-4-6` for
   side-by-side comparisons when Ahmed requests).
-- **Codex / general-agent stack:** the untracked repo-root
-  `AGENTS.md` currently spells the defaults as `Codex-opus-4-7` /
-  `Codex-sonnet-4-6`, which appears to be a template artifact from
-  generating an AGENTS.md mirror of CLAUDE.md. **Ahmed decision
-  needed** before this wiki claims a canonical Codex-stack default.
+- **General-agent stack:** the repo-root `AGENTS.md` is a corrected
+  general-agent rules file candidate pending commit. It does not
+  invent model IDs; it tells agents to use the best available reasoning
+  model configured by the operator/tool and to follow repo safety rules
+  over model-specific assumptions.
 
 The wiki itself is the durable memory across both stacks; it does
 not declare a universal default model.
@@ -77,11 +77,9 @@ not declare a universal default model.
 2. Read the latest dated snapshot in each of `decisions/`,
    `manifests/`, `projects/`.
 3. Read the repo-root rules file for your agent stack: `CLAUDE.md`
-   (tracked) if you are Claude Code; `AGENTS.md` (untracked candidate
-   at 2026-05-22) if you are Codex or a general agent. Be aware of
-   the other; the two are intended to stay in sync. Treat untracked
-   rules files as candidates, not durable canon, until Ahmed promotes
-   them.
+   (tracked) if you are Claude Code; `AGENTS.md` if you are a general
+   coding agent. `AGENTS.md` is corrected for promotion but remains a
+   pending-commit candidate until Ahmed commits it.
 4. Confirm the request does not require moving files, mutating Git
    state (no commit / branch / pull / push / stash / reset / clean —
    especially strict while the passport + Remotion work is uncommitted),
