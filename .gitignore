@@ -88,3 +88,6 @@ evaluation/provenance_log.jsonl
 # committing them risks copyright + provenance issues. Curated, original
 # Hathor docs live directly under docs/ and remain tracked.
 /docs/research/
+
+# Internal agent notes (not part of the project)
+_llm_wiki/
