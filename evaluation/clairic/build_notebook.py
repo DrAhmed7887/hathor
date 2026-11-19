@@ -153,12 +153,29 @@ code(r"""
 # 7. Score each field against the manifest
 import pandas as pd
 
-def unpack(a):
-    # answers keep value, valid, complete, confidence and p_null (model card); stay tolerant of the exact keys
-    if isinstance(a, dict):
-        v = a.get("value", a.get("answer"))
-        return v, a.get("confidence"), a.get("p_null")
-    return a, None, None
+import math, re
+DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+
+def day_first(s):
+    # Hathor's rule: day first, Arabic-Indic/Persian digits, 2-digit years -> 20xx
+    m = re.fullmatch(r"\s*(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})\s*", str(s).translate(DIGITS))
+    if not m:
+        return None
+    d, mo, y = map(int, m.groups()); y = y + 2000 if y < 100 else y
+    return f"{y:04d}-{mo:02d}-{d:02d}" if 1 <= mo <= 12 and 1 <= d <= 31 else None
+
+def unpack(a, kind):
+    # Clairic's own date normaliser rejects day/month-ambiguous dates ("invalid_printed_temporal",
+    # confidence 0) although it read them right (run of 19 Nov). Hathor parses dates itself, so
+    # score the printed text day-first, and use the sequence probability as the confidence.
+    if not isinstance(a, dict):
+        return a, None, None
+    v = a.get("value")
+    if kind == "date" and a.get("printed_value"):
+        v = day_first(a["printed_value"])
+    lp = a.get("log_probability")
+    conf = math.exp(lp) if lp is not None else a.get("confidence")
+    return v, conf, a.get("p_null")
 
 def norm_lot(s):
     return None if s in (None, "") else str(s).strip().upper().replace(" ", "")
@@ -168,7 +185,7 @@ for card in manifest["fixtures"]:
     ans = raw.get(card["id"], {}).get("answers", {})
     for r in card["expected_rows"]:
         for kind, want in (("date", r["date"]), ("lot", r.get("lot_number"))):
-            v, conf, p_null = unpack(ans.get(f"{r['row_id']}__{kind}"))
+            v, conf, p_null = unpack(ans.get(f"{r['row_id']}__{kind}"), kind)
             got = (str(v)[:10] if v not in (None, "") else None) if kind == "date" else norm_lot(v)
             want = want if kind == "date" else norm_lot(want)
             rows.append({"card": card["filename"][:2], "row": r["row_id"], "field": kind,
