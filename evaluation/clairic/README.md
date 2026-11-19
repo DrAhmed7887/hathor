@@ -6,7 +6,7 @@
 
 **Run (about 1 h, Colab A100 on AI Pro units):**
 1. Open the notebook in Colab: `https://colab.research.google.com/github/DrAhmed7887/hathor/blob/<branch>/evaluation/clairic/clairic_flash_synthetic_cards.ipynb`
-2. Runtime → Change runtime type → **A100** (or H100). A T4 won't work: the install pulls CUDA 13 kernels.
+2. Runtime → Change runtime type → **H100** if offered, else **A100** (cell 4 then routes the Hopper-only DeepGEMM matmul to the model's Triton fallback and prints `PATCHED`). A T4 won't work.
 3. Runtime → **Run all**. The install cell restarts the session once; then choose Run all again.
 4. The last cell downloads `clairic_results.zip` (`fields.csv`, `raw_responses.json`). Disconnect the runtime afterwards to stop spending units.
 

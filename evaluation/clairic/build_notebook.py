@@ -29,7 +29,7 @@ If yes, its per-field confidence can decide what goes to Hathor's human review q
 - Model: [`Cloudflare/clairic-flash`](https://huggingface.co/Cloudflare/clairic-flash) (9B, Apache-2.0).
 - Data: the 14 synthetic cards in `cards/fixtures/synthetic_vaccination_cards/`. They hold fictional children and invented dates, and the expected answers are in `manifest.json`.
 - **Never upload a real card to this notebook.**
-- Runtime: **A100 or H100** (Runtime → Change runtime type). The install pulls CUDA 13 kernels, so a T4 won't work.
+- Runtime: **H100 if offered, else A100** (Runtime → Change runtime type). A T4 won't work. On an A100, cell 4 sends DeepGEMM's Hopper-only matmul to the model's Triton fallback and prints `PATCHED`.
 - Run order: **Runtime → Run all**. The install cell restarts the session once; after that, choose **Run all** again.
 """)
 
@@ -74,6 +74,19 @@ import sys
 from huggingface_hub import snapshot_download
 MODEL_DIR = snapshot_download("Cloudflare/clairic-flash")
 sys.path.insert(0, MODEL_DIR)
+import torch, pathlib
+# DeepGEMM's bf16 GEMM asserts "Unsupported architecture" below Hopper (seen on A100, 19 Nov).
+# Below compute 9.0, send that one call to the runtime's own Triton fallback (its non-bf16 path).
+# On an H100 nothing is patched.
+math_py = pathlib.Path(MODEL_DIR) / "clairic_runtime" / "math.py"
+src = math_py.read_text()
+GUARD = "and b.shape[1] >= 16):"
+if torch.cuda.get_device_capability(0)[0] < 9 and "get_device_capability(a.device)" not in src:
+    assert GUARD in src, "math.py changed upstream; patch no longer applies"
+    math_py.write_text(src.replace(GUARD, "and b.shape[1] >= 16 and torch.cuda.get_device_capability(a.device)[0] >= 9):", 1))
+    print("PATCHED: DeepGEMM bf16 GEMM -> Triton fallback (GPU is pre-Hopper; scores may differ slightly from H100)")
+else:
+    print("DeepGEMM path unchanged")
 from clairic_model import load_release_model, systemone
 model, processor = load_release_model(MODEL_DIR, device="cuda")
 print("loaded")
