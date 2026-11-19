@@ -133,7 +133,8 @@ raw = {}
 for card in manifest["fixtures"]:
     t = time.time()
     try:
-        resp = systemone(model, processor, {
+        # Colab runs an event loop, so the sync systemone()/predict() refuses; await the async API (same response)
+        resp = await model.predict_async({
             "state": "Read the attached child vaccination card. One field per vaccine row.",
             "images": [load_image(CARDS / card["filename"])],
             "fields": fields_for(card),
