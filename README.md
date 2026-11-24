@@ -1,5 +1,7 @@
 # Hathor
 
+[![ci](https://github.com/DrAhmed7887/hathor/actions/workflows/ci.yml/badge.svg)](https://github.com/DrAhmed7887/hathor/actions/workflows/ci.yml)
+
 An autonomous clinical reasoning agent that reconciles a child's vaccination history across national immunization schedules.
 
 ---
